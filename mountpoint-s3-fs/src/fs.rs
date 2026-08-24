@@ -182,6 +182,16 @@ where
         self.next_handle.fetch_add(1, Ordering::SeqCst)
     }
 
+    /// The error to fail an operation that unconditionally modifies the file system with, if this
+    /// mount is read-only, or `None` if it isn't.
+    ///
+    /// A mount we performed ourselves is mounted with the FUSE `ro` option, so the kernel refuses
+    /// these before they reach us and this never fires. It does fire when the mount point is a FUSE
+    /// file descriptor.
+    fn read_only_error(&self) -> Option<Error> {
+        self.config.read_only.then(|| InodeError::ReadOnlyMount().into())
+    }
+
     pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         let _ = config.add_capabilities(fuser::consts::FUSE_DO_READDIRPLUS);
         // Set max_background FUSE parameter to 64 by default, may be overridden with config setting or by an environment variable.
@@ -320,6 +330,9 @@ where
             mtime,
             size
         );
+        if let Some(err) = self.read_only_error() {
+            return Err(err);
+        }
         let setattr_result = self.metablock.setattr(ino, atime, mtime).await;
         let lookup = match (setattr_result, size) {
             (Ok(lookup), _) => lookup,
@@ -347,6 +360,18 @@ where
 
     pub async fn open(&self, ino: InodeNo, flags: OpenFlags, pid: u32) -> Result<Opened, Error> {
         trace!("open with ino {:?} flags {} pid {:?}", ino, flags, pid);
+
+        // Refuse any open asking for write access on a read-only mount, which is what the kernel does
+        // when it is the one enforcing read-only, so that `--read-only` means the same thing however
+        // the mount was performed. Checked on the flags, before looking the inode up, so that a
+        // rejected open costs nothing: whether this open would really have produced a write handle
+        // makes no difference to the answer.
+        if flags.intersects(OpenFlags::O_WRONLY | OpenFlags::O_RDWR)
+            && let Some(err) = self.read_only_error()
+        {
+            return Err(err);
+        }
+
         // We can't support O_SYNC writes because they require the data to go to stable storage
         // at `write` time, but we only commit a PUT at `close` time.
         if flags.intersects(OpenFlags::O_SYNC | OpenFlags::O_DSYNC) {
@@ -443,6 +468,9 @@ where
         _umask: u32,
         _rdev: u32,
     ) -> Result<Entry, Error> {
+        if let Some(err) = self.read_only_error() {
+            return Err(err);
+        }
         if mode & libc::S_IFMT != libc::S_IFREG {
             return Err(err!(
                 libc::EINVAL,
@@ -463,6 +491,9 @@ where
     }
 
     pub async fn mkdir(&self, parent: InodeNo, name: &OsStr, _mode: libc::mode_t, _umask: u32) -> Result<Entry, Error> {
+        if let Some(err) = self.read_only_error() {
+            return Err(err);
+        }
         let lookup = self.metablock.create(parent, name, InodeKind::Directory).await?;
         let ttl = lookup.validity();
         let attr = self.make_attr(&lookup.into());
@@ -718,6 +749,9 @@ where
     }
 
     pub async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), Error> {
+        if let Some(err) = self.read_only_error() {
+            return Err(err);
+        }
         self.metablock.rmdir(parent_ino, name).await?;
         Ok(())
     }
@@ -728,6 +762,9 @@ where
     }
 
     pub async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), Error> {
+        if let Some(err) = self.read_only_error() {
+            return Err(err);
+        }
         if !self.config.allow_delete {
             return Err(err!(
                 libc::EPERM,
@@ -768,6 +805,9 @@ where
             "fs:rename with flags {:#b}",
             flags,
         );
+        if let Some(err) = self.read_only_error() {
+            return Err(err);
+        }
 
         let overwrites_allowed: bool;
         #[cfg(target_os = "linux")]
@@ -807,6 +847,7 @@ mod tests {
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::{MockClient, MockObject};
     use mountpoint_s3_client::types::ETag;
+    use test_case::test_case;
 
     #[tokio::test]
     async fn test_open_with_corrupted_sse() {
@@ -1076,6 +1117,17 @@ mod tests {
     }
 
     fn setup_mock_fs(test_name: &str, allow_overwrite: bool, incremental_upload: bool) -> S3Filesystem<MockClient> {
+        setup_mock_fs_with_config(
+            test_name,
+            S3FilesystemConfig {
+                allow_overwrite,
+                incremental_upload,
+                ..Default::default()
+            },
+        )
+    }
+
+    fn setup_mock_fs_with_config(test_name: &str, fs_config: S3FilesystemConfig) -> S3Filesystem<MockClient> {
         let bucket = Bucket::new("bucket").unwrap();
         let client = MockClient::config()
             .bucket(bucket.to_string())
@@ -1095,11 +1147,6 @@ mod tests {
             .with_minimum_memory_limit()
             .build();
         let prefetcher_builder = Prefetcher::default_builder(client.clone());
-        let fs_config = S3FilesystemConfig {
-            allow_overwrite,
-            incremental_upload,
-            ..Default::default()
-        };
         let superblock = Superblock::new(
             client.clone(),
             S3Path::new(bucket, Default::default()),
@@ -1109,6 +1156,127 @@ mod tests {
             },
         );
         S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config)
+    }
+
+    #[test_case(false, true)]
+    #[test_case(true, false)]
+    fn test_write_handle_limiter_follows_read_only(read_only: bool, expect_limiter: bool) {
+        let fs = setup_mock_fs_with_config(
+            "test_write_handle_limiter_follows_read_only",
+            S3FilesystemConfig {
+                read_only,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(fs.write_handle_limiter.is_some(), expect_limiter);
+    }
+
+    fn setup_read_only_fs(test_name: &str) -> S3Filesystem<MockClient> {
+        setup_mock_fs_with_config(
+            test_name,
+            S3FilesystemConfig {
+                read_only: true,
+                allow_delete: true,
+                allow_overwrite: true,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Resolve `dir1` and the object inside it that `setup_mock_fs_with_config` creates.
+    async fn lookup_dir_and_file(test_name: &str, fs: &S3Filesystem<MockClient>) -> (InodeNo, InodeNo) {
+        let dir_ino = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap().attr.ino;
+        let file_ino = fs
+            .lookup(dir_ino, format!("{test_name}1.txt").as_ref())
+            .await
+            .unwrap()
+            .attr
+            .ino;
+        (dir_ino, file_ino)
+    }
+
+    #[tokio::test]
+    async fn test_read_only_allows_reads() {
+        let test_name = "test_read_only_allows_reads";
+        let fs = setup_read_only_fs(test_name);
+        let (_dir_ino, file_ino) = lookup_dir_and_file(test_name, &fs).await;
+
+        let opened = fs
+            .open(file_ino, OpenFlags::empty(), 0)
+            .await
+            .expect("open for read should succeed");
+        let read = fs
+            .read(file_ino, opened.fh, 0, 15, 0, None)
+            .await
+            .expect("read should succeed");
+        assert_eq!(read.len(), 15);
+    }
+
+    #[test_case(OpenFlags::O_WRONLY)]
+    #[test_case(OpenFlags::O_WRONLY | OpenFlags::O_TRUNC)]
+    #[test_case(OpenFlags::O_RDWR)]
+    #[test_case(OpenFlags::O_RDWR | OpenFlags::O_TRUNC)]
+    #[tokio::test]
+    async fn test_read_only_rejects_open_for_write(flags: OpenFlags) {
+        let test_name = "test_read_only_rejects_open_for_write";
+        let fs = setup_read_only_fs(test_name);
+        let (_dir_ino, file_ino) = lookup_dir_and_file(test_name, &fs).await;
+
+        let err = fs
+            .open(file_ino, flags, 0)
+            .await
+            .expect_err("open for write should fail on a read-only mount");
+        assert_eq!(err.to_errno(), libc::EROFS);
+    }
+
+    #[test_case("setattr")]
+    #[test_case("mknod")]
+    #[test_case("mkdir")]
+    #[test_case("unlink")]
+    #[test_case("rmdir")]
+    #[test_case("rename")]
+    #[tokio::test]
+    async fn test_read_only_rejects_mutations(op: &str) {
+        let test_name = "test_read_only_rejects_mutations";
+        let fs = setup_read_only_fs(test_name);
+        let (dir_ino, file_ino) = lookup_dir_and_file(test_name, &fs).await;
+        let file_name = format!("{test_name}1.txt");
+
+        let result: Result<(), Error> = match op {
+            "setattr" => fs.setattr(file_ino, None, None, Some(0), None).await.map(|_| ()),
+            "mknod" => fs
+                .mknod(dir_ino, "new.txt".as_ref(), libc::S_IFREG | libc::S_IRWXU, 0, 0)
+                .await
+                .map(|_| ()),
+            "mkdir" => fs.mkdir(dir_ino, "new-dir".as_ref(), 0o755, 0).await.map(|_| ()),
+            "unlink" => fs.unlink(dir_ino, file_name.as_ref()).await,
+            "rmdir" => fs.rmdir(FUSE_ROOT_INODE, "dir1".as_ref()).await,
+            "rename" => {
+                fs.rename(
+                    dir_ino,
+                    file_name.as_ref(),
+                    dir_ino,
+                    "renamed.txt".as_ref(),
+                    RenameFlags::empty(),
+                )
+                .await
+            }
+            other => panic!("unknown operation {other}"),
+        };
+
+        let err = result.expect_err("operation should fail on a read-only mount");
+        assert_eq!(err.to_errno(), libc::EROFS);
+
+        // Whatever was rejected must have left the tree alone.
+        fs.lookup(dir_ino, file_name.as_ref())
+            .await
+            .expect("the original file should still be there");
+        for name in ["new.txt", "new-dir", "renamed.txt"] {
+            fs.lookup(dir_ino, name.as_ref())
+                .await
+                .expect_err("a rejected operation should not have created anything");
+        }
     }
 
     /// Verifies that the limiter rejects opens for write past the configured cap with `ENOMEM`,

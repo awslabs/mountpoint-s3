@@ -167,7 +167,10 @@ fn mount_file_system(
     let client = S3CrtClient::new(config).expect("Failed to create S3 client");
     let runtime = Runtime::new(client.event_loop_group());
 
-    let filesystem_config = S3FilesystemConfig::default();
+    let filesystem_config = S3FilesystemConfig {
+        read_only: true,
+        ..Default::default()
+    };
 
     let s3_path = S3Path::new(
         Bucket::new(bucket_name).expect("invalid bucket name"),

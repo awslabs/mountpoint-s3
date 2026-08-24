@@ -107,6 +107,7 @@ impl ConfigOptions {
         let mut fs_config = S3FilesystemConfig {
             cache_config: CacheConfig::new(mountpoint_s3_fs::fs::TimeToLive::Indefinite),
             max_background_fuse_requests: self.max_background_fuse_requests,
+            read_only: true,
             ..Default::default()
         };
 
@@ -121,7 +122,7 @@ impl ConfigOptions {
             fs_config.uid = uid;
         }
         if let Some(gid) = self.gid {
-            fs_config.uid = gid;
+            fs_config.gid = gid;
         }
         // For this binary we expect sequential read pattern. Thus, opt-out from the 1MB-initial request,
         // trading-off latency for throughput and more accurate memory limiting.
@@ -304,7 +305,7 @@ fn mount_filesystem(
     let fs_config = config.build_filesystem_config()?;
     let mut data_cache_config = config.build_data_cache_config()?;
     let managed_cache_dir = setup_disk_cache_directory(&mut data_cache_config)?;
-    let mp_config = MountpointConfig::new(config.build_fuse_session_config()?, fs_config, data_cache_config)
+    let mp_config = MountpointConfig::new(config.build_fuse_session_config()?, fs_config, data_cache_config)?
         .error_logger(error_logger);
 
     // Create the client and runtime
