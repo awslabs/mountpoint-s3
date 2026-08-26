@@ -36,12 +36,10 @@ async fn read_cache_block(cache: &DiskDataCache, cache_key: &ObjectId) {
 
 #[inline]
 async fn write_cache_block(cache: &DiskDataCache, cache_key: ObjectId, bytes: ChecksummedBytes) {
-    _ = black_box(
-        cache
-            .put_block(cache_key, 0, 0, bytes, OBJECT_SIZE)
-            .await
-            .expect("is able to write to cache"),
-    );
+    cache
+        .put_block(cache_key, 0, 0, bytes, OBJECT_SIZE)
+        .await
+        .expect("is able to write to cache");
 }
 
 fn random_bytes(length: usize) -> Vec<u8> {
@@ -91,7 +89,7 @@ fn file_write_benchmark(group: &mut BenchmarkGroup<'_, WallTime>, dir_path: &Pat
     let file_path = dir_path.join("file_write");
 
     group.bench_function("write_file", |b| {
-        b.iter(|| _ = black_box(fs::write(&file_path, data).expect("is able to write file")))
+        b.iter(|| fs::write(&file_path, data).expect("is able to write file"))
     });
 }
 
