@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787686886216,
+  "lastUpdate": 1787868135560,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark (S3 Express One Zone, Memory-Limited)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "cb7fbf0771dd86c6f3e2261e2748e0144e5a947a",
-          "message": "Upgrade Rust toolchain to 1.96 (#1883)\n\nUpgrade Rust toolchain to 1.96.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2026-07-14T10:54:27Z",
-          "tree_id": "f368ce99eca5a786bacc0bb0dd9f9aaaf69dd4af",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/cb7fbf0771dd86c6f3e2261e2748e0144e5a947a"
-        },
-        "date": 1784038115133,
-        "tool": "customBiggerIsBetter",
-        "benches": [
-          {
-            "name": "sequential_read,sequential_write_four_threads",
-            "value": 4214.3705078125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_two_threads,sequential_write_two_threads",
-            "value": 2393.406640625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads,sequential_write",
-            "value": 2048.33505859375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io",
-            "value": 109.38388671875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io_small_file",
-            "value": 147.783203125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads",
-            "value": 106.22958984375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_small_file",
-            "value": 136.5169921875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io",
-            "value": 26.487109375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io_small_file",
-            "value": 36.02255859375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read",
-            "value": 25.50732421875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_small_file",
-            "value": 34.104296875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io",
-            "value": 1801.7169921875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io_small_file",
-            "value": 546.44462890625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads",
-            "value": 1759.96767578125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_small_file",
-            "value": 533.8884765625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io",
-            "value": 1155.11591796875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io_small_file",
-            "value": 132.88984375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read",
-            "value": 1054.34404296875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 1000.4701171875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_small_file",
-            "value": 131.08623046875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write_direct_io",
-            "value": 1779.17138671875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write",
-            "value": 1049.326953125,
-            "unit": "MiB/s"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_write",
             "value": 948.97138671875,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "5381483+muddyfish@users.noreply.github.com",
+            "name": "Simon Beal",
+            "username": "muddyfish"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "70bd7b627969ed6decdeab91a6a445a2347d827c",
+          "message": "Remove AL2 from various pieces of documentation (#1921)\n\nReplace AL2 with AL2023 in various pieces of documentation. Removing\nbecause AL2 is now end of life\n\nRemove instructions for building the packaging script without docker, as\nAL2023 already comes with a native release, and `dpkg` cannot be\ninstalled on it. Users who want to build custom releases can use docker.\n\n### Does this change impact existing behavior?\n\nOnly documentation is changed. \n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Simon Beal <simobeal@amazon.com>",
+          "timestamp": "2026-08-27T19:30:58Z",
+          "tree_id": "f5f5b0f74d031e233101d718d70779322e076990",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/70bd7b627969ed6decdeab91a6a445a2347d827c"
+        },
+        "date": 1787868133700,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "sequential_read,sequential_write_four_threads",
+            "value": 2308.40576171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_two_threads,sequential_write_two_threads",
+            "value": 2234.96279296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads,sequential_write",
+            "value": 2034.73662109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 104.07578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 150.0892578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 101.25390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 138.041796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 25.3068359375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 36.28740234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read",
+            "value": 24.1275390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 33.840234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 1907.46474609375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 541.769140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 1865.5767578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 535.516796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 1159.60859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 127.6728515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1044.753125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 998.05146484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 132.34169921875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write_direct_io",
+            "value": 2113.591796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write",
+            "value": 1144.4544921875,
             "unit": "MiB/s"
           }
         ]
