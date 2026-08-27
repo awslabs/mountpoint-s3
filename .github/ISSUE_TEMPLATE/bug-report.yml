@@ -46,7 +46,7 @@ body:
         * How do you provide [AWS credentials](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#aws-credentials) to Mountpoint?
         * What operating system are you using?
         * Any other details about your environment?
-      placeholder: Running in EC2 on Amazon Linux 2 using instance profile credentials against an S3 Bucket in the same account.
+      placeholder: Running in EC2 on Amazon Linux 2023 using instance profile credentials against an S3 Bucket in the same account.
     validations:
       required: true
   - type: textarea
