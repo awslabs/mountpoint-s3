@@ -41,7 +41,7 @@ jobs:
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Install nextest
-      uses: taiki-e/install-action@b6b84cf49ebfe0176417bdce007c624f0db37f20 # v2.86.2
+      uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2.86.7
       with:
         tool: nextest
     - name: Cargo cache
@@ -116,7 +116,7 @@ jobs:
         rustflags: ""
         components: clippy
     - name: Install nextest
-      uses: taiki-e/install-action@b6b84cf49ebfe0176417bdce007c624f0db37f20 # v2.86.2
+      uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2.86.7
       with:
         tool: nextest
     - name: Cargo cache
@@ -217,7 +217,7 @@ jobs:
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Install nextest
-      uses: taiki-e/install-action@b6b84cf49ebfe0176417bdce007c624f0db37f20 # v2.86.2
+      uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2.86.7
       with:
         tool: nextest
     - name: Install operating system dependencies
