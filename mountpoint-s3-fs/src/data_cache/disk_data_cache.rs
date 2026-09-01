@@ -14,6 +14,9 @@ use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use tracing::{trace, warn};
+use wincode::config::Configuration;
+use wincode::io::std_read::ReadAdapter;
+use wincode::io::std_write::WriteAdapter;
 use wincode::{SchemaRead, SchemaWrite};
 
 use crate::checksums::IntegrityError;
@@ -72,6 +75,17 @@ impl Default for CacheLimit {
         }
     }
 }
+
+/// Per-sequence preallocation limit (in bytes) for dynamic fields (Strings) in
+/// the header. wincode's `with_preallocation_size_limit` applies to each
+/// sequence individually. The largest dynamic field is the S3 key, which AWS
+/// caps at 1024 bytes; ETags are much smaller. So 1024 is a tight, safe upper
+/// bound that rejects a corrupted length prefix as early as possible.
+const HEADER_STRING_SIZE_LIMIT: usize = 1024;
+
+/// Wincode configuration for the block header.
+const HEADER_CONFIG: Configuration<true, HEADER_STRING_SIZE_LIMIT> =
+    Configuration::default().with_preallocation_size_limit::<HEADER_STRING_SIZE_LIMIT>();
 
 /// Describes additional information about the data stored in the block.
 ///
@@ -252,7 +266,7 @@ impl DiskBlock {
         cursor_id: Option<CursorId>,
     ) -> Result<Self, DiskBlockReadWriteError> {
         // Deserialize header directly from the file reader
-        let header: DiskBlockHeader = wincode::deserialize_from(wincode::io::std_read::ReadAdapter::new(&mut *reader))?;
+        let header: DiskBlockHeader = wincode::config::deserialize_from(ReadAdapter::new(&mut *reader), HEADER_CONFIG)?;
 
         if header.block_len > block_size {
             return Err(DiskBlockReadWriteError::InvalidBlockLength(header.block_len));
@@ -273,10 +287,10 @@ impl DiskBlock {
     /// Serialize this instance to `writer` and return the number of bytes written on success.
     fn write(&self, writer: &mut impl Write) -> Result<usize, DiskBlockReadWriteError> {
         // Calculate header size
-        let header_length = wincode::serialized_size(&self.header)? as usize;
+        let header_length = wincode::config::serialized_size(&self.header, HEADER_CONFIG)? as usize;
 
         // Serialize header directly to writer
-        wincode::serialize_into(wincode::io::std_write::WriteAdapter::new(&mut *writer), &self.header)?;
+        wincode::config::serialize_into(WriteAdapter::new(&mut *writer), &self.header, HEADER_CONFIG)?;
         writer.write_all(&self.data)?;
 
         Ok(header_length + self.data.len())
