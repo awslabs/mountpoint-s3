@@ -861,6 +861,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_put_get_max_size_key() {
+        let block_size = 8 * 1024 * 1024;
+        let data = ChecksummedBytes::new("Foo".into());
+        let data_size = data.len();
+
+        let cache_directory = tempfile::tempdir().unwrap();
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(block_size)])
+            .with_no_memory_limit()
+            .build();
+        let cache = DiskDataCache::new(
+            DiskDataCacheConfig {
+                cache_directory: cache_directory.path().to_path_buf(),
+                block_size: block_size as u64,
+                limit: CacheLimit::Unbounded,
+            },
+            pool,
+        );
+
+        // S3 keys can be up to 1024 bytes; use a key at exactly that limit.
+        let s3_key = "k".repeat(HEADER_STRING_SIZE_LIMIT);
+        let cache_key = ObjectId::new(s3_key, ETag::for_tests());
+
+        cache
+            .put_block(cache_key.clone(), 0, 0, data.clone(), data_size)
+            .await
+            .expect("cache should be accessible");
+        let entry = cache
+            .get_block(&cache_key, 0, 0, data_size, None)
+            .await
+            .expect("cache should be accessible")
+            .expect("cache entry should be returned");
+        assert_eq!(
+            data, entry,
+            "cache entry with a max-size key should round-trip to the original bytes"
+        );
+    }
+
+    #[tokio::test]
     async fn test_checksummed_bytes_slice() {
         let data = ChecksummedBytes::new("0123456789".into());
         let slice = data.slice(1..5);
