@@ -28,6 +28,7 @@
 * Fix memory limiter ignoring container cgroup memory limits, which could cause out-of-memory issues in memory-constrained containers. ([#1806](https://github.com/awslabs/mountpoint-s3/pull/1806) by @yerzhan7)
 * Reduce peak memory usage of incremental (append) uploads by removing an unnecessary buffer copy in the internal S3 client. ([#1882](https://github.com/awslabs/mountpoint-s3/pull/1882) by @yerzhan7)
 * Add additional debug information to FUSE operation logs including the ID of the process triggering the file system operation. ([#1718](https://github.com/awslabs/mountpoint-s3/pull/1718) by @mansi153)
+* Allow mounting on top of `autofs` managed directories. ([#1762](https://github.com/awslabs/mountpoint-s3/pull/1762) by @kiron1)
 
 ## v1.22.3 (April 28, 2026)
 
