@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use tracing::{trace, warn};
+use wincode::{SchemaRead, SchemaWrite};
 
 use crate::checksums::IntegrityError;
 use crate::data_cache::DataCacheError;
@@ -29,7 +30,7 @@ use crate::sync::Mutex;
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};
 
 /// Disk and file-layout versioning.
-const CACHE_VERSION: &str = "V3";
+const CACHE_VERSION: &str = "V2";
 
 /// Index where hashed directory names for the cache are split to avoid FS-specific limits.
 const HASHED_DIR_SPLIT_INDEX: usize = 2;
@@ -76,7 +77,7 @@ impl Default for CacheLimit {
 ///
 /// It should be written alongside the block's data
 /// and used to verify it contains the correct contents to avoid blocks being mixed up.
-#[derive(wincode::SchemaWrite, wincode::SchemaRead, Debug)]
+#[derive(SchemaWrite, SchemaRead, Debug)]
 struct DiskBlockHeader {
     block_idx: BlockIndex,
     block_offset: u64,
@@ -109,8 +110,10 @@ enum DiskBlockAccessError {
 enum DiskBlockReadWriteError {
     #[error("Invalid block length: {0}")]
     InvalidBlockLength(u64),
-    #[error("Error with serialization: {0}")]
-    SerializationError(wincode::Error),
+    #[error("Error decoding the block: {0}")]
+    DecodeError(wincode::ReadError),
+    #[error("Error encoding the block: {0}")]
+    EncodeError(wincode::WriteError),
     #[error("IO error: {0}")]
     IOError(#[from] std::io::Error),
 }
@@ -280,21 +283,15 @@ impl DiskBlock {
     }
 }
 
-impl From<wincode::Error> for DiskBlockReadWriteError {
-    fn from(value: wincode::Error) -> Self {
-        DiskBlockReadWriteError::SerializationError(value)
-    }
-}
-
 impl From<wincode::ReadError> for DiskBlockReadWriteError {
     fn from(value: wincode::ReadError) -> Self {
-        DiskBlockReadWriteError::SerializationError(value.into())
+        DiskBlockReadWriteError::DecodeError(value)
     }
 }
 
 impl From<wincode::WriteError> for DiskBlockReadWriteError {
     fn from(value: wincode::WriteError) -> Self {
-        DiskBlockReadWriteError::SerializationError(value.into())
+        DiskBlockReadWriteError::EncodeError(value)
     }
 }
 
@@ -677,7 +674,7 @@ mod tests {
         let s3_key = "a".repeat(266);
         let etag = ETag::for_tests();
         let key = ObjectId::new(s3_key, etag);
-        let expected_hash = "0f913e772ae5ddb10d982a6664d12a7cba0c4eda5803cd5c84a437283d3f174e";
+        let expected_hash = "1cfd611a26062b33e98d48a84e967ddcc2a42957479a8abd541e29cfa3258639";
         let actual_hash = hex::encode(hash_cache_key_raw(&key));
         assert_eq!(expected_hash, actual_hash);
     }
@@ -1133,7 +1130,7 @@ mod tests {
         let err = block_on(DiskBlock::read(&mut Cursor::new(buf), MAX_LENGTH, &pool, None))
             .expect_err("deserialization should fail");
         match length_to_corrupt {
-            "key" | "etag" => assert!(matches!(err, DiskBlockReadWriteError::SerializationError(_))),
+            "key" | "etag" => assert!(matches!(err, DiskBlockReadWriteError::DecodeError(_))),
             "data" => assert!(matches!(err, DiskBlockReadWriteError::InvalidBlockLength(_))),
             _ => panic!("invalid length: {length_to_corrupt}"),
         }

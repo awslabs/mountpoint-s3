@@ -17,7 +17,7 @@ async-lock = "3.4.2"
 async-stream = "0.3.6"
 async-trait = "0.1.89"
 base64ct = "1.8.3"
-wincode = { version = "0.6", features = ["derive"] }
+wincode = { version = "0.6.1", features = ["derive"] }
 bitflags = "2.13.0"
 bytes = { version = "1.12.0", features = ["serde"] }
 clap = { version = "4.6.1", features = ["derive"] }
