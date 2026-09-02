@@ -7,9 +7,6 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use async_trait::async_trait;
-use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
-use bincode::error::{DecodeError, EncodeError};
-use bincode::{Decode, Encode};
 use bytes::Bytes;
 use linked_hash_map::LinkedHashMap;
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
@@ -17,6 +14,10 @@ use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use tracing::{trace, warn};
+use wincode::config::Configuration;
+use wincode::io::std_read::ReadAdapter;
+use wincode::io::std_write::WriteAdapter;
+use wincode::{SchemaRead, SchemaWrite};
 
 use crate::checksums::IntegrityError;
 use crate::data_cache::DataCacheError;
@@ -75,11 +76,22 @@ impl Default for CacheLimit {
     }
 }
 
+/// Per-sequence preallocation limit (in bytes) for dynamic fields (Strings) in
+/// the header. wincode's `with_preallocation_size_limit` applies to each
+/// sequence individually. The largest dynamic field is the S3 key, which AWS
+/// caps at 1024 bytes; ETags are much smaller. So 1024 is a tight, safe upper
+/// bound that rejects a corrupted length prefix as early as possible.
+const HEADER_STRING_SIZE_LIMIT: usize = 1024;
+
+/// Wincode configuration for the block header.
+const HEADER_CONFIG: Configuration<true, HEADER_STRING_SIZE_LIMIT> =
+    Configuration::default().with_preallocation_size_limit::<HEADER_STRING_SIZE_LIMIT>();
+
 /// Describes additional information about the data stored in the block.
 ///
 /// It should be written alongside the block's data
 /// and used to verify it contains the correct contents to avoid blocks being mixed up.
-#[derive(Encode, Decode, Debug)]
+#[derive(SchemaWrite, SchemaRead, Debug)]
 struct DiskBlockHeader {
     block_idx: BlockIndex,
     block_offset: u64,
@@ -89,18 +101,6 @@ struct DiskBlockHeader {
     data_checksum: u32,
     header_checksum: u32,
 }
-
-/// Max size of header after encoding.
-/// 10000 should easily accommodate any block header:
-/// - S3 key should always be less than or equal to 1024
-/// - Allow 1024 for ETag, even though its always much smaller
-/// - Integers should be up to 8 bytes each
-const BINCODE_HEADER_MAX_SIZE: usize = 10000;
-
-/// Binary encoding configuration for the block header.
-const BINCODE_CONFIG: Configuration<LittleEndian, Fixint, Limit<BINCODE_HEADER_MAX_SIZE>> = bincode::config::standard()
-    .with_fixed_int_encoding()
-    .with_limit::<BINCODE_HEADER_MAX_SIZE>();
 
 /// Error during creation of a [DiskBlock]
 #[derive(Debug, Error)]
@@ -125,9 +125,9 @@ enum DiskBlockReadWriteError {
     #[error("Invalid block length: {0}")]
     InvalidBlockLength(u64),
     #[error("Error decoding the block: {0}")]
-    DecodeError(DecodeError),
+    DecodeError(wincode::ReadError),
     #[error("Error encoding the block: {0}")]
-    EncodeError(EncodeError),
+    EncodeError(wincode::WriteError),
     #[error("IO error: {0}")]
     IOError(#[from] std::io::Error),
 }
@@ -265,15 +265,20 @@ impl DiskBlock {
         pool: &PagedPool,
         cursor_id: Option<CursorId>,
     ) -> Result<Self, DiskBlockReadWriteError> {
-        let header: DiskBlockHeader = bincode::decode_from_std_read(reader, BINCODE_CONFIG)?;
+        // Deserialize header directly from the file reader
+        let header: DiskBlockHeader = wincode::config::deserialize_from(ReadAdapter::new(&mut *reader), HEADER_CONFIG)?;
 
         if header.block_len > block_size {
             return Err(DiskBlockReadWriteError::InvalidBlockLength(header.block_len));
         }
 
+        // Allocate pool buffer for exactly block_len (data only)
         let size = header.block_len as usize;
         let mut buffer = pool.get_buffer_mut_async(size, BufferKind::DiskCache, cursor_id).await;
+
+        // Read data directly from file into pool buffer
         buffer.fill_from_reader(reader)?;
+
         let data = buffer.into_bytes();
 
         Ok(Self { header, data })
@@ -281,27 +286,26 @@ impl DiskBlock {
 
     /// Serialize this instance to `writer` and return the number of bytes written on success.
     fn write(&self, writer: &mut impl Write) -> Result<usize, DiskBlockReadWriteError> {
-        let header_length = bincode::encode_into_std_write(&self.header, writer, BINCODE_CONFIG)?;
+        // Calculate header size
+        let header_length = wincode::config::serialized_size(&self.header, HEADER_CONFIG)? as usize;
+
+        // Serialize header directly to writer
+        wincode::config::serialize_into(WriteAdapter::new(&mut *writer), &self.header, HEADER_CONFIG)?;
         writer.write_all(&self.data)?;
+
         Ok(header_length + self.data.len())
     }
 }
 
-impl From<DecodeError> for DiskBlockReadWriteError {
-    fn from(value: DecodeError) -> Self {
-        match value {
-            DecodeError::Io { inner, .. } => DiskBlockReadWriteError::IOError(inner),
-            value => DiskBlockReadWriteError::DecodeError(value),
-        }
+impl From<wincode::ReadError> for DiskBlockReadWriteError {
+    fn from(value: wincode::ReadError) -> Self {
+        DiskBlockReadWriteError::DecodeError(value)
     }
 }
 
-impl From<EncodeError> for DiskBlockReadWriteError {
-    fn from(value: EncodeError) -> Self {
-        match value {
-            EncodeError::Io { inner, .. } => DiskBlockReadWriteError::IOError(inner),
-            value => DiskBlockReadWriteError::EncodeError(value),
-        }
+impl From<wincode::WriteError> for DiskBlockReadWriteError {
+    fn from(value: wincode::WriteError) -> Self {
+        DiskBlockReadWriteError::EncodeError(value)
     }
 }
 
@@ -857,6 +861,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_put_get_max_size_key() {
+        let block_size = 8 * 1024 * 1024;
+        let data = ChecksummedBytes::new("Foo".into());
+        let data_size = data.len();
+
+        let cache_directory = tempfile::tempdir().unwrap();
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(block_size)])
+            .with_no_memory_limit()
+            .build();
+        let cache = DiskDataCache::new(
+            DiskDataCacheConfig {
+                cache_directory: cache_directory.path().to_path_buf(),
+                block_size: block_size as u64,
+                limit: CacheLimit::Unbounded,
+            },
+            pool,
+        );
+
+        // S3 keys can be up to 1024 bytes; use a key at exactly that limit.
+        let s3_key = "k".repeat(HEADER_STRING_SIZE_LIMIT);
+        let cache_key = ObjectId::new(s3_key, ETag::for_tests());
+
+        cache
+            .put_block(cache_key.clone(), 0, 0, data.clone(), data_size)
+            .await
+            .expect("cache should be accessible");
+        let entry = cache
+            .get_block(&cache_key, 0, 0, data_size, None)
+            .await
+            .expect("cache should be accessible")
+            .expect("cache entry should be returned");
+        assert_eq!(
+            data, entry,
+            "cache entry with a max-size key should round-trip to the original bytes"
+        );
+    }
+
+    #[tokio::test]
     async fn test_checksummed_bytes_slice() {
         let data = ChecksummedBytes::new("0123456789".into());
         let slice = data.slice(1..5);
@@ -1140,10 +1183,7 @@ mod tests {
         let err = block_on(DiskBlock::read(&mut Cursor::new(buf), MAX_LENGTH, &pool, None))
             .expect_err("deserialization should fail");
         match length_to_corrupt {
-            "key" | "etag" => assert!(matches!(
-                err,
-                DiskBlockReadWriteError::DecodeError(DecodeError::LimitExceeded)
-            )),
+            "key" | "etag" => assert!(matches!(err, DiskBlockReadWriteError::DecodeError(_))),
             "data" => assert!(matches!(err, DiskBlockReadWriteError::InvalidBlockLength(_))),
             _ => panic!("invalid length: {length_to_corrupt}"),
         }

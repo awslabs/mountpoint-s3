@@ -34,6 +34,14 @@ async fn read_cache_block(cache: &DiskDataCache, cache_key: &ObjectId) {
     );
 }
 
+#[inline]
+async fn write_cache_block(cache: &DiskDataCache, cache_key: ObjectId, bytes: ChecksummedBytes) {
+    cache
+        .put_block(cache_key, 0, 0, bytes, OBJECT_SIZE)
+        .await
+        .expect("is able to write to cache");
+}
+
 fn random_bytes(length: usize) -> Vec<u8> {
     let mut rng = rand::rng();
     let mut random_bytes = vec![0u8; length];
@@ -77,6 +85,14 @@ fn file_read_benchmark(group: &mut BenchmarkGroup<'_, WallTime>, dir_path: &Path
     });
 }
 
+fn file_write_benchmark(group: &mut BenchmarkGroup<'_, WallTime>, dir_path: &Path, data: &[u8]) {
+    let file_path = dir_path.join("file_write");
+
+    group.bench_function("write_file", |b| {
+        b.iter(|| fs::write(&file_path, data).expect("is able to write file"))
+    });
+}
+
 fn read_benchmark(c: &mut Criterion) {
     let temp_dir = TempDir::with_prefix("mp-cache-benchmarks").unwrap();
     let data = random_bytes(BLOCK_SIZE.try_into().unwrap());
@@ -89,5 +105,43 @@ fn read_benchmark(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, read_benchmark);
+fn cache_write_benchmark(group: &mut BenchmarkGroup<'_, WallTime>, dir_path: &Path, data: &[u8]) {
+    let config = DiskDataCacheConfig {
+        cache_directory: dir_path.to_path_buf(),
+        block_size: BLOCK_SIZE,
+        limit: mountpoint_s3_fs::data_cache::CacheLimit::Unbounded,
+    };
+    let pool = PagedPool::config()
+        .with_candidate_sizes([CandidateSize::new(BLOCK_SIZE as usize)])
+        .with_no_memory_limit()
+        .build();
+    let cache = DiskDataCache::new(config, pool);
+
+    // Pre-create ChecksummedBytes once (not part of serialization benchmark)
+    let bytes = ChecksummedBytes::new(data.to_owned().into());
+
+    group.bench_function("write_cache_block", |b| {
+        let mut counter = 0u64;
+        b.to_async(FuturesExecutor).iter(|| {
+            // Use unique key per iteration to avoid temp file overwrite overhead
+            counter += 1;
+            let cache_key = ObjectId::new(format!("key-{}", counter), ETag::for_tests());
+            write_cache_block(&cache, cache_key, bytes.clone())
+        })
+    });
+}
+
+fn write_benchmark(c: &mut Criterion) {
+    let temp_dir = TempDir::with_prefix("mp-cache-benchmarks").unwrap();
+    let data = random_bytes(BLOCK_SIZE.try_into().unwrap());
+
+    let mut group = c.benchmark_group("Block Write");
+
+    file_write_benchmark(&mut group, temp_dir.path(), &data);
+    cache_write_benchmark(&mut group, temp_dir.path(), &data);
+
+    group.finish();
+}
+
+criterion_group!(benches, read_benchmark, write_benchmark);
 criterion_main!(benches);
