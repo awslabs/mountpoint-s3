@@ -12,4 +12,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest",
+    "omegaconf",
+    "tabulate",
 ]
