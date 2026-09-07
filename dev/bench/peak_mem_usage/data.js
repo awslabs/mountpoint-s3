@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788812982499,
+  "lastUpdate": 1788814402078,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "00d3945269a62e36bc9d21dd30ce221b5ac7bb69",
-          "message": "Update CRT submodules to latest releases (#1884)\n\nUpdate the CRT submodules to the latest releases:\n\n- aws-c-auth v0.10.4\n- aws-c-common v0.14.2\n- aws-c-io v0.27.3\n- aws-c-sdkutils v0.2.7\n\n**Note**:  aws-lc to be updated separately (#1850).\n\n<details>\n  <summary>Full CRT changelog:</summary>\n\n```\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-auth 4cb7127f..4b5d524b:\n  > profile credentials provider should support sts web identity as well (#298)\n  > Regression Labeler Fix (#297)\n  > Support s2n-tls on macOS (#296)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-common 2b4c620f..a9d57d2d:\n  > XML Parser Fixes (#1254)\n  > Update deprecated OpenBSD CI job (#1255)\n  > Byte Buf Helper Func Dynamic or Static (#1253)\n  > CI improvements (#1252)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-io 9156a8f7..8bda5cf0:\n  > Unsetting USE_S2N disables s2n on macOS (#811)\n  > Update deprecated OpenBSD CI job (#812)\n  > Regression Labeler Fix (#810)\n  > badssl.com starts to close sockets now. (#808)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-sdkutils 727df06f..cb14fea3:\n  > BDD engine implementation (#62)\n  > Regression Labeler Fix (#67)\n```\n</details>\n\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2026-07-14T17:29:18Z",
-          "tree_id": "e2332a3946a4fad1fc20c4c5d05bf7221c45dc7e",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/00d3945269a62e36bc9d21dd30ce221b5ac7bb69"
-        },
-        "date": 1784058544169,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 3360.00390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 5000.9296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8468.10546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 19.50390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 52.5,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 23.25390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 49.6953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 17.25390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 25.5546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 15.75390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 26.25,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8232.9609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 47.25,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8218.12890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 45.75,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2112.453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 21,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2110.51171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2107.59765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 21.75,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 681.1015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 462.75390625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 398.78125,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "95c11992633413a8fadbfb445eaa7c8b2507833b",
+          "message": "Bump slackapi/slack-github-action from 3.0.3 to 4.0.0 (#1951)\n\nBumps\n[slackapi/slack-github-action](https://github.com/slackapi/slack-github-action)\nfrom 3.0.3 to 4.0.0.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/slackapi/slack-github-action/releases\">slackapi/slack-github-action's\nreleases</a>.</em></p>\n<blockquote>\n<h2>Slack GitHub Action v4.0.0</h2>\n<h3>Major Changes</h3>\n<ul>\n<li>\n<p>b1974f0: build: parse yaml with more strict multiline indentation\nrules</p>\n<p>Internal dependencies of <a\nhref=\"https://github.com/nodeca/js-yaml/blob/master/CHANGELOG.md#500---2026-06-20\"><code>js-yaml@v5</code></a>\nmake YAML parsing more strict and compliant with the YAML specification.\nIndentation is now required for values that span multiple lines against\nthe base value.</p>\n<p>See the YAML <a\nhref=\"https://yaml.org/spec/1.2.2/#63-line-prefixes\">line prefixes</a>\nspec for the expected indentation rule:</p>\n<pre lang=\"diff\"><code>  channel: &quot;C0123&quot;\n  text: &quot;first line\n<ul>\n<li>second line&quot;</li>\n</ul>\n<ul>\n<li>second line&quot;<br />\n</code></pre></li>\n</ul>\n</li>\n</ul>\n<h3>Patch Changes</h3>\n<ul>\n<li>654bb72: chore: provide global fetch proxied configurations with\nupdates to web api and webhook packages</li>\n</ul>\n<h2>Slack GitHub Action v3.0.5</h2>\n<h3>Patch Changes</h3>\n<ul>\n<li>96fddbe: fix: revert multiline yaml parsing indentation change</li>\n</ul>\n<h2>Slack GitHub Action v3.0.4</h2>\n<h3>Patch Changes</h3>\n<ul>\n<li>fa03fe4: refactor: send webhooks with the <a\nhref=\"https://docs.slack.dev/tools/node-slack-sdk/webhook\"><code>@slack/webhook</code></a>\npackage</li>\n</ul>\n</blockquote>\n</details>\n<details>\n<summary>Changelog</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/slackapi/slack-github-action/blob/main/CHANGELOG.md\">slackapi/slack-github-action's\nchangelog</a>.</em></p>\n<blockquote>\n<h1>slack-github-action</h1>\n<h2>4.0.0</h2>\n<h3>Major Changes</h3>\n<ul>\n<li>\n<p>b1974f0: build: parse yaml with more strict multiline indentation\nrules</p>\n<p>Internal dependencies of <a\nhref=\"https://github.com/nodeca/js-yaml/blob/master/CHANGELOG.md#500---2026-06-20\"><code>js-yaml@v5</code></a>\nmake YAML parsing more strict and compliant with the YAML specification.\nIndentation is now required for values that span multiple lines against\nthe base value.</p>\n<p>See the YAML <a\nhref=\"https://yaml.org/spec/1.2.2/#63-line-prefixes\">line prefixes</a>\nspec for the expected indentation rule:</p>\n<pre lang=\"diff\"><code>  channel: &quot;C0123&quot;\n  text: &quot;first line\n<ul>\n<li>second line&quot;</li>\n</ul>\n<ul>\n<li>second line&quot;<br />\n</code></pre></li>\n</ul>\n</li>\n</ul>\n<h3>Patch Changes</h3>\n<ul>\n<li>654bb72: chore: provide global fetch proxied configurations with\nupdates to web api and webhook packages</li>\n</ul>\n<h2>3.0.5</h2>\n<h3>Patch Changes</h3>\n<ul>\n<li>96fddbe: fix: revert multiline yaml parsing indentation change</li>\n</ul>\n<h2>3.0.4</h2>\n<h3>Patch Changes</h3>\n<ul>\n<li>fa03fe4: refactor: send webhooks with the <a\nhref=\"https://docs.slack.dev/tools/node-slack-sdk/webhook\"><code>@slack/webhook</code></a>\npackage</li>\n</ul>\n<h2>3.0.3</h2>\n<h3>Patch Changes</h3>\n<ul>\n<li>66834e4: feat: add instrumentation to address error rates</li>\n</ul>\n<h2>3.0.2</h2>\n<h3>Patch Changes</h3>\n<ul>\n<li>79529d7: fix: resolve url.parse deprecation warning for webhook\ntechniques</li>\n</ul>\n</blockquote>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/slackapi/slack-github-action/commit/dcb1066f776dd043e64d0e8ba94ca15cc7e1875d\"><code>dcb1066</code></a>\nchore: release</li>\n<li><a\nhref=\"https://github.com/slackapi/slack-github-action/commit/53861e0291660faf57ba686eabf046d5a47fa304\"><code>53861e0</code></a>\nchore: release (<a\nhref=\"https://redirect.github.com/slackapi/slack-github-action/issues/645\">#645</a>)</li>\n<li><a\nhref=\"https://github.com/slackapi/slack-github-action/commit/b1974f0d29f2b6150fc5a376312d365bd75fdd9b\"><code>b1974f0</code></a>\nbuild!: parse yaml with more strict multiline indentation rules (<a\nhref=\"https://redirect.github.com/slackapi/slack-github-action/issues/640\">#640</a>)</li>\n<li><a\nhref=\"https://github.com/slackapi/slack-github-action/commit/947ed0677cba8e56cf374d88bfd2d8f72aa9100c\"><code>947ed06</code></a>\nbuild(deps): bump undici from 7.28.0 to 8.7.0 (<a\nhref=\"https://redirect.github.com/slackapi/slack-github-action/issues/653\">#653</a>)</li>\n<li><a\nhref=\"https://github.com/slackapi/slack-github-action/commit/03922a90c917c4d3d3b1c0f35984c2ac23955560\"><code>03922a9</code></a>\nchore: track undici-types to the resolved undici version (<a\nhref=\"https://redirect.github.com/slackapi/slack-github-action/issues/652\">#652</a>)</li>\n<li><a\nhref=\"https://github.com/slackapi/slack-github-action/commit/31d473e1d0da2837ee5149493a62a54103e5b45a\"><code>31d473e</code></a>\nbuild(deps-dev): bump typescript from 6.0.3 to 7.0.2 (<a\nhref=\"https://redirect.github.com/slackapi/slack-github-action/issues/651\">#651</a>)</li>\n<li><a\nhref=\"https://github.com/slackapi/slack-github-action/commit/3ca6997fb72e86b0babe7037ff2ca4a5908b6148\"><code>3ca6997</code></a>\nbuild(deps-dev): bump sinon and <code>@​types/sinon</code> (<a\nhref=\"https://redirect.github.com/slackapi/slack-github-action/issues/649\">#649</a>)</li>\n<li><a\nhref=\"https://github.com/slackapi/slack-github-action/commit/26a5ad3c5af9cde63a5bb0667fc9e40accce2710\"><code>26a5ad3</code></a>\nbuild(deps): bump actions/setup-node from 6.4.0 to 7.0.0 (<a\nhref=\"https://redirect.github.com/slackapi/slack-github-action/issues/647\">#647</a>)</li>\n<li><a\nhref=\"https://github.com/slackapi/slack-github-action/commit/5092efb0558a5d075f0dd02279f332a116a461ef\"><code>5092efb</code></a>\nbuild(deps-dev): bump <code>@​biomejs/biome</code> from 2.5.3 to 2.5.4\n(<a\nhref=\"https://redirect.github.com/slackapi/slack-github-action/issues/650\">#650</a>)</li>\n<li><a\nhref=\"https://github.com/slackapi/slack-github-action/commit/3548c3e9500515cd56aa64222b12088f5e6bd6fe\"><code>3548c3e</code></a>\nbuild(deps): bump slackapi/slack-github-action from 3.0.3 to 3.0.5 (<a\nhref=\"https://redirect.github.com/slackapi/slack-github-action/issues/646\">#646</a>)</li>\n<li>Additional commits viewable in <a\nhref=\"https://github.com/slackapi/slack-github-action/compare/45a88b9581bfab2566dc881e2cd66d334e621e2c...dcb1066f776dd043e64d0e8ba94ca15cc7e1875d\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\n\n[![Dependabot compatibility\nscore](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=slackapi/slack-github-action&package-manager=github_actions&previous-version=3.0.3&new-version=4.0.0)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)\n\nDependabot will resolve any conflicts with this PR as long as you don't\nalter it yourself. You can also trigger a rebase manually by commenting\n`@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits\nthat have been made to it\n- `@dependabot show <dependency name> ignore conditions` will show all\nof the ignore conditions of the specified dependency\n- `@dependabot ignore this major version` will close this PR and stop\nDependabot creating any more for this major version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this minor version` will close this PR and stop\nDependabot creating any more for this minor version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this dependency` will close this PR and stop\nDependabot creating any more for this dependency (unless you reopen the\nPR or upgrade to it yourself)\n\n\n</details>\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-07T17:50:59Z",
+          "tree_id": "01c23251d93f97ae97148cf1c0f22b31c6006e65",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/95c11992633413a8fadbfb445eaa7c8b2507833b"
+        },
+        "date": 1788814402002,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 3270.26171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 4776.13671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 8351.59375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 54.80859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 89.6875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 56.71875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 89.0859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 48.1328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 59.8515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 49.640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 58.6015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8174.84765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 84.61328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 8132.59765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 86.3984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2155.54296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 53.44921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2163.09375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2159.0703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 53.87109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 651.80859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 378.1796875,
             "unit": "MiB"
           }
         ]
