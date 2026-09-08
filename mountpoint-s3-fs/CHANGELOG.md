@@ -1,6 +1,7 @@
 ## Unreleased
 
 * Fix existing directories incorrectly appearing as missing when S3 returns an empty page of listing results. Mountpoint now checks subsequent pages before deciding a directory does not exist. ([#1954](https://github.com/awslabs/mountpoint-s3/pull/1954))
+* Sample registered client metric pollers on each metrics publication cycle, immediately before publishing, alongside process metrics. ([#1957](https://github.com/awslabs/mountpoint-s3/pull/1957))
 
 ## v0.11.0 (August 24, 2026)
 

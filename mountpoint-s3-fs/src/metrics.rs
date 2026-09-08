@@ -15,8 +15,10 @@ use defs::PROCESS_MEMORY_USAGE;
 use metrics::{Key, Metadata, Recorder};
 use sysinfo::{MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, System, get_current_pid};
 
-use crate::sync::Arc;
+#[cfg(test)]
+use crate::sync::Mutex;
 use crate::sync::mpsc::{RecvTimeoutError, Sender, channel};
+use crate::sync::{Arc, RwLock};
 
 mod data;
 use data::Metric;
@@ -33,6 +35,38 @@ const AGGREGATION_PERIOD: Duration = Duration::from_secs(5);
 /// The log target to use for emitted metrics
 pub const TARGET_NAME: &str = "mountpoint_s3_fs::metrics";
 
+/// A callback invoked on each metrics publication cycle, immediately before publishing.
+type MetricPoller = Arc<dyn Fn() + Send + Sync + 'static>;
+
+/// Thread-safe list of metric pollers sampled by the publisher thread.
+///
+/// Registration writes this list directly and does **not** go through the publisher's
+/// shutdown/`recv_timeout` channel, so it does not reset or delay the aggregation period.
+#[derive(Default)]
+struct MetricPollers {
+    inner: RwLock<Vec<MetricPoller>>,
+}
+
+impl std::fmt::Debug for MetricPollers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let count = self.inner.read().map(|p| p.len()).unwrap_or(0);
+        f.debug_struct("MetricPollers").field("count", &count).finish()
+    }
+}
+
+impl MetricPollers {
+    fn register(&self, poller: MetricPoller) {
+        self.inner.write().unwrap().push(poller);
+    }
+
+    fn run(&self) {
+        let snapshot = self.inner.read().unwrap().clone();
+        for poller in snapshot {
+            poller();
+        }
+    }
+}
+
 /// Configuration for metrics collection
 pub enum MetricsConfig {
     /// OpenTelemetry configuration
@@ -45,41 +79,59 @@ pub enum MetricsConfig {
 ///
 /// Panics if a sink has already been installed.
 pub fn install(config: Option<MetricsConfig>) -> anyhow::Result<MetricsSinkHandle> {
+    install_with_period(config, AGGREGATION_PERIOD)
+}
+
+fn install_with_period(
+    config: Option<MetricsConfig>,
+    aggregation_period: Duration,
+) -> anyhow::Result<MetricsSinkHandle> {
     let sink = Arc::new(MetricsSink::new(config)?);
-    let mut sys = System::new();
-
-    let (tx, rx) = channel();
-
-    let publisher_thread = {
-        let inner = Arc::clone(&sink);
-        thread::spawn(move || {
-            loop {
-                match rx.recv_timeout(AGGREGATION_PERIOD) {
-                    Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
-                    Err(RecvTimeoutError::Timeout) => {
-                        poll_process_metrics(&mut sys);
-                        inner.publish()
-                    }
-                }
-            }
-            // Drain metrics one more time before shutting down. This has a chance of missing
-            // any new metrics data after the sink shuts down, but we assume a clean shutdown
-            // stops generating new metrics before shutting down the sink.
-            poll_process_metrics(&mut sys);
-            inner.publish();
-        })
-    };
-
-    let handle = MetricsSinkHandle {
-        shutdown: tx,
-        handle: Some(publisher_thread),
-    };
+    let handle = spawn_publisher(Arc::clone(&sink), aggregation_period);
 
     let recorder = MetricsRecorder { sink };
     metrics::set_global_recorder(recorder)
         .map_err(|e| anyhow::anyhow!("Failed to set global metrics recorder: {}", e))?;
 
     Ok(handle)
+}
+
+/// Spawn the periodic publisher thread. The aggregation period is the only wait; poller
+/// registration does not use this channel and therefore cannot restart the wait.
+fn spawn_publisher(sink: Arc<MetricsSink>, aggregation_period: Duration) -> MetricsSinkHandle {
+    let mut sys = System::new();
+    let (tx, rx) = channel();
+    let pollers = Arc::new(MetricPollers::default());
+
+    let publisher_thread = {
+        let inner = Arc::clone(&sink);
+        let pollers = Arc::clone(&pollers);
+        thread::spawn(move || {
+            loop {
+                match rx.recv_timeout(aggregation_period) {
+                    Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
+                    Err(RecvTimeoutError::Timeout) => collect_and_publish(&inner, &pollers, &mut sys),
+                }
+            }
+            // Drain metrics one more time before shutting down. This has a chance of missing
+            // any new metrics data after the sink shuts down, but we assume a clean shutdown
+            // stops generating new metrics before shutting down the sink.
+            collect_and_publish(&inner, &pollers, &mut sys);
+        })
+    };
+
+    MetricsSinkHandle {
+        shutdown: tx,
+        handle: Some(publisher_thread),
+        pollers,
+    }
+}
+
+/// Sample process metrics and any registered client pollers, then publish.
+fn collect_and_publish(sink: &MetricsSink, pollers: &MetricPollers, sys: &mut System) {
+    poll_process_metrics(sys);
+    pollers.run();
+    sink.publish();
 }
 
 /// Report process level metrics
@@ -106,16 +158,16 @@ fn poll_process_metrics(sys: &mut System) {
 struct MetricsSink {
     metrics: DashMap<Key, Metric>,
     otlp_exporter: Option<OtlpMetricsExporter>,
+    /// Test-only log of `publish()` calls, used to assert poll-before-publish ordering.
+    #[cfg(test)]
+    test_events: Arc<Mutex<Vec<&'static str>>>,
 }
 
 impl MetricsSink {
     fn new(config: Option<MetricsConfig>) -> anyhow::Result<Self> {
         // Match on the config to determine what kind of metrics sink to create
         match config {
-            None => Ok(Self {
-                metrics: DashMap::with_capacity(64),
-                otlp_exporter: None,
-            }),
+            None => Ok(Self::with_exporter(None)),
 
             // OTLP configuration
             Some(MetricsConfig::Otlp(config)) => {
@@ -129,10 +181,7 @@ impl MetricsSink {
                 match OtlpMetricsExporter::new(&config) {
                     Ok(exporter) => {
                         tracing::info!("OpenTelemetry metrics export enabled to {}", config.endpoint);
-                        Ok(Self {
-                            metrics: DashMap::with_capacity(64),
-                            otlp_exporter: Some(exporter),
-                        })
+                        Ok(Self::with_exporter(Some(exporter)))
                     }
                     Err(e) => {
                         tracing::error!("Failed to initialize OTLP exporter: {}", e);
@@ -143,6 +192,15 @@ impl MetricsSink {
                     }
                 }
             }
+        }
+    }
+
+    fn with_exporter(otlp_exporter: Option<OtlpMetricsExporter>) -> Self {
+        Self {
+            metrics: DashMap::with_capacity(64),
+            otlp_exporter,
+            #[cfg(test)]
+            test_events: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -189,6 +247,9 @@ impl MetricsSink {
 impl MetricsSink {
     /// Publish all this sink's metrics to `tracing` log messages
     fn publish(&self) {
+        #[cfg(test)]
+        self.test_events.lock().unwrap().push("publish");
+
         // Collect the output lines so we can sort them to make reading easier
         let mut metrics = vec![];
 
@@ -277,6 +338,21 @@ impl Recorder for MetricsRecorder {
 pub struct MetricsSinkHandle {
     shutdown: Sender<()>,
     handle: Option<JoinHandle<()>>,
+    pollers: Arc<MetricPollers>,
+}
+
+impl MetricsSinkHandle {
+    /// Register a callback invoked on every metrics publication cycle, immediately before
+    /// publishing, alongside process metrics.
+    ///
+    /// Registration does not reset or delay the publisher's aggregation period: pollers are stored
+    /// in a shared list the publisher reads after each timeout, not sent on the shutdown channel.
+    ///
+    /// The callback must be cheap, thread-safe, and safe to run after the FUSE session has ended so
+    /// the final drain can still sample client metrics.
+    pub fn register_poller(&self, poller: impl Fn() + Send + Sync + 'static) {
+        self.pollers.register(Arc::new(poller));
+    }
 }
 
 impl Drop for MetricsSinkHandle {
@@ -292,10 +368,55 @@ impl Drop for MetricsSinkHandle {
 mod tests {
     use super::*;
     use metrics::{Label, with_local_recorder};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
 
     const TEST_COUNTER: &str = "test_counter";
     const TEST_GAUGE: &str = "test_gauge";
     const TEST_HISTOGRAM: &str = "test_histogram";
+
+    fn start_test_publisher(aggregation_period: Duration) -> (Arc<MetricsSink>, MetricsSinkHandle) {
+        let sink = Arc::new(MetricsSink::new(None).unwrap());
+        let handle = spawn_publisher(Arc::clone(&sink), aggregation_period);
+        (sink, handle)
+    }
+
+    fn wait_for_event_count(
+        events: &Mutex<Vec<&'static str>>,
+        event: &'static str,
+        n: usize,
+        timeout: Duration,
+    ) -> Vec<&'static str> {
+        let start = Instant::now();
+        loop {
+            let snapshot = events.lock().unwrap().clone();
+            let count = snapshot.iter().filter(|e| **e == event).count();
+            if count >= n {
+                return snapshot;
+            }
+            if start.elapsed() > timeout {
+                panic!(
+                    "timed out waiting for {n} {event} events; have {count}: {snapshot:?} after {:?}",
+                    start.elapsed()
+                );
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    fn assert_poll_before_each_publish(events: &[&'static str]) {
+        assert!(
+            !events.is_empty() && events.len().is_multiple_of(2),
+            "expected poll/publish pairs, got {events:?}"
+        );
+        for pair in events.chunks(2) {
+            assert_eq!(
+                pair,
+                &["poll", "publish"],
+                "poll must run immediately before publish: {events:?}"
+            );
+        }
+    }
 
     #[test]
     fn basic_metrics() {
@@ -389,6 +510,126 @@ mod tests {
                 assert!(inner.load_if_changed().is_none());
             }
         });
+    }
+
+    #[test]
+    fn production_aggregation_period_is_five_seconds() {
+        assert_eq!(AGGREGATION_PERIOD, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn registered_poller_runs_on_repeated_ticks_before_publish_and_on_shutdown() {
+        let interval = Duration::from_millis(50);
+        let (sink, handle) = start_test_publisher(interval);
+        let events = Arc::clone(&sink.test_events);
+
+        handle.register_poller({
+            let events = Arc::clone(&events);
+            move || events.lock().unwrap().push("poll")
+        });
+
+        // Two publisher timeouts, with no meta requests at all.
+        wait_for_event_count(&events, "publish", 2, Duration::from_secs(2));
+
+        // Shutdown must join the publisher after one final poll then publish.
+        drop(handle);
+        let events = events.lock().unwrap().clone();
+        assert!(
+            events.len() >= 6,
+            "expected at least two periodic cycles plus shutdown, got {events:?}"
+        );
+        assert_poll_before_each_publish(&events);
+    }
+
+    #[test]
+    fn registering_a_poller_does_not_reset_or_stop_the_publisher() {
+        let interval = Duration::from_millis(80);
+        let (sink, handle) = start_test_publisher(interval);
+        let events = Arc::clone(&sink.test_events);
+
+        handle.register_poller({
+            let events = Arc::clone(&events);
+            move || events.lock().unwrap().push("poll")
+        });
+
+        // If registration rode the shutdown/`recv_timeout` channel, each register would either
+        // shut the publisher down or restart the wait. Repeated registration during the wait
+        // must not prevent periodic ticks.
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_millis(350) {
+            handle.register_poller(|| {});
+            std::thread::sleep(Duration::from_millis(25));
+        }
+
+        // Check *during* the registration storm. Waiting after it stops would hide a reset, because
+        // the cadence could recover once we stop restarting the wait.
+        let during = events.lock().unwrap().clone();
+        let publishes_during = during.iter().filter(|e| **e == "publish").count();
+        assert!(
+            publishes_during >= 2,
+            "repeated registration during the wait must not reset the {interval:?} cadence or shut the publisher down; after {:?} got {during:?}",
+            start.elapsed()
+        );
+
+        drop(handle);
+
+        let events = events.lock().unwrap().clone();
+        let publishes = events.iter().filter(|e| **e == "publish").count();
+        assert!(
+            publishes >= 3,
+            "repeated registration must not delay ticks indefinitely or shut the publisher down; got {events:?}"
+        );
+        assert_poll_before_each_publish(&events);
+    }
+
+    #[test]
+    fn register_poller_does_not_trigger_immediate_publish() {
+        // A long interval means a correctly implemented register cannot produce a tick of its own.
+        let (sink, handle) = start_test_publisher(Duration::from_secs(30));
+        let events = Arc::clone(&sink.test_events);
+
+        handle.register_poller({
+            let events = Arc::clone(&events);
+            move || events.lock().unwrap().push("poll")
+        });
+        std::thread::sleep(Duration::from_millis(80));
+        assert!(
+            events.lock().unwrap().is_empty(),
+            "registration must not wake the publisher channel: {:?}",
+            events.lock().unwrap()
+        );
+
+        drop(handle);
+        let events = events.lock().unwrap().clone();
+        assert_eq!(events, ["poll", "publish"]);
+    }
+
+    #[test]
+    fn dropping_handle_drops_registered_pollers() {
+        #[derive(Debug)]
+        struct DropMarker(Arc<AtomicBool>);
+
+        impl Drop for DropMarker {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+
+        // Keep the sink alive after the handle is dropped, as the process-global recorder does.
+        // Pollers belong to the publisher lifecycle and must not be retained by that sink.
+        let (_sink, handle) = start_test_publisher(Duration::from_secs(30));
+        let dropped = Arc::new(AtomicBool::new(false));
+        let marker = DropMarker(Arc::clone(&dropped));
+        handle.register_poller(move || {
+            let _ = &marker;
+        });
+
+        drop(handle);
+
+        assert!(
+            dropped.load(Ordering::SeqCst),
+            "dropping the publisher handle must release registered pollers"
+        );
     }
 }
 
