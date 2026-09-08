@@ -1437,6 +1437,12 @@ mod tests {
         };
     }
 
+    #[test]
+    fn poll_client_metrics_is_noop() {
+        let client = MockClient::config().bucket("test_bucket").build();
+        client.poll_client_metrics();
+    }
+
     async fn test_get_object(
         key: &str,
         size: usize,
