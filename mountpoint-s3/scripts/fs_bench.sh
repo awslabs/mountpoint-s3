@@ -33,8 +33,8 @@ fi
 if [[ -n "${S3_MEMORY_TARGET_MIB}" ]]; then
   # Memory-limited variant: cap Mountpoint at the requested MiB, and ask the log
   # analyzer to additionally emit results/<job>_extra_metrics.json which is consumed
-  # only by the GitHub Actions memory summary table (render-mem-summary.sh). These
-  # files are not fed into the gh-pages benchmark charts.
+  # only by the GitHub Actions memory summary table and breach gate
+  # (render-mem-summary.sh). These files are not fed into the gh-pages benchmark charts.
   optional_args+=" --memory-target=${S3_MEMORY_TARGET_MIB}"
 fi
 

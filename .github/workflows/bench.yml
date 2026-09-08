@@ -96,6 +96,7 @@ jobs:
         S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}bench${{ matrix.results_subdir_suffix }}/
       run: mountpoint-s3/scripts/fs_bench.sh
     - name: Render memory summary
+      id: mem_summary
       if: matrix.variant == 'mem-limited'
       run: .github/actions/scripts/render-mem-summary.sh
     - name: Save benchmark results in S3
@@ -146,6 +147,9 @@ jobs:
       run: |
         .github/actions/scripts/copy-static-files.sh dev/bench${{ matrix.data_path_suffix }} dev/bench${{ matrix.data_path_suffix }}/peak_mem_usage
         git push 'https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git' gh-pages:gh-pages
+    - name: Fail on memory breach
+      if: ${{ !cancelled() && steps.mem_summary.outputs.breached == 'true' }}
+      run: exit 1
 
   latency-bench:
     name: Benchmark (Latency)
@@ -274,6 +278,7 @@ jobs:
         S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}cache-bench${{ matrix.results_subdir_suffix }}/
       run: mountpoint-s3/scripts/fs_cache_bench.sh
     - name: Render memory summary
+      id: mem_summary
       if: matrix.variant == 'mem-limited'
       run: .github/actions/scripts/render-mem-summary.sh
     - name: Save benchmark results in S3
@@ -323,3 +328,6 @@ jobs:
       run: |
         .github/actions/scripts/copy-static-files.sh dev/cache_bench${{ matrix.data_path_suffix }} dev/cache_bench${{ matrix.data_path_suffix }}/peak_mem_usage
         git push 'https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git' gh-pages:gh-pages
+    - name: Fail on memory breach
+      if: ${{ !cancelled() && steps.mem_summary.outputs.breached == 'true' }}
+      run: exit 1
