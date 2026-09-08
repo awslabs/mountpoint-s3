@@ -47,6 +47,13 @@ pub trait ObjectClient {
     /// does not record the stats.
     fn mem_usage_stats(&self) -> Option<BufferPoolUsageStats>;
 
+    /// Sample client-level metrics into the process metrics facade.
+    ///
+    /// The metrics publisher invokes this on each publication cycle, immediately before publishing.
+    /// The default implementation is a no-op so mock and other non-CRT clients do not need
+    /// CRT-specific behavior. CRT-backed clients override this to export `s3.client.*` gauges.
+    fn poll_client_metrics(&self) {}
+
     /// Delete a single object from the object store.
     ///
     /// DeleteObject will succeed even if the object within the bucket does not exist.

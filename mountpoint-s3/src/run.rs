@@ -11,7 +11,7 @@ use mountpoint_s3_fs::data_cache::{DataCacheConfig, ManagedCacheDir};
 use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::logging::init_logging;
 use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
-use mountpoint_s3_fs::metrics::MetricsConfig;
+use mountpoint_s3_fs::metrics::{MetricsConfig, MetricsSinkHandle};
 use mountpoint_s3_fs::s3::config::ClientConfig;
 use mountpoint_s3_fs::s3::{S3Path, S3Personality};
 use mountpoint_s3_fs::{MountpointConfig, Runtime, Superblock, SuperblockConfig, metrics};
@@ -26,7 +26,7 @@ use crate::{build_info, parse_cli_args};
 fn init_metrics(
     log_metrics_otlp: &Option<String>,
     log_metrics_otlp_interval: Option<u64>,
-) -> anyhow::Result<impl Drop> {
+) -> anyhow::Result<MetricsSinkHandle> {
     let otlp_config = log_metrics_otlp.as_deref().map(|endpoint| {
         let mut config = mountpoint_s3_fs::metrics::OtlpConfig::new(endpoint);
         if let Some(interval) = log_metrics_otlp_interval {
@@ -52,12 +52,12 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
     if args.foreground {
         let _logging = init_logging(args.make_logging_config()).context("failed to initialize logging")?;
         let otlp_endpoint = args.otlp_endpoint.clone();
-        let _metrics = init_metrics(&otlp_endpoint, args.otlp_export_interval)?;
+        let metrics = init_metrics(&otlp_endpoint, args.otlp_export_interval)?;
 
         create_pid_file()?;
 
         // mount file system as a foreground process
-        let session = mount(args, client_builder)?;
+        let session = mount(args, client_builder, &metrics)?;
 
         println!("{successful_mount_msg}");
 
@@ -84,11 +84,11 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
                 let args = parse_cli_args(false);
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
                 let otlp_endpoint = args.otlp_endpoint.clone();
-                let _metrics = init_metrics(&otlp_endpoint, args.otlp_export_interval)?;
+                let metrics = init_metrics(&otlp_endpoint, args.otlp_export_interval)?;
 
                 create_pid_file()?;
 
-                let session = mount(args, client_builder);
+                let session = mount(args, client_builder, &metrics);
 
                 // close unused file descriptor, we only write from this end.
                 drop(read_fd);
@@ -187,7 +187,11 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
     Ok(())
 }
 
-fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<FuseSession> {
+fn mount(
+    args: CliArgs,
+    client_builder: impl ClientBuilder,
+    metrics: &MetricsSinkHandle,
+) -> anyhow::Result<FuseSession> {
     tracing::info!("mount-s3 {}", build_info::FULL_VERSION);
     tracing::debug!("{:?}", args);
 
@@ -211,6 +215,11 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
     let s3_path = args.s3_path()?;
     let (client, runtime, s3_personality) =
         client_builder.build(client_config, pool.clone(), &s3_path, args.personality())?;
+
+    {
+        let client = client.clone();
+        metrics.register_poller(move || client.poll_client_metrics());
+    }
 
     let bucket_description = args.bucket_description()?;
     tracing::debug!("using S3 personality {s3_personality:?} for {bucket_description}");

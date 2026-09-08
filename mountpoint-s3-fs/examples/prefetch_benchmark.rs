@@ -170,7 +170,7 @@ impl CliArgs {
 
 fn main() -> anyhow::Result<()> {
     init_tracing_subscriber();
-    let _metrics_handle = mountpoint_s3_fs::metrics::install(None);
+    let metrics_handle = mountpoint_s3_fs::metrics::install(None);
 
     let args = CliArgs::parse();
 
@@ -181,6 +181,10 @@ fn main() -> anyhow::Result<()> {
         .build();
     let client_config = args.s3_client_config().memory_pool(pool.clone());
     let client = S3CrtClient::new(client_config).context("failed to create S3 CRT client")?;
+    if let Ok(metrics_handle) = &metrics_handle {
+        let client = client.clone();
+        metrics_handle.register_poller(move || client.poll_client_metrics());
+    }
     let runtime = Runtime::new(client.event_loop_group());
 
     // Verify if all objects exist and collect metadata
