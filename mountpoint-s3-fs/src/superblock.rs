@@ -1559,10 +1559,34 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
             .client
             .head_object(&self.s3_path.bucket, object_key, &head_object_params)
             .fuse();
-        let mut dir_lookup = self
-            .client
-            .list_objects(&self.s3_path.bucket, None, "/", 1, directory_prefix)
-            .fuse();
+        let dir_lookup = async {
+            let mut continuation_token = None;
+            loop {
+                let result = self
+                    .client
+                    .list_objects(
+                        &self.s3_path.bucket,
+                        continuation_token.as_deref(),
+                        "/",
+                        1,
+                        directory_prefix,
+                    )
+                    .await;
+                match &result {
+                    // An empty page is not proof that the directory is absent if S3 has more pages.
+                    Ok(page)
+                        if page.objects.is_empty()
+                            && page.common_prefixes.is_empty()
+                            && page.next_continuation_token.is_some() =>
+                    {
+                        continuation_token = page.next_continuation_token.clone();
+                    }
+                    _ => return result,
+                }
+            }
+        }
+        .fuse();
+        futures::pin_mut!(dir_lookup);
 
         let mut file_state = None;
 
