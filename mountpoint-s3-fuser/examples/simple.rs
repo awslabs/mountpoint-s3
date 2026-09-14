@@ -479,8 +479,10 @@ impl Filesystem for SimpleFS {
         _req: &Request,
         #[allow(unused_variables)] config: &mut KernelConfig,
     ) -> Result<(), c_int> {
+        // Not all FUSE implementations offer FUSE_HANDLE_KILLPRIV (e.g. FUSE-T);
+        // proceed without it if unavailable.
         #[cfg(feature = "abi-7-26")]
-        config.add_capabilities(FUSE_HANDLE_KILLPRIV).unwrap();
+        let _ = config.add_capabilities(FUSE_HANDLE_KILLPRIV);
 
         fs::create_dir_all(Path::new(&self.data_dir).join("inodes")).unwrap();
         fs::create_dir_all(Path::new(&self.data_dir).join("contents")).unwrap();

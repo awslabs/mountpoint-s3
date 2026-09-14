@@ -12,6 +12,7 @@ use crate::prefetch::PrefetchGetObject;
 use crate::sync::{Arc, AsyncMutex};
 use crate::upload::{AppendUploadRequest, UploadRequest};
 
+use super::reorder::{Accepted, WriteReorderBuffer};
 use super::{Error, InodeNo, OpenFlags, S3Filesystem, ToErrno};
 
 #[derive(Debug)]
@@ -49,6 +50,9 @@ where
     /// The file handle has been assigned as a write handle
     Write {
         state: UploadState<Client>,
+        /// Puts writes back in offset order before they reach `state`, which can only accept
+        /// them sequentially.
+        reorder: WriteReorderBuffer,
         /// Set to true when `flush` called on the handle, and unset on a `write`
         flushed: bool,
         /// Slot reserved on the [`crate::memory::WriteHandleLimiter`] for this
@@ -95,6 +99,7 @@ where
                 let is_truncate = flags.contains(OpenFlags::O_TRUNC);
                 let write_mode = fs.config.write_mode();
 
+                let mut start_offset = 0;
                 let upload_state = if write_mode.incremental_upload {
                     let initial_etag = if is_truncate {
                         None
@@ -102,6 +107,7 @@ where
                         stat.etag.as_ref().map(|e| e.into())
                     };
                     let current_offset = if is_truncate { 0 } else { stat.size as u64 };
+                    start_offset = current_offset;
                     let request = fs.uploader.start_incremental_upload(
                         bucket.to_string(),
                         full_key.into(),
@@ -122,6 +128,7 @@ where
                 };
                 let handle = FileHandleState::Write {
                     state: upload_state,
+                    reorder: WriteReorderBuffer::new(start_offset),
                     flushed: false,
                     _write_slot: write_slot,
                 };
@@ -151,7 +158,48 @@ impl<Client> UploadState<Client>
 where
     Client: ObjectClient + Send + Sync + Clone + 'static,
 {
+    /// Write `data` at `offset`, holding it back if it arrived ahead of the offset the upload is
+    /// waiting for and releasing whatever `reorder` has been holding once the gap closes.
+    ///
+    /// The returned length covers only `data`: a buffered write is acknowledged to the caller
+    /// straight away, and reaches S3 when the writes before it arrive.
     pub async fn write(
+        &mut self,
+        fs: &S3Filesystem<Client>,
+        handle: &FileHandle<Client>,
+        reorder: &mut WriteReorderBuffer,
+        offset: i64,
+        data: &[u8],
+        fh: u64,
+    ) -> Result<u32, Error> {
+        // An upload that is over cannot take any write, not even one that would otherwise be
+        // absorbed here, so let it report why.
+        if matches!(self, UploadState::Completed | UploadState::Failed(_)) {
+            return self.write_sequential(fs, handle, offset, data, fh).await;
+        }
+
+        match reorder.accept(offset as u64, data) {
+            Some(Accepted::Duplicate) => {
+                debug!(offset, len = data.len(), key=%handle.location, "ignoring a retransmitted write");
+                return Ok(data.len() as u32);
+            }
+            Some(Accepted::Buffered) => return Ok(data.len() as u32),
+            Some(Accepted::Sequential) => {}
+            // Too far out of order to be reordering. Hand the write to the upload anyway, so that
+            // it reports the offset it wanted and aborts as it would without any buffering.
+            None => return self.write_sequential(fs, handle, offset, data, fh).await,
+        }
+
+        let written = self.write_sequential(fs, handle, offset, data, fh).await?;
+        reorder.advance(written as usize);
+        while let Some((offset, buffered)) = reorder.take_next() {
+            let released = self.write_sequential(fs, handle, offset as i64, &buffered, fh).await?;
+            reorder.advance(released as usize);
+        }
+        Ok(written)
+    }
+
+    async fn write_sequential(
         &mut self,
         fs: &S3Filesystem<Client>,
         handle: &FileHandle<Client>,
@@ -196,6 +244,17 @@ where
                 }
                 Err(e)
             }
+        }
+    }
+
+    /// Abandon the upload without writing an object, so that later calls on the handle report
+    /// `errno`.
+    pub async fn abort(&mut self, fs: &S3Filesystem<Client>, handle: &FileHandle<Client>, fh: u64, errno: libc::c_int) {
+        match std::mem::replace(self, UploadState::Failed(errno)) {
+            UploadState::MPUInProgress { .. } | UploadState::AppendInProgress { .. } => {
+                Self::finish_on_error(fs.metablock.clone(), handle.ino, &handle.location, fh).await;
+            }
+            UploadState::Failed(_) | UploadState::Completed => {}
         }
     }
 

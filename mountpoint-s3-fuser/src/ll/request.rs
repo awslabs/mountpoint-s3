@@ -422,7 +422,7 @@ mod op {
             }
         }
         pub fn crtime(&self) -> Option<SystemTime> {
-            #[cfg(target_os = "macos")]
+            #[cfg(fuser_macfuse_abi)]
             match self.arg.valid & FATTR_CRTIME {
                 0 => None,
                 // During certain operation, macOS use some helper that send request to the mountpoint with `crtime` set to 0xffffffff83da4f80.
@@ -433,22 +433,22 @@ mod op {
                     SystemTime::UNIX_EPOCH + Duration::new(self.arg.crtime, self.arg.crtimensec),
                 ),
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(fuser_macfuse_abi))]
             None
         }
         pub fn chgtime(&self) -> Option<SystemTime> {
-            #[cfg(target_os = "macos")]
+            #[cfg(fuser_macfuse_abi)]
             match self.arg.valid & FATTR_CHGTIME {
                 0 => None,
                 _ => Some(
                     SystemTime::UNIX_EPOCH + Duration::new(self.arg.chgtime, self.arg.chgtimensec),
                 ),
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(fuser_macfuse_abi))]
             None
         }
         pub fn bkuptime(&self) -> Option<SystemTime> {
-            #[cfg(target_os = "macos")]
+            #[cfg(fuser_macfuse_abi)]
             match self.arg.valid & FATTR_BKUPTIME {
                 0 => None,
                 _ => Some(
@@ -456,16 +456,16 @@ mod op {
                         + Duration::new(self.arg.bkuptime, self.arg.bkuptimensec),
                 ),
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(fuser_macfuse_abi))]
             None
         }
         pub fn flags(&self) -> Option<u32> {
-            #[cfg(target_os = "macos")]
+            #[cfg(fuser_macfuse_abi)]
             match self.arg.valid & FATTR_FLAGS {
                 0 => None,
                 _ => Some(self.arg.flags),
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(fuser_macfuse_abi))]
             None
         }
 
@@ -823,9 +823,9 @@ mod op {
         /// This will always be 0 except on MacOS.  It's recommended that
         /// implementations return EINVAL if this is not 0.
         pub fn position(&self) -> u32 {
-            #[cfg(target_os = "macos")]
+            #[cfg(fuser_macfuse_abi)]
             return self.arg.position;
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(fuser_macfuse_abi))]
             0
         }
     }

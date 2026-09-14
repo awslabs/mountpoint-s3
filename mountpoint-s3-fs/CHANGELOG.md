@@ -1,6 +1,23 @@
 ## Unreleased
 
 * Fix existing directories incorrectly appearing as missing when S3 returns an empty page of listing results. Mountpoint now checks subsequent pages before deciding a directory does not exist. ([#1954](https://github.com/awslabs/mountpoint-s3/pull/1954))
+* The file system now supports hosts that reach the mount over NFS, which is how FUSE-T serves a
+  mount on macOS. Writes for a file may arrive out of order there, so a write handle holds early
+  writes in a bounded buffer (8 MiB) and releases them once the gap before them is filled; `FSYNC` no
+  longer completes a multipart upload, since the NFS client sends it while the file is still being
+  written; a `setattr` that sets the size to 0 after the file was opened turns the handles open on it
+  into write handles, which is what an `O_TRUNC` open would have done; and `lookup` resolves `.` and
+  `..`, which an NFS server asks for and a FUSE kernel never does.
+* `InodeError::RenameNotSupported` now maps to `EXDEV` rather than `ENOSYS` on such a host, because
+  the NFS client turns `ENOSYS` into a misleading `EPERM`, and because tools such as `mv` answer
+  `EXDEV` by copying the file and unlinking the source.
+* `statfs` now reports a fragment size rather than leaving it at 0 for the host to fill in. Linux
+  substitutes the block size when the fragment size is 0, but a host that reaches the mount over NFS
+  multiplies the block count by it and so sees a file system with no space left, which made writes to
+  the mount fail with `ENOSPC` on macOS.
+* Creating a file whose name begins with `._` is refused on macOS. These are the AppleDouble sidecars
+  the operating system stores extended attributes in, and they are written by being rewritten in
+  place, which an S3 object cannot be.
 
 ## v0.11.0 (August 24, 2026)
 

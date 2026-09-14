@@ -26,7 +26,14 @@ use crate::{channel::ChannelSender, notify::Notifier};
 /// The max size of write requests from the kernel. The absolute minimum is 4k,
 /// FUSE recommends at least 128k, max 16M. The FUSE default is 16M on macOS
 /// and 128k on other systems.
+#[cfg(not(fuser_fuse_t))]
 pub const MAX_WRITE_SIZE: usize = 16 * 1024 * 1024;
+
+/// FUSE-T presents the mount to the host through the macOS NFS client, which caps a single
+/// I/O at `vfs.generic.nfs.client.iosize` (1 MiB), so it never sends a larger write. Asking
+/// for more only inflates the per-worker receive buffer.
+#[cfg(fuser_fuse_t)]
+pub const MAX_WRITE_SIZE: usize = 1024 * 1024;
 
 /// Size of the buffer for reading a request from the kernel. Since the kernel may send
 /// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
@@ -205,7 +212,10 @@ impl<FS: Filesystem> Session<FS> {
                         after_dispatch(&req);
                     }
                     // Quit loop on illegal request
-                    None => break,
+                    None => {
+                        warn!("session loop exiting: unparseable request of {size} bytes");
+                        break;
+                    }
                 },
                 Err(err) => match err.raw_os_error() {
                     // Operation interrupted. Accordingly to FUSE, this is safe to retry
@@ -215,7 +225,10 @@ impl<FS: Filesystem> Session<FS> {
                     // Explicitly try again
                     Some(EAGAIN) => continue,
                     // Filesystem was unmounted, quit the loop
-                    Some(ENODEV) => break,
+                    Some(ENODEV) => {
+                        info!("filesystem was unmounted, ending session loop");
+                        break;
+                    }
                     // Unhandled error
                     _ => return Err(err),
                 },
