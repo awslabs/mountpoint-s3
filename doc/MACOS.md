@@ -88,7 +88,10 @@ mount-s3 my-bucket ~/s3 --region us-east-1
 ```
 
 `mount-s3` needs both a bucket and an existing directory to mount it on; run with no arguments it
-only prints its usage.
+only prints its usage. That mount is read-only for objects that already exist: add
+`--allow-overwrite --allow-delete` to replace and move files as well as create them, which is what
+Finder needs to copy over a file that is already there. See
+[Replacing or moving a file](#replacing-or-moving-a-file-needs---allow-delete-as-well-as---allow-overwrite).
 
 `umount ~/s3` unmounts it. FUSE-T writes its own logs to `~/Library/Logs/fuse-t/`, which is the
 first place to look if a mount never appears.
@@ -171,12 +174,41 @@ still cannot save; write over the file in place instead, which works with `--all
 Finder's own `.DS_Store` is written whole the first time and then rewritten in place, which fails
 with `EIO`. Nothing else is affected when it does, and Finder keeps working without it.
 
+### Replacing or moving a file needs `--allow-delete` as well as `--allow-overwrite`
+
+Copying over a file that already exists does not reach Mountpoint as an overwrite. Finder unlinks the
+destination first and then writes a new file, and `mv` — which resolves to a copy here, as described
+above — unlinks the source once the copy has finished. Both steps are deletes, so both need
+`--allow-delete`; without it Finder reports "you don't have permission to access some of the items"
+and the Mountpoint log shows `unlink failed with errno 1: Deletes are disabled`.
+
+`--allow-overwrite` covers the other route to the same end, an application that opens the existing
+file and truncates it. Pass both flags to have replacing and moving files work the way the Finder
+does them:
+
+```
+mount-s3 amzn-s3-demo-bucket ~/s3/amzn-s3-demo-bucket --allow-overwrite --allow-delete
+```
+
+### Setting a file's times after writing it is accepted and discarded
+
+macOS copies a file by writing it, closing it, and only then applying the mode and modification times
+of the original. By the time that last step arrives the object has been uploaded and Mountpoint keeps
+no metadata it could change, so on macOS the request is accepted and has no effect rather than being
+refused. Refusing it made Finder and `cp` report a complete copy as failed — the times of the copy
+come from the object, so they are the time it was written rather than the time of the original.
+
+`touch` on an object Mountpoint did not write is accepted and discarded for the same reason, where on
+Linux it fails with `EPERM`.
+
 ## What is not supported
 
 * Renaming as a metadata operation. `rename` reports `EXDEV` on macOS and `ENOSYS` on Linux, because
   it needs the `RenameObject` API that only directory buckets have. `mv` still succeeds on macOS by
   copying, as described [above](#renaming-is-answered-with-exdev-so-applications-copy-instead).
-* `touch` and anything else that sets a file's times fails with `EPERM` on an object Mountpoint did
-  not write in this session, as it does on Linux: the times come from the object.
+* Setting a file's times. `touch` and anything else that sets them is accepted and discarded on an
+  object Mountpoint did not write in this session, where on Linux it fails with `EPERM`; either way
+  the times come from the object, as described
+  [above](#setting-a-files-times-after-writing-it-is-accepted-and-discarded).
 * Extended attributes, and so the AppleDouble sidecars macOS stores them in, as described above.
 * Everything listed as unsupported in [SEMANTICS.md](SEMANTICS.md) is unsupported here as well.
