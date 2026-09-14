@@ -11,6 +11,11 @@
 * `InodeError::RenameNotSupported` now maps to `EXDEV` rather than `ENOSYS` on such a host, because
   the NFS client turns `ENOSYS` into a misleading `EPERM`, and because tools such as `mv` answer
   `EXDEV` by copying the file and unlinking the source.
+* A `setattr` that only sets a file's timestamps is accepted as a no-op on a host reaching the mount
+  over NFS, rather than refused, when the object it names has already been uploaded. macOS copies a
+  file by writing it, closing it — which uploads the object and seals the inode — and only then
+  applying its mode and modification times; refusing that last step made `Finder` and `cp` report an
+  otherwise complete copy as failed.
 * `statfs` now reports a fragment size rather than leaving it at 0 for the host to fill in. Linux
   substitutes the block size when the fragment size is 0, but a host that reaches the mount over NFS
   multiplies the block count by it and so sees a file system with no space left, which made writes to

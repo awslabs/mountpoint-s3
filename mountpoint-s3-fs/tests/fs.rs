@@ -521,6 +521,35 @@ async fn test_overwrite_needs_a_truncating_setattr() {
     assert_eq!(&get.collect().await.unwrap()[..], b"second version");
 }
 
+/// macOS copies a file by writing it, closing it, and only then applying its mode and timestamps.
+/// By the time those arrive the object has been uploaded and the inode is remote, so the `setattr`
+/// naming the timestamps lands on an inode Mountpoint can no longer change. There is nothing to
+/// persist a timestamp to on a remote object, so on an NFS host the request is accepted as a no-op
+/// rather than failed, which is what stops the copy being reported as a failure. Elsewhere it stays
+/// an error, since only an NFS client sends the metadata after the close.
+#[tokio::test]
+async fn test_setattr_times_on_remote_inode() {
+    let (client, fs) = make_test_filesystem(
+        "test_setattr_times_on_remote_inode",
+        &Default::default(),
+        Default::default(),
+    );
+    client.add_object("file.txt", b"hello".into());
+
+    let lookup = fs.lookup(FUSE_ROOT_INODE, "file.txt".as_ref()).await.unwrap();
+    let now = time::OffsetDateTime::now_utc();
+    let result = fs.setattr(lookup.attr.ino, Some(now), Some(now), None, None).await;
+    if fuser::HOST_IS_NFS_CLIENT {
+        let attr = result.expect("setting times on an uploaded object is a no-op, not a failure");
+        assert_eq!(attr.attr.size, lookup.attr.size);
+    } else {
+        let err_no = result
+            .expect_err("a remote object's timestamps cannot be changed")
+            .to_errno();
+        assert_eq!(err_no, libc::EPERM, "expected EPERM but got {err_no:?}");
+    }
+}
+
 #[test_case(1024 * 1024; "small")]
 #[test_case(50 * 1024 * 1024; "large")]
 #[tokio::test]

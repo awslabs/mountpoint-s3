@@ -366,6 +366,15 @@ where
                     "file overwrite is disabled by default, you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it"
                 ));
             }
+            // macOS copies a file by writing it, closing it — which uploads the object and seals the
+            // inode — and only then applying its mode and timestamps together. Mountpoint keeps
+            // neither on a remote object, so there is nothing to apply; refusing the request only
+            // makes the copy report as failed, the same reasoning as the mode-only case above. When
+            // no size is being set, so this is not a truncation, answer with the attributes the
+            // inode already has rather than an error.
+            (Err(InodeError::SetAttrNotPermittedOnRemoteInode(_)), None) if fuser::HOST_IS_NFS_CLIENT => {
+                return self.getattr(ino).await;
+            }
             (Err(e), _) => return Err(e.into()),
         };
         let ttl = lookup.validity();
