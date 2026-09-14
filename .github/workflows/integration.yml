@@ -96,7 +96,7 @@ jobs:
         # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
         allow-unsafe-pr-checkout: true
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
@@ -162,7 +162,7 @@ jobs:
         # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
         allow-unsafe-pr-checkout: true
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
@@ -229,7 +229,7 @@ jobs:
           # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
           allow-unsafe-pr-checkout: true
       - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
           # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
           # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
@@ -274,7 +274,7 @@ jobs:
         # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
         allow-unsafe-pr-checkout: true
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
@@ -327,7 +327,7 @@ jobs:
           # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
           allow-unsafe-pr-checkout: true
       - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
           rustflags: ""
       - name: Install operating system dependencies
