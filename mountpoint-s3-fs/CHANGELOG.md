@@ -20,6 +20,10 @@
   substitutes the block size when the fragment size is 0, but a host that reaches the mount over NFS
   multiplies the block count by it and so sees a file system with no space left, which made writes to
   the mount fail with `ENOSPC` on macOS.
+* `rmdir` on a directory that has already vanished from S3 — an implicit directory disappears the
+  moment its last object is deleted — now succeeds on a host reaching the mount over NFS instead of
+  returning `ENOENT`. The NFS client answers that `ENOENT` by dropping cached entries of the parent
+  it has not yet visited, so a recursive delete (`rm -rf`, Finder) silently skipped files.
 * Creating a file whose name begins with `._` is refused on macOS. These are the AppleDouble sidecars
   the operating system stores extended attributes in, and they are written by being rewritten in
   place, which an S3 object cannot be.

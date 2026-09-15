@@ -190,6 +190,14 @@ does them:
 mount-s3 amzn-s3-demo-bucket ~/s3/amzn-s3-demo-bucket --allow-overwrite --allow-delete
 ```
 
+### `rmdir` on a directory that no longer exists succeeds
+
+An implicit S3 directory disappears the moment its last object is deleted, so by the time `rm -rf`
+or Finder gets to removing an emptied directory it may already be gone. Mountpoint answers that
+`rmdir` with success rather than `ENOENT`: the NFS client reacts to `ENOENT` by dropping cached
+entries of the parent directory it has not yet visited, which made a recursive delete silently skip
+files. Directories that still hold objects are refused with `EPERM` as on Linux.
+
 ### Setting a file's times after writing it is accepted and discarded
 
 macOS copies a file by writing it, closing it, and only then applying the mode and modification times

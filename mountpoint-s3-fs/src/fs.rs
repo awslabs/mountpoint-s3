@@ -886,8 +886,13 @@ where
         if let Some(err) = self.read_only_error() {
             return Err(err);
         }
-        self.metablock.rmdir(parent_ino, name).await?;
-        Ok(())
+        match self.metablock.rmdir(parent_ino, name).await {
+            // Emptying an implicit S3 directory already removes it. Replying ENOENT here makes
+            // the NFS client drop unvisited entries of the parent, so recursive deletes silently
+            // skip files.
+            Err(InodeError::FileDoesNotExist(..)) if fuser::HOST_IS_NFS_CLIENT => Ok(()),
+            result => result.map_err(Into::into),
+        }
     }
 
     pub async fn releasedir(&self, _ino: InodeNo, fh: u64, _flags: i32) -> Result<(), Error> {
