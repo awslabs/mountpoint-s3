@@ -211,7 +211,7 @@ pub async fn get_mpu_count_for_key(
     bucket: &str,
     prefix: &str,
     key: &str,
-) -> Result<usize, SdkError<ListMultipartUploadsError, HttpResponse>> {
+) -> Result<usize, Box<SdkError<ListMultipartUploadsError, HttpResponse>>> {
     // This could be broken if we have initiated more than one multipart upload using the same key
     // since ListMultipartUploads returns all multipart uploads for that key.
     let upload_count = client

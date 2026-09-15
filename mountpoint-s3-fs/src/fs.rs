@@ -291,7 +291,7 @@ where
             .map_err(|err| match err {
                 InodeError::FileDoesNotExist(_, _) => {
                     // Lookup returning ENOENT is common case, and we dont want to warn in case `FileDoesNotExist` within ENOENT
-                    err!(libc::ENOENT, source: err, Level::DEBUG, metadata: ErrorMetadata{error_code: Some(MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT.to_string()), ..Default::default()}, "file does not exist")
+                    err!(libc::ENOENT, source: err, Level::DEBUG, metadata: Box::new(ErrorMetadata{error_code: Some(MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT.to_string()), ..Default::default()}), "file does not exist")
                 }
                 _ => err.into(),
             })?;

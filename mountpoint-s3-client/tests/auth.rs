@@ -417,12 +417,12 @@ async fn test_credential_process_behind_source_profile_async() {
         writeln!(config_file, "[profile {correct}]").unwrap();
         writeln!(config_file, "role_arn={}", get_subsession_iam_role()).unwrap();
         writeln!(config_file, "source_profile={correct_source_profile}").unwrap();
-        writeln!(config_file, "region={}", &get_test_region()).unwrap();
+        writeln!(config_file, "region={}", get_test_region()).unwrap();
         let incorrect = "incorrect-profile";
         writeln!(config_file, "[profile {incorrect}]").unwrap();
         writeln!(config_file, "role_arn={}", get_subsession_iam_role()).unwrap();
         writeln!(config_file, "source_profile={incorrect_source_profile}").unwrap();
-        writeln!(config_file, "region={}", &get_test_region()).unwrap();
+        writeln!(config_file, "region={}", get_test_region()).unwrap();
         (correct, incorrect)
     };
 

@@ -213,7 +213,7 @@ mod tests {
                 metadata: Box::default(),
             })),
             level: tracing::Level::WARN,
-            metadata: ErrorMetadata {
+            metadata: Box::new(ErrorMetadata {
                 client_error_meta: ClientErrorMetadata {
                     http_code: Some(404),
                     error_code: Some("NoSuchKey".to_string()),
@@ -222,7 +222,7 @@ mod tests {
                 error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
                 s3_bucket_name: Some("amzn-s3-demo-bucket".to_string()),
                 s3_object_key: Some("key".to_string()),
-            },
+            }),
         }];
         let mut expected_events = [Event {
             timestamp: OffsetDateTime::now_utc(),

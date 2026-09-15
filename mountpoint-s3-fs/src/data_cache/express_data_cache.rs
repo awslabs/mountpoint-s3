@@ -140,7 +140,7 @@ where
     }
 
     pub async fn verify_cache_valid(&self) -> Result<(), DataCacheError> {
-        let object_key = format!("{}/_mountpoint_cache_metadata", &self.prefix);
+        let object_key = format!("{}/_mountpoint_cache_metadata", self.prefix);
         // This data is human-readable, and not expected to be read by Mountpoint.
         // The file format used here is NOT stable.
         // For now, let's just include the data that's guaranteed to be correct as it's what
