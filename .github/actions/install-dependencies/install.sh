@@ -91,7 +91,12 @@ install_otel_collector() {
         ARCH="arm64"
     fi
 
-    local VERSION=$(curl -s https://api.github.com/repos/open-telemetry/opentelemetry-collector-releases/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+    local VERSION
+    if [[ -n "${OVERRIDE_OTEL_COLLECTOR_VERSION:-}" ]]; then
+        VERSION="${OVERRIDE_OTEL_COLLECTOR_VERSION#v}"
+    else
+        VERSION=$(curl -s https://api.github.com/repos/open-telemetry/opentelemetry-collector-releases/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+    fi
     echo "Installing OpenTelemetry Collector version: $VERSION for $OS/$ARCH"
     local URL="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${VERSION}/otelcol_${VERSION}_${OS}_${ARCH}.tar.gz"
     curl -L "$URL" -o /tmp/otelcol.tar.gz
