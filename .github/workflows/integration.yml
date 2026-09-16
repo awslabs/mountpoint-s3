@@ -100,9 +100,8 @@ jobs:
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
       with:
-        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-        # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
-        rustflags: ""
+        # Allow warnings in `mountpoint-s3-fuser`.
+        build-warnings: "warn"
     - name: Install nextest
       uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff # v2.87.8
       with:
@@ -166,9 +165,8 @@ jobs:
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
       with:
-        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-        # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
-        rustflags: ""
+        # Allow warnings in `mountpoint-s3-fuser`.
+        build-warnings: "warn"
     - name: Install nextest
       uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff # v2.87.8
       with:
@@ -233,9 +231,8 @@ jobs:
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
-          # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-          # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
-          rustflags: ""
+          # Allow warnings in `mountpoint-s3-fuser`.
+          build-warnings: "warn"
       - name: Install operating system dependencies
         uses: ./.github/actions/install-dependencies
         with:
@@ -278,9 +275,8 @@ jobs:
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
       with:
-        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-        # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
-        rustflags: ""
+        # Allow warnings in `mountpoint-s3-fuser`.
+        build-warnings: "warn"
         components: rust-src
     - name: Install nextest
       uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff # v2.87.8
@@ -331,7 +327,8 @@ jobs:
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
-          rustflags: ""
+          # Allow warnings in `mountpoint-s3-fuser`.
+          build-warnings: "warn"
       - name: Install operating system dependencies
         uses: ./.github/actions/install-dependencies
         with:
