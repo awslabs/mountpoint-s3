@@ -31,9 +31,10 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::{FutureExt, select_biased};
 use mountpoint_s3_client::ObjectClient;
-use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError, RenameObjectError};
+use mountpoint_s3_client::error::{HeadObjectError, ListObjectsError, ObjectClientError, RenameObjectError};
 use mountpoint_s3_client::types::{
-    ETag, HeadObjectParams, HeadObjectResult, RenameObjectParams, RenamePreconditionTypes,
+    ETag, HeadObjectParams, HeadObjectResult, ListObjectsResult, ObjectClientResult, RenameObjectParams,
+    RenamePreconditionTypes,
 };
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -1559,33 +1560,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
             .client
             .head_object(&self.s3_path.bucket, object_key, &head_object_params)
             .fuse();
-        let dir_lookup = async {
-            let mut continuation_token = None;
-            loop {
-                let result = self
-                    .client
-                    .list_objects(
-                        &self.s3_path.bucket,
-                        continuation_token.as_deref(),
-                        "/",
-                        1,
-                        directory_prefix,
-                    )
-                    .await;
-                match &result {
-                    // An empty page is not proof that the directory is absent if S3 has more pages.
-                    Ok(page)
-                        if page.objects.is_empty()
-                            && page.common_prefixes.is_empty()
-                            && page.next_continuation_token.is_some() =>
-                    {
-                        continuation_token = page.next_continuation_token.clone();
-                    }
-                    _ => return result,
-                }
-            }
-        }
-        .fuse();
+        let dir_lookup = lookup_directory(&self.client, &self.s3_path.bucket, directory_prefix).fuse();
         futures::pin_mut!(dir_lookup);
 
         let mut file_state = None;
@@ -1919,6 +1894,35 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
         }
 
         Ok(inode)
+    }
+}
+
+/// List a directory until a nonempty page is found or the listing is exhausted.
+///
+/// S3 can return empty `ListObjectsV2` pages with continuation tokens, so an empty page alone
+/// does not prove the directory is absent. Follow those tokens until an object or common prefix
+/// proves the directory exists, or there are no more pages. Only existence is needed, so stop
+/// at the first nonempty page rather than listing the entire directory.
+async fn lookup_directory<OC: ObjectClient>(
+    client: &OC,
+    bucket: &str,
+    directory_prefix: &str,
+) -> ObjectClientResult<ListObjectsResult, ListObjectsError, OC::ClientError> {
+    let mut continuation_token = None;
+    loop {
+        let result = client
+            .list_objects(bucket, continuation_token.as_deref(), "/", 1, directory_prefix)
+            .await;
+        match &result {
+            Ok(page)
+                if page.objects.is_empty()
+                    && page.common_prefixes.is_empty()
+                    && page.next_continuation_token.is_some() =>
+            {
+                continuation_token = page.next_continuation_token.clone();
+            }
+            _ => return result,
+        }
     }
 }
 
