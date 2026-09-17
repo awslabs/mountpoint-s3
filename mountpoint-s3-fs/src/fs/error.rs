@@ -79,7 +79,7 @@ pub struct Error {
     pub(crate) message: String,
     pub(crate) source: Option<anyhow::Error>,
     pub(crate) level: Level,
-    pub(crate) metadata: ErrorMetadata,
+    pub(crate) metadata: Box<ErrorMetadata>,
 }
 
 impl std::fmt::Display for Error {
@@ -96,14 +96,14 @@ impl std::fmt::Display for Error {
 impl From<InodeError> for Error {
     fn from(err: InodeError) -> Self {
         let errno = err.to_errno();
-        let metadata = err.meta().clone();
+        let metadata = err.meta();
         Error {
             errno,
             message: String::from("inode error"),
             source: Some(anyhow::anyhow!(err)),
             // We are having WARN as the default level of logging for fuse errors
             level: Level::WARN,
-            metadata,
+            metadata: metadata.into(),
         }
     }
 }
@@ -126,11 +126,11 @@ impl<E: std::error::Error + Send + Sync + 'static> From<PrefetchReadError<E>> fo
     fn from(err: PrefetchReadError<E>) -> Self {
         match err {
             PrefetchReadError::GetRequestFailed {
-                source: ObjectClientError::ServiceError(GetObjectError::PreconditionFailed(_)),
+                source: source @ ObjectClientError::ServiceError(GetObjectError::PreconditionFailed(_)),
                 metadata,
-            } => err!(libc::ESTALE, __source:None, Level::WARN, (*metadata).clone(), "object was mutated remotely",),
+            } => err!(libc::ESTALE, source:source, Level::WARN, metadata:metadata, "object was mutated remotely"),
             PrefetchReadError::GetRequestFailed { source, metadata } => {
-                err!(libc::EIO, source:source, Level::WARN, metadata:(*metadata).clone(), "get request failed")
+                err!(libc::EIO, source:source, Level::WARN, metadata:metadata, "get request failed")
             }
             PrefetchReadError::Integrity(e) => err!(libc::EIO, source:e, "integrity error"),
             PrefetchReadError::PartReadFailed(e) => err!(libc::EIO, source:e, "part read failed"),

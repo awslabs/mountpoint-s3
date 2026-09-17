@@ -95,14 +95,14 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
 
                 let mut pipe_file = File::from(write_fd);
 
-                let status_success = [b'0'];
-                let status_failure = [b'1'];
+                let status_success = b"0";
+                let status_failure = b"1";
 
                 match session {
                     Ok(session) => {
                         tracing::trace!("FUSE session created OK, sending message back to parent process");
                         pipe_file
-                            .write(&status_success)
+                            .write(status_success)
                             .context("Failed to write data to the pipe")?;
                         drop(pipe_file);
                         tracing::trace!("message sent back to parent process");
@@ -118,7 +118,7 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
                     Err(e) => {
                         tracing::trace!("FUSE session creation failed, sending message back to parent process");
                         pipe_file
-                            .write(&status_failure)
+                            .write(status_failure)
                             .context("Failed to write data to the pipe")?;
                         tracing::trace!("message sent back to parent process");
                         return Err(anyhow!(e));

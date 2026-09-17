@@ -97,7 +97,7 @@ fn main() {
     init_tracing_subscriber();
     let args = UploadBenchmarkArgs::parse();
 
-    println!("starting upload benchmark with {:?}", &args);
+    println!("starting upload benchmark with {:?}", args);
 
     let mut endpoint_config = EndpointConfig::new(&args.region);
     if let Some(url) = &args.endpoint_url {

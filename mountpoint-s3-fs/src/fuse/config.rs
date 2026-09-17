@@ -119,12 +119,12 @@ impl MountPoint {
         let fd_info = match process.fd_from_fd(fd) {
             Ok(fd_info) => fd_info,
             Err(ProcError::NotFound(_)) => {
-                return Err(anyhow!("mount point {} is not a valid file descriptor", &mount_point));
+                return Err(anyhow!("mount point {} is not a valid file descriptor", mount_point));
             }
             Err(err) => {
                 return Err(anyhow!(
                     "failed to get file descriptor information for mount point {}: {}",
-                    &mount_point,
+                    mount_point,
                     err
                 ));
             }
@@ -132,7 +132,7 @@ impl MountPoint {
         let FDTarget::Path(path) = &fd_info.target else {
             return Err(anyhow!(
                 "expected mount point {} to be a {} device file descriptor but got {:?}",
-                &mount_point,
+                mount_point,
                 FUSE_DEV,
                 fd_info.target
             ));
@@ -140,7 +140,7 @@ impl MountPoint {
         if path != &PathBuf::from(FUSE_DEV) {
             return Err(anyhow!(
                 "expected mount point {} to be a {} file descriptor but got {}",
-                &mount_point,
+                mount_point,
                 FUSE_DEV,
                 path.display()
             ));
@@ -149,7 +149,7 @@ impl MountPoint {
         if !fd_info.mode().contains(FDPermissions::READ | FDPermissions::WRITE) {
             return Err(anyhow!(
                 "expected mount point {} file descriptor to have read and write permissions but got {:?}",
-                &mount_point,
+                mount_point,
                 fd_info.mode()
             ));
         }
