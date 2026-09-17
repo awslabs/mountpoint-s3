@@ -1,5 +1,7 @@
 ## Unreleased
 
+* Add `ObjectClient::poll_client_metrics` (default no-op). `S3CrtClient` implements it to emit `s3.client.*` metrics, which are no longer sampled at meta-request creation. ([#1957](https://github.com/awslabs/mountpoint-s3/pull/1957))
+
 ## v0.22.0 (August 24, 2026)
 
 ### Breaking changes

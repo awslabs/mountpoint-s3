@@ -1,5 +1,7 @@
 ## Unreleased
 
+* Fix S3 CRT client metrics (`s3.client.*`) not updating on every metrics publication cycle for requests lasting longer than five seconds. These gauges are now sampled when metrics are published, rather than only when a new S3 request starts. ([#1957](https://github.com/awslabs/mountpoint-s3/pull/1957))
+
 ## v1.24.0 (August 24, 2026)
 
 ### New features

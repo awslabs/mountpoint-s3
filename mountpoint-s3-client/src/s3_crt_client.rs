@@ -425,6 +425,14 @@ impl S3CrtClient {
     pub fn event_loop_group(&self) -> EventLoopGroup {
         self.inner.event_loop_group.clone()
     }
+
+    /// Sample CRT client metrics and emit them to the metrics facade.
+    ///
+    /// Intended to be invoked by the metrics publisher on each publication cycle, not when
+    /// individual meta requests are created.
+    pub fn poll_client_metrics(&self) {
+        self.inner.emit_client_metrics();
+    }
 }
 
 #[derive(Debug)]
@@ -843,7 +851,6 @@ impl S3CrtClientInner {
 
         // Issue the HTTP request using the CRT's S3 meta request API
         let meta_request = self.s3_client.make_meta_request(options)?;
-        Self::poll_client_metrics(&self.s3_client);
         Ok(CancellingMetaRequest::wrap(meta_request))
     }
 
@@ -961,7 +968,8 @@ impl S3CrtClientInner {
         })
     }
 
-    fn poll_client_metrics(s3_client: &Client) {
+    fn emit_client_metrics(&self) {
+        let s3_client = &self.s3_client;
         let metrics = s3_client.poll_client_metrics();
         metrics::gauge!("s3.client.num_requests_being_processed").set(metrics.num_requests_tracked_requests as f64);
         metrics::gauge!("s3.client.num_requests_being_prepared").set(metrics.num_requests_being_prepared as f64);
@@ -1604,6 +1612,10 @@ impl ObjectClient for S3CrtClient {
             })
     }
 
+    fn poll_client_metrics(&self) {
+        S3CrtClient::poll_client_metrics(self);
+    }
+
     async fn delete_object(
         &self,
         bucket: &str,
@@ -1876,6 +1888,125 @@ mod tests {
         let header = Header::new("Content-Range", range);
         headers.add_header(&header).unwrap();
         extract_range_header(&headers)
+    }
+
+    #[test]
+    fn poll_client_metrics_emits_s3_client_gauges() {
+        use metrics::{
+            Counter, CounterFn, Gauge, GaugeFn, Histogram, HistogramFn, Key, KeyName, Metadata, Recorder, SharedString,
+            Unit, with_local_recorder,
+        };
+        use std::collections::{HashMap, HashSet};
+        use std::sync::{Arc, Mutex};
+
+        #[derive(Clone, Default)]
+        struct CapturingRecorder {
+            inner: Arc<Mutex<Captured>>,
+        }
+
+        #[derive(Debug, Default)]
+        struct Captured {
+            gauges: HashMap<String, f64>,
+            histograms: HashSet<String>,
+        }
+
+        #[derive(Debug)]
+        struct CaptureGauge {
+            name: String,
+            inner: Arc<Mutex<Captured>>,
+        }
+
+        #[derive(Debug)]
+        struct CaptureHistogram {
+            name: String,
+            inner: Arc<Mutex<Captured>>,
+        }
+
+        #[derive(Debug)]
+        struct NoopCounter;
+
+        impl CounterFn for NoopCounter {
+            fn increment(&self, _value: u64) {}
+            fn absolute(&self, _value: u64) {}
+        }
+
+        impl GaugeFn for CaptureGauge {
+            fn increment(&self, _value: f64) {}
+            fn decrement(&self, _value: f64) {}
+            fn set(&self, value: f64) {
+                self.inner.lock().unwrap().gauges.insert(self.name.clone(), value);
+            }
+        }
+
+        impl HistogramFn for CaptureHistogram {
+            fn record(&self, _value: f64) {
+                self.inner.lock().unwrap().histograms.insert(self.name.clone());
+            }
+        }
+
+        impl Recorder for CapturingRecorder {
+            fn describe_counter(&self, _key: KeyName, _unit: Option<Unit>, _description: SharedString) {}
+            fn describe_gauge(&self, _key: KeyName, _unit: Option<Unit>, _description: SharedString) {}
+            fn describe_histogram(&self, _key: KeyName, _unit: Option<Unit>, _description: SharedString) {}
+
+            fn register_counter(&self, _key: &Key, _metadata: &Metadata<'_>) -> Counter {
+                Counter::from_arc(Arc::new(NoopCounter))
+            }
+
+            fn register_gauge(&self, key: &Key, _metadata: &Metadata<'_>) -> Gauge {
+                Gauge::from_arc(Arc::new(CaptureGauge {
+                    name: key.name().to_string(),
+                    inner: Arc::clone(&self.inner),
+                }))
+            }
+
+            fn register_histogram(&self, key: &Key, _metadata: &Metadata<'_>) -> Histogram {
+                Histogram::from_arc(Arc::new(CaptureHistogram {
+                    name: key.name().to_string(),
+                    inner: Arc::clone(&self.inner),
+                }))
+            }
+        }
+
+        let config = S3ClientConfig::new().auth_config(S3ClientAuthConfig::NoSigning);
+        let client = S3CrtClient::new(config).expect("Create test client");
+        let recorder = CapturingRecorder::default();
+
+        with_local_recorder(&recorder, || {
+            client.poll_client_metrics();
+        });
+
+        let captured = recorder.inner.lock().unwrap();
+        for name in [
+            "s3.client.num_requests_being_processed",
+            "s3.client.num_requests_being_prepared",
+            "s3.client.request_queue_size",
+            "s3.client.num_auto_default_network_io",
+            "s3.client.num_auto_ranged_get_network_io",
+            "s3.client.num_auto_ranged_put_network_io",
+            "s3.client.num_auto_ranged_copy_network_io",
+            "s3.client.num_total_network_io",
+            "s3.client.num_requests_stream_queued_waiting",
+            "s3.client.num_requests_streaming_response",
+        ] {
+            assert!(
+                captured.gauges.contains_key(name),
+                "missing gauge {name}; captured {:?}",
+                captured.gauges.keys()
+            );
+        }
+
+        // A newly constructed client still exposes buffer-pool stats; the histogram is recorded
+        // only when those stats are present.
+        if captured.gauges.keys().any(|k| k.starts_with("s3.client.buffer_pool.")) {
+            assert!(
+                captured
+                    .histograms
+                    .contains("s3.client.buffer_pool.get_usage_latency_us"),
+                "buffer pool gauges require the usage-latency histogram; got {:?}",
+                captured.histograms
+            );
+        }
     }
 
     /// Simple test to ensure the expected bucket owner can be set
