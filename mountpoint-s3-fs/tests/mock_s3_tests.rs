@@ -17,6 +17,82 @@ use test_case::test_case;
 
 mod common;
 
+#[test_case(true, false; "directory after empty pages")]
+#[test_case(true, true; "directory shadows file after empty pages")]
+#[test_case(false, true; "file after exhausted listing")]
+#[test_case(false, false; "missing after exhausted listing")]
+#[tokio::test]
+async fn test_lookup_empty_list_pages(directory_exists: bool, file_exists: bool) {
+    let bucket = "bucket";
+    let key = "directory";
+    let (fs, server) = create_fs_with_mock_s3(bucket).await;
+
+    Mock::given(method("HEAD"))
+        .and(path(format!("/{bucket}/{key}")))
+        .respond_with(
+            ResponseTemplate::new(if file_exists { 200 } else { 404 }).append_headers([
+                ("ETag", "71a5b8dcb22444f1b2b899dedc1e4122"),
+                ("Last-Modified", "Tue, 10 Jan 2023 23:39:32 GMT"),
+                ("Content-Length", "1024"),
+            ]),
+        )
+        .mount(&server)
+        .await;
+
+    // S3 can return multiple empty, truncated pages before any live keys.
+    for page in 0..3 {
+        let token = (page > 0).then(|| format!("page-{page}"));
+        let mut response = list_empty_response(bucket, key);
+        if page < 2 {
+            response = response.replace(
+                "<IsTruncated>false</IsTruncated>",
+                &format!(
+                    "<IsTruncated>true</IsTruncated><NextContinuationToken>page-{}</NextContinuationToken>",
+                    page + 1
+                ),
+            );
+        } else if directory_exists {
+            response = response.replace(
+                "<KeyCount>0</KeyCount>",
+                &format!("<KeyCount>1</KeyCount><CommonPrefixes><Prefix>{key}/child/</Prefix></CommonPrefixes>"),
+            );
+        }
+
+        Mock::given(method("GET"))
+            .and(path(format!("/{bucket}/")))
+            .and(query_param("list-type", "2"))
+            .and(query_param("prefix", format!("{key}/")))
+            .and(query_param("delimiter", "/"))
+            .and(query_param("max-keys", "1"))
+            .and(move |request: &wiremock::Request| {
+                request
+                    .url
+                    .query_pairs()
+                    .find(|(name, _)| name == "continuation-token")
+                    .map(|(_, value)| value.into_owned())
+                    == token
+            })
+            .respond_with(ResponseTemplate::new(200).set_body_string(response))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+
+    let result = fs.lookup(FUSE_ROOT_INODE, key.as_ref()).await;
+    if directory_exists || file_exists {
+        let entry = result.expect("lookup should find an existing entry after empty pages");
+        let expected_kind = if directory_exists {
+            fuser::FileType::Directory
+        } else {
+            fuser::FileType::RegularFile
+        };
+        assert_eq!(entry.attr.kind, expected_kind);
+    } else {
+        let err = result.expect_err("lookup should fail after exhausting the listing");
+        assert_eq!(err.to_errno(), libc::ENOENT);
+    }
+}
+
 #[test_case(true, false; "head object")]
 #[test_case(false, true; "list object")]
 #[test_case(true, true; "both list and head")]
