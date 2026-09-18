@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789635623688,
+  "lastUpdate": 1789743188000,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard, Memory-Limited)": [
-      {
-        "commit": {
-          "author": {
-            "email": "renanmag@amazon.co.uk",
-            "name": "Renan Magagnin",
-            "username": "renanmagagnin"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b4be37f9467d7825769d43b9006a9fb02d90d7b0",
-          "message": "Rename CI runner label AL2 arm to AL2023 arm (#1910)\n\nThe `AL2 arm` matrix label in `integration.yml` points at a self-hosted\nrunner pool that runs Amazon Linux 2023, not AL2 - CI logs report\n`Amazon Linux release 2023.12` and every installed package carries an\n`.amzn2023` suffix. Renamed the label to `AL2023 arm` so job names match\nthe actual environment.\n\nRun:\nhttps://github.com/awslabs/mountpoint-s3/actions/runs/30832697501/job/91750309505\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/)\n\nSigned-off-by: Renan Magagnin <renanmag@amazon.co.uk>",
-          "timestamp": "2026-08-04T09:30:04Z",
-          "tree_id": "4acbdb229335836a4ddbc03135c2f4c6c3c699e2",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/b4be37f9467d7825769d43b9006a9fb02d90d7b0"
-        },
-        "date": 1785844246679,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 1296.9765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 748.97265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 521.7734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 37.55859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 80.3046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 39.16796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 85.4296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 28.875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 48.359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 30.21875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 43.41015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 420.9609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 67.30859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 422.44921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 69.38671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 320.3203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 37.4765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 321.2734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 321.515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 37.80078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 645.10546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 450.5390625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 396.40234375,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "cayoub@openai.com",
+            "name": "Chris Ayoub",
+            "username": "cayoub-oai"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fd69056aed9dd6ae004e3adb98adf4ba60f5c682",
+          "message": "Fix directory lookup after empty S3 list pages (#1954)\n\nS3 can return empty `ListObjectsV2` pages with a continuation token.\nDirectory lookup currently treats these as evidence that the directory\nis missing, causing false `ENOENT` errors or exposing a file that should\nbe shadowed by a directory.\n\nContinue listing while both objects and common prefixes are empty and a\ncontinuation token is present. Stop once the directory is found or the\nlisting is exhausted.\n\nAs part of testing, reproduced the failure with unpatched Mountpoint\nagainst real S3 and verified that the patched binary resolves the\ndirectory and reads a nested file matching its direct S3 download.\n\n### Does this change impact existing behavior?\n\nNo breaking changes. Fixes incorrect lookup results after empty,\ntruncated pages. Lookups may take longer because they now follow\npagination instead of returning an incorrect result early.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Chris Ayoub <cayoub@openai.com>",
+          "timestamp": "2026-09-18T12:29:56Z",
+          "tree_id": "71a1e7be1fe3c4e7b472594a0a948d8b4a889a06",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/fd69056aed9dd6ae004e3adb98adf4ba60f5c682"
+        },
+        "date": 1789743187919,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 470.9375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 478.53125,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 467.2578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 54.91015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 89.10546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 56.62109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 88.265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 45.8671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 56.1484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 46.83984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 59.5625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 432.22265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 84.8125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 434.5078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 85.46875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 332.1484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 53.98046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 334.21875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 334.34375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 54.09375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 432.55859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 412.68359375,
             "unit": "MiB"
           }
         ]
