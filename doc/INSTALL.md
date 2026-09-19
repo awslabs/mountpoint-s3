@@ -4,7 +4,18 @@ We recommend installing Mountpoint for Amazon S3 by [downloading and installing 
 or [using the Mountpoint for Amazon S3 CSI driver for Kubernetes](#install-in-a-kubernetes-cluster-with-the-mountpoint-for-amazon-s3-csi-driver).
 Other installation options are also available.
 
-Mountpoint for Amazon S3 is only available for Linux operating systems.
+Prebuilt packages of Mountpoint for Amazon S3 are only available for Linux operating systems. On
+macOS, build it from source against FUSE-T, which the [`install-macos.sh`](../install-macos.sh)
+script in this repository does for you:
+
+```
+git clone --recurse-submodules https://github.com/awslabs/mountpoint-s3.git
+cd mountpoint-s3
+./install-macos.sh
+```
+
+See [MACOS.md](MACOS.md) for what the script does, how to do it by hand, and how a mount on macOS
+differs from one on Linux.
 
 ## Download and install Mountpoint for Amazon S3 from the command line
 

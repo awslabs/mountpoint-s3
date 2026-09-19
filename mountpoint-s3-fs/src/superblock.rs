@@ -417,6 +417,19 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
     /// Lookups inode and increments its lookup count.
     async fn lookup(&self, parent_ino: InodeNo, name: &OsStr) -> Result<Lookup, InodeError> {
         trace!(parent=?parent_ino, ?name, "lookup");
+        // A FUSE kernel resolves "." and ".." from its own directory cache and never asks us, but
+        // an NFS server in front of the mount does ask, so answer from the inode's own place in
+        // the tree rather than rejecting the name as invalid.
+        if name == "." || name == ".." {
+            let ino = if name == "." {
+                parent_ino
+            } else {
+                self.inner.get(parent_ino)?.parent()
+            };
+            let lookup = self.getattr_with_inode(ino, false).await?;
+            self.inner.remember(&lookup.inode);
+            return Ok(lookup.into());
+        }
         let lookup = self
             .inner
             .lookup_by_name(parent_ino, name, self.inner.config.cache_config.serve_lookup_from_cache)
@@ -3223,11 +3236,14 @@ mod tests {
         let entries = collect_dir_entries(&superblock, dir1_ino, false, 2).await;
         assert_eq!(entries, &["a"]);
 
-        // Neither of these keys should exist in the directory
-        for key in ["/", "."] {
-            let lookup = superblock.lookup(dir1_ino, key.as_ref()).await;
-            assert!(matches!(lookup, Err(InodeError::InvalidFileName(_))));
-        }
+        // "/" cannot name anything in the directory
+        let lookup = superblock.lookup(dir1_ino, "/".as_ref()).await;
+        assert!(matches!(lookup, Err(InodeError::InvalidFileName(_))));
+
+        // "." names the directory itself, not the object stored under the key "dir1/."
+        let lookup = superblock.lookup(dir1_ino, ".".as_ref()).await.unwrap();
+        assert_eq!(lookup.ino(), dir1_ino);
+        assert_eq!(lookup.kind(), InodeKind::Directory);
     }
 
     #[test_case(""; "unprefixed")]

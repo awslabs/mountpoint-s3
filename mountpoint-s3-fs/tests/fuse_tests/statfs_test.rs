@@ -10,16 +10,16 @@ fn statfs_test_static_values(creator_fn: impl TestSessionCreator, prefix: &str) 
     assert_ne!(stats.blocks(), 0);
     assert_ne!(stats.blocks_free(), 0);
     assert_ne!(stats.blocks_available(), 0);
-    // These two are values set by us
+    // These are values set by us
     assert_eq!(stats.files() as u64, u64::MAX / 1024);
     assert_eq!(stats.files_available() as u64, u64::MAX / 1024);
-    // These are default values from the Default implementation
     assert_eq!(stats.block_size(), 512);
-    assert_eq!(stats.name_max(), 255);
-    // This may be a bit surprising, however as we set fsize to 0,
-    // it will be automatically set to the block_size, if it is not available
-    // c.f. https://stackoverflow.com/questions/54823541/what-do-f-bsize-and-f-frsize-in-struct-statvfs-stand-for
+    // The fragment size is what free space is measured in, so we report it rather than leaving it
+    // at 0 for the host to guess: Linux substitutes the block size, but a host reaching the mount
+    // over NFS reads it as a file system with no space left.
     assert_eq!(stats.fragment_size(), 512);
+    // This is a default value from the Default implementation
+    assert_eq!(stats.name_max(), 255);
 }
 
 /// Test that total blocks >= blocks_free,

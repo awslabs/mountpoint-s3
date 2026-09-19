@@ -514,18 +514,36 @@ where
         fuse_unsupported!("access", reply);
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), parent=_parent, name=?_name, pid=_req.pid()))]
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), parent=parent, name=?name, pid=req.pid()))]
     fn create(
         &self,
-        _req: &Request<'_>,
-        _parent: u64,
-        _name: &OsStr,
-        _mode: u32,
-        _umask: u32,
-        _flags: i32,
+        req: &Request<'_>,
+        parent: u64,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
+        flags: i32,
         reply: ReplyCreate,
     ) {
-        fuse_unsupported!("create", reply, libc::ENOSYS, tracing::Level::DEBUG);
+        debug!("New request");
+        // mode_t is u32 on Linux but u16 on macOS, so cast it here
+        let mode = mode as libc::mode_t;
+
+        // On Linux we can leave CREATE unimplemented and the kernel decomposes it into
+        // MKNOD + OPEN. Other FUSE implementations (e.g. FUSE-T on macOS) have no such
+        // fallback, so implement CREATE directly as the same composition.
+        let result = block_on(
+            async {
+                let entry = self.fs.mknod(parent, name, mode, umask, 0).await?;
+                let opened = self.fs.open(entry.attr.ino, flags.into(), req.pid()).await?;
+                Ok::<_, crate::fs::Error>((entry, opened))
+            }
+            .in_current_span(),
+        );
+        match result {
+            Ok((entry, opened)) => reply.created(&entry.ttl, &entry.attr, entry.generation, opened.fh, opened.flags),
+            Err(e) => fuse_error!("create", reply, e, self, req),
+        }
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=_ino, fh=_fh, pid=pid))]

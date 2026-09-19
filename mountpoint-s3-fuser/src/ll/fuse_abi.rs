@@ -77,19 +77,19 @@ pub struct fuse_attr {
     // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is treated as signed
     // to match stat.st_ctime
     pub ctime: i64,
-    #[cfg(target_os = "macos")]
+    #[cfg(fuser_macfuse_abi)]
     pub crtime: u64,
     pub atimensec: u32,
     pub mtimensec: u32,
     pub ctimensec: u32,
-    #[cfg(target_os = "macos")]
+    #[cfg(fuser_macfuse_abi)]
     pub crtimensec: u32,
     pub mode: u32,
     pub nlink: u32,
     pub uid: u32,
     pub gid: u32,
     pub rdev: u32,
-    #[cfg(target_os = "macos")]
+    #[cfg(fuser_macfuse_abi)]
     pub flags: u32, // see chflags(2)
     pub blksize: u32,
     pub padding: u32,
@@ -572,19 +572,19 @@ pub struct fuse_setattr_in {
     pub uid: u32,
     pub gid: u32,
     pub unused5: u32,
-    #[cfg(target_os = "macos")]
+    #[cfg(fuser_macfuse_abi)]
     pub bkuptime: u64,
-    #[cfg(target_os = "macos")]
+    #[cfg(fuser_macfuse_abi)]
     pub chgtime: u64,
-    #[cfg(target_os = "macos")]
+    #[cfg(fuser_macfuse_abi)]
     pub crtime: u64,
-    #[cfg(target_os = "macos")]
+    #[cfg(fuser_macfuse_abi)]
     pub bkuptimensec: u32,
-    #[cfg(target_os = "macos")]
+    #[cfg(fuser_macfuse_abi)]
     pub chgtimensec: u32,
-    #[cfg(target_os = "macos")]
+    #[cfg(fuser_macfuse_abi)]
     pub crtimensec: u32,
-    #[cfg(target_os = "macos")]
+    #[cfg(fuser_macfuse_abi)]
     pub flags: u32, // see chflags(2)
 }
 
@@ -713,9 +713,9 @@ pub struct fuse_setxattr_in {
     // NOTE: this field is defined as u32 in fuse_kernel.h in libfuse. However, it is then cast
     // to an i32 when invoking the filesystem's setxattr method
     pub flags: i32,
-    #[cfg(target_os = "macos")]
+    #[cfg(fuser_macfuse_abi)]
     pub position: u32,
-    #[cfg(target_os = "macos")]
+    #[cfg(fuser_macfuse_abi)]
     pub padding: u32,
 }
 
@@ -724,9 +724,9 @@ pub struct fuse_setxattr_in {
 pub struct fuse_getxattr_in {
     pub size: u32,
     pub padding: u32,
-    #[cfg(target_os = "macos")]
+    #[cfg(fuser_macfuse_abi)]
     pub position: u32,
-    #[cfg(target_os = "macos")]
+    #[cfg(fuser_macfuse_abi)]
     pub padding2: u32,
 }
 

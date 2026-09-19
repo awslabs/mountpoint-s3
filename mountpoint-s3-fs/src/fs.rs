@@ -39,7 +39,10 @@ mod flags;
 pub use flags::{OpenFlags, RenameFlags};
 
 mod handles;
+use handles::UploadState;
 pub use handles::{FileHandle, FileHandleState};
+
+mod reorder;
 
 mod sse;
 pub use sse::{ServerSideEncryption, SseCorruptedError};
@@ -333,6 +336,24 @@ where
         if let Some(err) = self.read_only_error() {
             return Err(err);
         }
+
+        // A request carrying none of the attributes Mountpoint keeps is a `chmod` or a `chown`,
+        // whose mode and owner come from the mount's own configuration rather than from the object,
+        // so there is nothing to apply and nothing to refuse: answer with the attributes the inode
+        // already has. macOS copies file metadata this way for every file it copies, and failing
+        // these requests makes tools like `cp -R` report the copy as failed.
+        if atime.is_none() && mtime.is_none() && size.is_none() {
+            return self.getattr(ino).await;
+        }
+
+        // FUSE-T's NFS client cannot tell us an application opened a file to truncate it: it sends
+        // an O_RDWR open with no O_TRUNC and asks for size 0 afterwards. Mountpoint has chosen a
+        // read handle by then, so turn the handles open on this inode into the write handles the
+        // application is about to use, which is what O_TRUNC on the open would have produced.
+        if fuser::HOST_IS_NFS_CLIENT && size == Some(0) && self.config.allow_overwrite {
+            self.reopen_for_truncate(ino).await?;
+        }
+
         let setattr_result = self.metablock.setattr(ino, atime, mtime).await;
         let lookup = match (setattr_result, size) {
             (Ok(lookup), _) => lookup,
@@ -345,12 +366,75 @@ where
                     "file overwrite is disabled by default, you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it"
                 ));
             }
+            // macOS copies a file by writing it, closing it — which uploads the object and seals the
+            // inode — and only then applying its mode and timestamps together. Mountpoint keeps
+            // neither on a remote object, so there is nothing to apply; refusing the request only
+            // makes the copy report as failed, the same reasoning as the mode-only case above. When
+            // no size is being set, so this is not a truncation, answer with the attributes the
+            // inode already has rather than an error.
+            (Err(InodeError::SetAttrNotPermittedOnRemoteInode(_)), None) if fuser::HOST_IS_NFS_CLIENT => {
+                return self.getattr(ino).await;
+            }
             (Err(e), _) => return Err(e.into()),
         };
         let ttl = lookup.validity();
         let attr = self.make_attr(&lookup.into());
 
         Ok(Attr { ttl, attr })
+    }
+
+    /// Replaces every read handle open on `ino` with a write handle that starts the object again
+    /// from nothing, as opening it `O_TRUNC` would have done.
+    ///
+    /// Handles already open for writing are left alone: their upload has not been given any data
+    /// to keep, so it already produces the empty file the truncation asked for.
+    async fn reopen_for_truncate(&self, ino: InodeNo) -> Result<(), Error> {
+        let handles: Vec<(u64, Arc<FileHandle<Client>>)> = self
+            .file_handles
+            .read()
+            .await
+            .iter()
+            .filter(|(_, handle)| handle.ino == ino)
+            .map(|(fh, handle)| (*fh, handle.clone()))
+            .collect();
+
+        for (fh, handle) in handles {
+            let mut state = handle.state.lock().await;
+            self.reopen_handle_for_truncate(ino, fh, &mut state).await?;
+        }
+        Ok(())
+    }
+
+    /// Replaces one read handle with a write handle that starts the object again from nothing, as
+    /// opening it `O_TRUNC` would have done. Does nothing to a handle already open for writing.
+    async fn reopen_handle_for_truncate(
+        &self,
+        ino: InodeNo,
+        fh: u64,
+        state: &mut FileHandleState<Client>,
+    ) -> Result<(), Error> {
+        if !matches!(state, FileHandleState::Read { .. }) {
+            return Ok(());
+        }
+        self.metablock.finish_reading(ino, fh).await?;
+        let NewHandle {
+            lookup,
+            mode,
+            write_slot,
+        } = self
+            .metablock
+            .open_handle(
+                ino,
+                fh,
+                &self.config.write_mode(),
+                OpenFlags::O_WRONLY | OpenFlags::O_TRUNC,
+                self.write_handle_limiter.as_ref(),
+            )
+            .await?;
+        *state = FileHandleState::new(mode, &lookup, write_slot, OpenFlags::O_TRUNC, self).await?;
+        metrics::gauge!("fs.current_handles", "type" => "read").decrement(1.0);
+        debug!(fh, ino, "reopened handle for writing to truncate the file");
+        Ok(())
     }
 
     pub async fn forget(&self, ino: InodeNo, n: u64) {
@@ -479,6 +563,23 @@ where
             ));
         }
 
+        // This mount has no extended attributes of its own, so macOS keeps the ones an application
+        // asks for in an AppleDouble sidecar file named after the file they belong to. Each sidecar
+        // is rewritten in place as attributes are added, which an S3 object cannot be, so the
+        // sidecar's upload fails partway and macOS deletes it again — leaving the bucket paying for
+        // an object nothing can read. Refusing the sidecar tells the application its extended
+        // attributes could not be copied, which is the outcome either way, and leaves the bucket
+        // holding only the file itself. macOS asks for a sidecar for every file it copies and
+        // retries each refusal a few times, so this is logged at DEBUG rather than filling the log
+        // with warnings about a file the mount is never going to keep.
+        if fuser::HOST_IS_NFS_CLIENT && name.as_encoded_bytes().starts_with(b"._") {
+            return Err(err!(
+                libc::EPERM,
+                Level::DEBUG,
+                "extended attributes are not supported, so the AppleDouble file macOS stores them in cannot be created"
+            ));
+        }
+
         let lookup = self.metablock.create(parent, name, InodeKind::File).await?;
         debug!(ino = lookup.ino(), "new inode created");
         let ttl = lookup.validity();
@@ -532,9 +633,15 @@ where
 
         let len = {
             let mut state = handle.state.lock().await;
-            let (request, flushed) = match &mut *state {
+
+            let (request, reorder, flushed) = match &mut *state {
                 FileHandleState::Read { .. } => return Err(err!(libc::EBADF, "file handle is not open for writes")),
-                FileHandleState::Write { state, flushed, .. } => (state, flushed),
+                FileHandleState::Write {
+                    state,
+                    reorder,
+                    flushed,
+                    ..
+                } => (state, reorder, flushed),
             };
 
             // If the handle has been flushed, check if it has been overridden by a newer handle opened for the inode.
@@ -553,7 +660,7 @@ where
                 *flushed = false;
             }
 
-            request.write(self, &handle, offset, data, fh).await?
+            request.write(self, &handle, reorder, offset, data, fh).await?
         };
         Ok(len)
     }
@@ -640,6 +747,16 @@ where
                 return Ok(());
             }
             FileHandleState::Write { state, .. } => {
+                // An NFS client sends COMMIT while it is still writing the file, and that reaches
+                // us as FSYNC, so we cannot read it as "the application is done with this range".
+                // Completing a multipart upload is final, and every write after it would fail, so
+                // leave the object to be finished at close. An incremental upload survives this,
+                // because committing it starts a fresh request at the offset reached, so it is
+                // still committed here and keeps the usual fsync guarantee.
+                if fuser::HOST_IS_NFS_CLIENT && matches!(state, UploadState::MPUInProgress { .. }) {
+                    debug!(fh, "not completing a multipart upload on fsync from an NFS client");
+                    return Ok(());
+                }
                 state.commit(self, file_handle.clone(), fh).await.map_err(|e|
                     // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
                     // space-related failure.
@@ -689,7 +806,24 @@ where
                 self.metablock.flush_reader(ino, fh).await?;
                 *flushed = true;
             }
-            FileHandleState::Write { state, flushed, .. } => {
+            FileHandleState::Write {
+                state,
+                reorder,
+                flushed,
+                ..
+            } => {
+                // Writes held back for a gap that was never filled cannot be uploaded, and
+                // finishing the object without them would report success for a file that is short
+                // of the bytes the application wrote. Fail the close and write nothing instead.
+                if reorder.has_buffered_writes() {
+                    let missing_offset = reorder.next_offset();
+                    state.abort(self, &file_handle, fh, libc::EIO).await;
+                    return Err(err!(
+                        libc::EIO,
+                        "closing {} with writes still waiting for offset {missing_offset}, which never arrived",
+                        file_handle.location
+                    ));
+                }
                 state
                     .complete(self, file_handle.clone(), pid, file_handle.open_pid, fh)
                     .await?;
@@ -752,8 +886,13 @@ where
         if let Some(err) = self.read_only_error() {
             return Err(err);
         }
-        self.metablock.rmdir(parent_ino, name).await?;
-        Ok(())
+        match self.metablock.rmdir(parent_ino, name).await {
+            // Emptying an implicit S3 directory already removes it. Replying ENOENT here makes
+            // the NFS client drop unvisited entries of the parent, so recursive deletes silently
+            // skip files.
+            Err(InodeError::FileDoesNotExist(..)) if fuser::HOST_IS_NFS_CLIENT => Ok(()),
+            result => result.map_err(Into::into),
+        }
     }
 
     pub async fn releasedir(&self, _ino: InodeNo, fh: u64, _flags: i32) -> Result<(), Error> {
@@ -775,6 +914,7 @@ where
     }
 
     pub async fn statfs(&self, _ino: InodeNo) -> Result<StatFs, Error> {
+        const BLOCK_SIZE: u32 = 512;
         const FREE_BLOCKS: u64 = u64::MAX / 1024;
         const FREE_INODES: u64 = u64::MAX / 1024;
 
@@ -784,6 +924,12 @@ where
             free_inodes: FREE_INODES,
             total_blocks: FREE_BLOCKS,
             total_inodes: FREE_INODES,
+            block_size: BLOCK_SIZE,
+            // Free space is a block count multiplied by the fragment size, so a fragment size of 0
+            // makes the mount look completely full. Linux substitutes the block size when the
+            // fragment size is 0, but a host reaching the mount over NFS does not, and refuses to
+            // write to a file system it believes has no space left.
+            fragment_size: BLOCK_SIZE,
             ..Default::default()
         };
         Ok(reply)
@@ -1090,9 +1236,40 @@ mod tests {
             .await
             .expect("fsync should succeed");
 
-        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+        let reopened = fs
+            .open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await;
+        if fuser::HOST_IS_NFS_CLIENT {
+            // An NFS client sends COMMIT during writeback, so fsync does not finish a multipart
+            // upload: writes may still follow it. The file is therefore still being written.
+            reopened.expect_err("a multipart upload is not completed on fsync from an NFS client");
+        } else {
+            reopened.expect("re-open for a released file should succeed");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_open_after_fsync_after_write_incremental() {
+        let test_name = "test_open_after_fsync_after_write_incremental";
+        let fs = setup_mock_fs(test_name, true, true);
+        let dentry = setup_file(test_name, &fs).await;
+
+        let fd = fs
+            .open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
             .await
-            .expect("re-open for a released file should succeed");
+            .expect("open for a local file should succeed");
+        fs.write(dentry.attr.ino, fd.fh, 0, "hello world".as_ref(), 0, 0, Some(0))
+            .await
+            .expect("write should succeed");
+        fs.fsync(dentry.attr.ino, fd.fh, true)
+            .await
+            .expect("fsync should succeed");
+
+        // An incremental upload can be committed and carry on from the offset it reached, so fsync
+        // keeps its usual meaning whatever transport the mount is served over.
+        fs.write(dentry.attr.ino, fd.fh, 11, "!".as_ref(), 0, 0, Some(0))
+            .await
+            .expect("write after fsync should succeed");
     }
 
     async fn setup_file(test_name: &str, fs: &S3Filesystem<MockClient>) -> Entry {

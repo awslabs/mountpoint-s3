@@ -13,8 +13,17 @@ static GLOBAL: Jemalloc = Jemalloc;
 /// instead of each arena faulting in new pages.
 // SAFETY: overrides jemalloc's weak `_rjem_malloc_conf` symbol, which it reads as a NUL-terminated
 // options string during initialisation. The value below is NUL-terminated.
+#[cfg(not(target_os = "macos"))]
 #[unsafe(export_name = "_rjem_malloc_conf")]
 pub static MALLOC_CONF: &[u8] = b"abort_conf:true,background_thread:true,narenas:32\0";
+
+/// macOS jemalloc has no pthread-based background threads, so it writes
+/// `option background_thread currently supports pthread only` to stderr on every run and carries on
+/// purging on the freeing thread. Leave the option out there rather than print that on every mount.
+// SAFETY: as above.
+#[cfg(target_os = "macos")]
+#[unsafe(export_name = "_rjem_malloc_conf")]
+pub static MALLOC_CONF: &[u8] = b"abort_conf:true,narenas:32\0";
 
 fn main() -> anyhow::Result<()> {
     let cli_args = parse_cli_args(true);

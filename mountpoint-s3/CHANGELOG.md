@@ -1,5 +1,13 @@
 ## Unreleased
 
+### New features
+
+* Mountpoint now builds and runs on macOS, using [FUSE-T](https://www.fuse-t.org/) in place of a FUSE kernel module. There is no prebuilt package: `install-macos.sh` installs FUSE-T if needed, builds Mountpoint and installs the binary. See [the macOS documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/MACOS.md) for the same steps by hand and for the behaviour differences that come from the mount being served to the host's NFS client.
+
+### Other changes
+
+* Mountpoint no longer asks jemalloc for background purging threads on macOS, where they are unsupported, so it no longer prints `option background_thread currently supports pthread only` on every run.
+
 ## v1.24.0 (August 24, 2026)
 
 ### New features

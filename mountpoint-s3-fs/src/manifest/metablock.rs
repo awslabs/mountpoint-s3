@@ -70,6 +70,15 @@ impl ManifestMetablock {
 #[async_trait]
 impl Metablock for ManifestMetablock {
     async fn lookup(&self, parent_ino: InodeNo, name: &OsStr) -> Result<Lookup, InodeError> {
+        // A FUSE kernel resolves "." and ".." from its own directory cache and never asks us, but
+        // an NFS server in front of the mount does ask, so answer from the entry's own place in
+        // the tree rather than rejecting the name as invalid.
+        if name == "." {
+            return self.getattr(parent_ino, false).await;
+        }
+        if name == ".." {
+            return self.getattr(self.get_parent_id(parent_ino)?, false).await;
+        }
         let name: ValidName = name.try_into()?;
         let Some(manifest_entry) = self.manifest.manifest_lookup(parent_ino, &name)? else {
             return Err(InodeError::FileDoesNotExist(

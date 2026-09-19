@@ -140,6 +140,9 @@ $ mv hello.txt new_hello.txt
 mv: cannot move 'hello.txt' to 'new_hello.txt': Function not implemented
 ```
 
+On macOS the error is EXDEV instead, so that `mv` falls back to copying the file; see
+[MACOS.md](MACOS.md#renaming-is-answered-with-exdev-so-applications-copy-instead).
+
 Mountpoint logs should show the following message:
 
 ```
