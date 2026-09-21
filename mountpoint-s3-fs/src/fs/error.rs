@@ -63,6 +63,12 @@ macro_rules! err {
     ($errno:expr, source:$source:expr, $message:literal) => {
         err!($errno, __source:Some(::anyhow::Error::new($source)), ::tracing::Level::WARN, Default::default(), $message,)
     };
+    ($errno:expr, $level:expr, $message:literal, $($args:tt)*) => {
+        err!($errno, __source:None, $level, Default::default(), $message, $($args)*)
+    };
+    ($errno:expr, $level:expr, $message:literal) => {
+        err!($errno, __source:None, $level, Default::default(), $message,)
+    };
     ($errno:expr, $message:literal, $($args:tt)*) => {
         err!($errno, __source:None, ::tracing::Level::WARN, Default::default(), $message, $($args)*)
     };
@@ -182,6 +188,12 @@ impl ToErrno for InodeError {
             InodeError::CannotRenameDirectory(_) => libc::EPERM,
             InodeError::RenameDestinationExists { .. } => libc::EEXIST,
             InodeError::RenameNotPermittedWhileWriting(_) => libc::EPERM,
+            // macOS reaches the mount over NFS, and its NFS client turns ENOSYS into EPERM, so an
+            // application is told it lacks permission on a bucket that simply cannot rename. EXDEV
+            // survives the translation intact, and it is what the tools want: `mv` answers it by
+            // copying the file and unlinking the source, which is exactly the workaround a user
+            // would otherwise have to perform by hand.
+            InodeError::RenameNotSupported() if fuser::HOST_IS_NFS_CLIENT => libc::EXDEV,
             InodeError::RenameNotSupported() => libc::ENOSYS,
             InodeError::NameTooLong(_) => libc::ENAMETOOLONG,
             #[cfg(feature = "manifest")]

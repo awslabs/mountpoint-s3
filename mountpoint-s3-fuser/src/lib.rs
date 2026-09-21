@@ -44,6 +44,18 @@ pub use session::{BackgroundSession, Session, SessionACL, SessionUnmounter};
 use std::cmp::max;
 use std::cmp::min;
 
+/// Whether this build reaches the host through FUSE-T, which serves the mount to the macOS NFS
+/// client instead of a FUSE kernel module.
+///
+/// The NFS client's behaviour differs from a FUSE kernel's in ways a filesystem must account for:
+///
+/// * WRITEs for one file handle can arrive out of offset order, because the client dispatches
+///   them from several threads without waiting for each reply.
+/// * FSYNC arrives on NFS COMMIT during writeback, so it does not imply the application called
+///   `fsync` or closed the file.
+/// * LOOKUP is sent for `.` and `..`, which a FUSE kernel resolves without asking.
+pub const HOST_IS_NFS_CLIENT: bool = cfg!(fuser_fuse_t);
+
 mod channel;
 mod ll;
 mod mnt;
@@ -55,13 +67,15 @@ mod request;
 mod session;
 
 /// We generally support async reads
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(fuser_macfuse_abi))]
 const INIT_FLAGS: u64 = FUSE_ASYNC_READ | FUSE_BIG_WRITES;
 // TODO: Add FUSE_EXPORT_SUPPORT
 
-/// On macOS, we additionally support case insensitiveness, volume renames and xtimes
+/// On macFUSE, we additionally support case insensitiveness, volume renames and xtimes.
+/// These flag bits are macFUSE-specific: they collide with upstream bits (e.g. FUSE_INIT_EXT)
+/// and must not be sent to FUSE-T or other upstream-ABI implementations.
 /// TODO: we should eventually let the filesystem implementation decide which flags to set
-#[cfg(target_os = "macos")]
+#[cfg(fuser_macfuse_abi)]
 const INIT_FLAGS: u64 = FUSE_ASYNC_READ | FUSE_CASE_INSENSITIVE | FUSE_VOL_RENAME | FUSE_XTIMES;
 // TODO: Add FUSE_EXPORT_SUPPORT and FUSE_BIG_WRITES (requires ABI 7.10)
 

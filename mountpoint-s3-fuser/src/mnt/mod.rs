@@ -17,7 +17,7 @@ pub mod mount_options;
 
 #[cfg(any(test, feature = "libfuse"))]
 use fuse2_sys::fuse_args;
-#[cfg(any(test, not(feature = "libfuse")))]
+#[cfg(any(all(test, not(fuser_fuse_t)), not(feature = "libfuse")))]
 use std::fs::File;
 use std::io;
 
@@ -82,7 +82,8 @@ fn libc_umount(mnt: &CStr) -> io::Result<()> {
 
 /// Warning: This will return true if the filesystem has been detached (lazy unmounted), but not
 /// yet destroyed by the kernel.
-#[cfg(any(test, fuser_mount_impl = "pure-rust"))]
+// Only the tests that can see the host mount call this, which rules out FUSE-T.
+#[cfg(any(all(test, not(fuser_fuse_t)), fuser_mount_impl = "pure-rust"))]
 fn is_mounted(fuse_device: &File) -> bool {
     use libc::{poll, pollfd};
     use std::os::unix::prelude::AsRawFd;
@@ -157,11 +158,17 @@ mod test {
         // want to try and clean up the directory if it's a mountpoint otherwise we'll
         // deadlock.
         let tmp = ManuallyDrop::new(tempfile::tempdir().unwrap());
-        let (file, mount) = Mount::new(tmp.path(), &[]).unwrap();
+        let (_fuse_device, mount) = Mount::new(tmp.path(), &[]).unwrap();
         let mnt = cmd_mount();
         eprintln!("Our mountpoint: {:?}\nfuse mounts:\n{}", tmp.path(), mnt,);
-        assert!(mnt.contains(&*tmp.path().to_string_lossy()));
-        assert!(is_mounted(&file));
+        // FUSE-T defers the host-visible NFS mount until the filesystem replies to
+        // FUSE_INIT, and no session is running in this test, so the mountpoint won't
+        // appear in the mount table.
+        #[cfg(not(fuser_fuse_t))]
+        {
+            assert!(mnt.contains(&*tmp.path().to_string_lossy()));
+            assert!(is_mounted(&_fuse_device));
+        }
         drop(mount);
         let mnt = cmd_mount();
         eprintln!("Our mountpoint: {:?}\nfuse mounts:\n{}", tmp.path(), mnt,);

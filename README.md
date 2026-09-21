@@ -42,6 +42,14 @@ On Ubuntu, use these commands instead (for Graviton instances, replace `x86_64` 
     wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.deb
     sudo apt-get install -y ./mount-s3.deb
 
+On macOS, there is no prebuilt package: Mountpoint is built from source against [FUSE-T](https://www.fuse-t.org/), which the included script does for you, installing FUSE-T first if you do not have it:
+
+    git clone --recurse-submodules https://github.com/awslabs/mountpoint-s3.git
+    cd mountpoint-s3
+    ./install-macos.sh
+
+See [Mountpoint for Amazon S3 on macOS](https://github.com/awslabs/mountpoint-s3/blob/main/doc/MACOS.md) for the same steps by hand, and for the ways a mount on macOS behaves differently.
+
 > [!NOTE]
 > See [Installing Mountpoint for Amazon S3](https://github.com/awslabs/mountpoint-s3/blob/main/doc/INSTALL.md) for detailed instructions and other installation options, including the [Mountpoint for Amazon S3 CSI driver](https://docs.aws.amazon.com/eks/latest/userguide/s3-csi.html) for Kubernetes applications, or building from source.
 

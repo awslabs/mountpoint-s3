@@ -93,8 +93,9 @@ jobs:
   macos-test:
     name: Clippy & Tests (macOS)
 
-    # We don't strictly support macOS,
-    # checking latest macOS version passes clippy and unit tests is enough.
+    # macOS mounts through FUSE-T rather than a kernel module, so that is what we build against here;
+    # see doc/MACOS.md. There is no FUSE mount to exercise on the runner, so clippy and the unit tests
+    # on the latest macOS version are what this job checks.
     runs-on: macos-latest
 
     steps:
@@ -105,9 +106,11 @@ jobs:
     - name: Install dependencies
       run: |
         brew update > /dev/null && brew install pkgconfig
-    - name: Install fuse
+    - name: Install FUSE-T
+      # The script installs FUSE-T for this user, needing no administrator rights and no kernel
+      # extension, and prints the PKG_CONFIG_PATH the build needs to find it.
       run: |
-        brew install --cask macfuse
+        echo "PKG_CONFIG_PATH=$(./install-macos.sh --fuse-t-only --yes)" >> "$GITHUB_ENV"
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
       with:

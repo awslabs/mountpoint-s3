@@ -438,6 +438,118 @@ async fn test_mknod_cached() {
     assert_eq!(list_counter.count(), 1);
 }
 
+/// macOS keeps extended attributes in an AppleDouble file next to the file they belong to, which
+/// cannot be an object because it is rewritten in place as attributes are added to it.
+#[tokio::test]
+async fn test_mknod_apple_double() {
+    let (_client, fs) = make_test_filesystem("test_mknod_apple_double", &Default::default(), Default::default());
+
+    let mode = libc::S_IFREG | libc::S_IRWXU;
+    let result = fs.mknod(FUSE_ROOT_INODE, "._file.txt".as_ref(), mode, 0, 0).await;
+    if fuser::HOST_IS_NFS_CLIENT {
+        let err_no = result.expect_err("AppleDouble files cannot be created").to_errno();
+        assert_eq!(err_no, libc::EPERM, "expected EPERM but got {err_no:?}");
+    } else {
+        // Nothing creates these where the host has extended attributes of its own, and a file whose
+        // name happens to start with "._" is just a file.
+        result.expect("the name has no special meaning on this host");
+    }
+}
+
+/// `chmod` and `chown` reach the file system as a `setattr` that names none of the attributes it
+/// keeps, because the mode and the owner come from the mount's configuration.
+#[tokio::test]
+async fn test_setattr_without_attributes() {
+    let (client, fs) = make_test_filesystem(
+        "test_setattr_without_attributes",
+        &Default::default(),
+        Default::default(),
+    );
+    client.add_object("file.txt", b"hello".into());
+
+    let lookup = fs.lookup(FUSE_ROOT_INODE, "file.txt".as_ref()).await.unwrap();
+    let attr = fs
+        .setattr(lookup.attr.ino, None, None, None, None)
+        .await
+        .expect("a setattr that asks for nothing we keep succeeds, leaving the file as it was");
+    assert_eq!(attr.attr.size, lookup.attr.size);
+    assert_eq!(attr.attr.perm, lookup.attr.perm);
+}
+
+/// An overwrite is announced by a `setattr` asking for size 0, and only by that: a write at offset 0
+/// on a handle open for reading is not one.
+///
+/// An NFS client writes back its cached copy of a file it holds, so it can send the file's *old*
+/// contents at offset 0 without any application asking for anything. Treating that as the start of an
+/// overwrite would upload the old contents and leave the real new ones to be refused as arriving out
+/// of order, losing them.
+#[tokio::test]
+async fn test_overwrite_needs_a_truncating_setattr() {
+    const BUCKET_NAME: &str = "test_overwrite_needs_a_truncating_setattr";
+
+    let config = S3FilesystemConfig {
+        allow_overwrite: true,
+        ..Default::default()
+    };
+    let (client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), config);
+    client.add_object("file.txt", b"first version".into());
+
+    let ino = fs.lookup(FUSE_ROOT_INODE, "file.txt".as_ref()).await.unwrap().attr.ino;
+    let fh = fs.open(ino, OpenFlags::O_RDWR, 0).await.unwrap().fh;
+
+    let err_no = fs
+        .write(ino, fh, 0, b"first version", 0, 0, None)
+        .await
+        .expect_err("a write on a read handle is refused wherever it lands")
+        .to_errno();
+    assert_eq!(err_no, libc::EBADF, "expected EBADF but got {err_no:?}");
+
+    fs.setattr(ino, None, None, Some(0), None)
+        .await
+        .expect("truncating the file turns the handle into a write handle");
+    let written = fs
+        .write(ino, fh, 0, b"second version", 0, 0, None)
+        .await
+        .expect("the new contents are written from the start of the object");
+    assert_eq!(written as usize, b"second version".len());
+    fs.flush(ino, fh, 0, 0).await.expect("closing the file uploads it");
+
+    let get = client
+        .get_object(BUCKET_NAME, "file.txt", &GetObjectParams::new())
+        .await
+        .unwrap();
+    assert_eq!(&get.collect().await.unwrap()[..], b"second version");
+}
+
+/// macOS copies a file by writing it, closing it, and only then applying its mode and timestamps.
+/// By the time those arrive the object has been uploaded and the inode is remote, so the `setattr`
+/// naming the timestamps lands on an inode Mountpoint can no longer change. There is nothing to
+/// persist a timestamp to on a remote object, so on an NFS host the request is accepted as a no-op
+/// rather than failed, which is what stops the copy being reported as a failure. Elsewhere it stays
+/// an error, since only an NFS client sends the metadata after the close.
+#[tokio::test]
+async fn test_setattr_times_on_remote_inode() {
+    let (client, fs) = make_test_filesystem(
+        "test_setattr_times_on_remote_inode",
+        &Default::default(),
+        Default::default(),
+    );
+    client.add_object("file.txt", b"hello".into());
+
+    let lookup = fs.lookup(FUSE_ROOT_INODE, "file.txt".as_ref()).await.unwrap();
+    let now = time::OffsetDateTime::now_utc();
+    let result = fs.setattr(lookup.attr.ino, Some(now), Some(now), None, None).await;
+    if fuser::HOST_IS_NFS_CLIENT {
+        let attr = result.expect("setting times on an uploaded object is a no-op, not a failure");
+        assert_eq!(attr.attr.size, lookup.attr.size);
+    } else {
+        let err_no = result
+            .expect_err("a remote object's timestamps cannot be changed")
+            .to_errno();
+        assert_eq!(err_no, libc::EPERM, "expected EPERM but got {err_no:?}");
+    }
+}
+
 #[test_case(1024 * 1024; "small")]
 #[test_case(50 * 1024 * 1024; "large")]
 #[tokio::test]
@@ -620,8 +732,13 @@ async fn test_sequential_write(write_size: usize) {
     fs.release(file_ino, fh, 0, None, true).await.unwrap();
 }
 
+/// A write far enough past the offset the upload expects that no client's reordering could explain
+/// it. Anything closer is tolerated when the mount is served to an NFS client, which reorders.
+const BEYOND_ANY_REORDERING: i64 = 64 * 1024 * 1024;
+
 #[test_case(-27; "earlier offset")]
 #[test_case(28; "later offset")]
+#[test_case(BEYOND_ANY_REORDERING; "far later offset")]
 #[tokio::test]
 async fn test_unordered_write_fails(offset: i64) {
     const BUCKET_NAME: &str = "test_unordered_write_fails";
@@ -642,12 +759,22 @@ async fn test_unordered_write_fails(offset: i64) {
     let written = fs.write(file_ino, fh, 0, slice, 0, 0, None).await.unwrap();
     assert_eq!(written, 27);
 
-    let err = fs
-        .write(file_ino, fh, written as i64 + offset, slice, 0, 0, None)
-        .await
-        .expect_err("writes to out-of-order offsets should fail")
-        .to_errno();
-    assert_eq!(err, libc::EINVAL);
+    // An NFS client dispatches writes concurrently and they can reach us swapped, so a write that
+    // close to the offset the upload expects is put back in order instead of being refused. A write
+    // this far out cannot be reordering, and is refused whatever the transport.
+    let tolerated = fuser::HOST_IS_NFS_CLIENT && offset != BEYOND_ANY_REORDERING;
+
+    let result = fs.write(file_ino, fh, written as i64 + offset, slice, 0, 0, None).await;
+    if tolerated {
+        assert_eq!(result.expect("the write should be reordered"), 27);
+        return;
+    }
+    assert_eq!(
+        result
+            .expect_err("writes to out-of-order offsets should fail")
+            .to_errno(),
+        libc::EINVAL
+    );
 
     let err = fs
         .write(file_ino, fh, written as i64, slice, 0, 0, None)
@@ -832,12 +959,28 @@ async fn test_upload_aborted_on_fsync_failure() {
 
     assert!(client.is_upload_in_progress(FILE_NAME));
 
-    let err = fs
-        .fsync(file_ino, fh, true)
-        .await
-        .expect_err("subsequent fsync should fail")
-        .to_errno();
-    assert_eq!(err, libc::EIO);
+    if fuser::HOST_IS_NFS_CLIENT {
+        // An NFS client sends COMMIT during writeback, so fsync does not finish a multipart upload
+        // and the failing PUT is not attempted until the file is closed.
+        fs.fsync(file_ino, fh, true)
+            .await
+            .expect("fsync should not finish the upload");
+        assert!(client.is_upload_in_progress(FILE_NAME));
+
+        let err = fs
+            .flush(file_ino, fh, 0, 0)
+            .await
+            .expect_err("closing the file should fail")
+            .to_errno();
+        assert_eq!(err, libc::EIO);
+    } else {
+        let err = fs
+            .fsync(file_ino, fh, true)
+            .await
+            .expect_err("subsequent fsync should fail")
+            .to_errno();
+        assert_eq!(err, libc::EIO);
+    }
 
     assert!(!client.is_upload_in_progress(FILE_NAME));
     assert!(!client.contains_key(FILE_NAME));
@@ -1017,6 +1160,27 @@ async fn test_local_dir(prefix: &str) {
     // Verify that the directory disappeared
     let lookup = fs.lookup(FUSE_ROOT_INODE, dirname.as_ref()).await;
     assert!(matches!(lookup, Err(e) if e.to_errno() == libc::ENOENT));
+}
+
+/// A FUSE kernel resolves these itself, but an NFS server serving the mount asks the filesystem to.
+#[tokio::test]
+async fn test_lookup_dot_and_dotdot() {
+    let (client, fs) = make_test_filesystem("test_lookup_dot_and_dotdot", &Default::default(), Default::default());
+    client.add_object("dir/file.txt", b"hello".into());
+
+    let dir = fs.lookup(FUSE_ROOT_INODE, "dir".as_ref()).await.unwrap();
+
+    let dot = fs.lookup(dir.attr.ino, ".".as_ref()).await.unwrap();
+    assert_eq!(dot.attr.ino, dir.attr.ino);
+    assert_eq!(dot.attr.kind, FileType::Directory);
+
+    let dotdot = fs.lookup(dir.attr.ino, "..".as_ref()).await.unwrap();
+    assert_eq!(dotdot.attr.ino, FUSE_ROOT_INODE);
+    assert_eq!(dotdot.attr.kind, FileType::Directory);
+
+    // The root directory is its own parent.
+    let root_dotdot = fs.lookup(FUSE_ROOT_INODE, "..".as_ref()).await.unwrap();
+    assert_eq!(root_dotdot.attr.ino, FUSE_ROOT_INODE);
 }
 
 #[tokio::test]
@@ -1640,7 +1804,11 @@ async fn new_local_file(fs: &S3Filesystem<Arc<MockClient>>, filename: &str) {
     let slice = &[0xaa; 27];
     let written = fs.write(file_ino, fh, 0, slice, 0, 0, None).await.unwrap();
     assert_eq!(written as usize, slice.len());
-    fs.fsync(file_ino, fh, true).await.unwrap();
+    // Close the file rather than fsync it, so that the object is written whatever the mount is
+    // served over: fsync does not finish a multipart upload when the client is the host's NFS
+    // client, because more writes can follow it.
+    fs.flush(file_ino, fh, 0, 0).await.unwrap();
+    fs.release(file_ino, fh, 0, None, false).await.unwrap();
 }
 
 async fn ls(
@@ -1706,7 +1874,14 @@ async fn test_rename_support_is_cached() {
         )
         .await
         .expect_err("rename should fail");
-    assert_eq!(err.to_errno(), libc::ENOSYS, "rename should fail with ENOSYS");
+    // A host that reaches the mount over NFS is told the two paths are on different file systems, so
+    // that its tools fall back to copying; every other host is told rename is not implemented.
+    let expected = if fuser::HOST_IS_NFS_CLIENT {
+        libc::EXDEV
+    } else {
+        libc::ENOSYS
+    };
+    assert_eq!(err.to_errno(), expected, "rename should fail with {expected}");
     let err = fs
         .rename(
             FUSE_ROOT_INODE,
@@ -1717,6 +1892,6 @@ async fn test_rename_support_is_cached() {
         )
         .await
         .expect_err("rename should fail");
-    assert_eq!(err.to_errno(), libc::ENOSYS, "rename should again fail with ENOSYS");
+    assert_eq!(err.to_errno(), expected, "rename should again fail with {expected}");
     assert_eq!(counter.count(), 1, "The second failed rename should have been cached");
 }

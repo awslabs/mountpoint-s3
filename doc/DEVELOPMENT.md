@@ -13,11 +13,15 @@ with a directory structure created by interpreting the `/` delimiter.
 
 Take a look at the root `README.md` for an overview of the project.
 
-More specifically for developers, Mountpoint is a Linux FUSE file system.
+More specifically for developers, Mountpoint is a FUSE file system.
 Using FUSE, Mountpoint can run a file system in userspace rather than directly in the Linux kernel.
 The kernel dispatches file system requests it receives to Mountpoint,
 which translates file operations like `open` and `read` into S3 object API calls.
 This provides applications access to S3 through a familiar file interface.
+
+Mountpoint also builds on macOS, where FUSE-T takes the place of the kernel module and serves the
+mount to the host's NFS client. That changes the order and meaning of some of the requests Mountpoint
+receives; see [MACOS.md](./MACOS.md) before working on the write path or the FUSE layer.
 
 As a concrete example, customers are able to write the following Python code to interact with an S3 object:
 
@@ -110,8 +114,11 @@ The `docs/INSTALL.md` has a section on building from source which can get you st
 For running tests, you should [install cargo-nextest](https://nexte.st/docs/installation/pre-built-binaries/).
 
 You will need a Linux environment that has FUSE support.
-If you wish to use macOS,
-there is a [container available to support testing in `dev-container/`](../dev-container/README.md).
+On macOS you can develop natively against FUSE-T instead, by installing it and exporting
+`PKG_CONFIG_PATH` as [MACOS.md](./MACOS.md) describes — [`install-macos.sh`](../install-macos.sh)
+does both — after which the usual `cargo` and `make` commands work.
+There is also a [container available to support testing in `dev-container/`](../dev-container/README.md),
+which is what to use to reproduce Linux behaviour from a macOS host.
 
 You should also have AWS credentials available for testing.
 Short-term AWS credentials are recommended.

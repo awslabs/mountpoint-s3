@@ -298,7 +298,7 @@ pub(crate) fn fuse_attr_from_attr(attr: &crate::FileAttr) -> abi::fuse_attr {
     let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime);
     let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime);
     let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime);
-    #[cfg(target_os = "macos")]
+    #[cfg(fuser_macfuse_abi)]
     let (crtime_secs, crtime_nanos) = time_from_system_time(&attr.crtime);
 
     abi::fuse_attr {
@@ -308,19 +308,19 @@ pub(crate) fn fuse_attr_from_attr(attr: &crate::FileAttr) -> abi::fuse_attr {
         atime: atime_secs,
         mtime: mtime_secs,
         ctime: ctime_secs,
-        #[cfg(target_os = "macos")]
+        #[cfg(fuser_macfuse_abi)]
         crtime: crtime_secs as u64,
         atimensec: atime_nanos,
         mtimensec: mtime_nanos,
         ctimensec: ctime_nanos,
-        #[cfg(target_os = "macos")]
+        #[cfg(fuser_macfuse_abi)]
         crtimensec: crtime_nanos,
         mode: mode_from_kind_and_perm(attr.kind, attr.perm),
         nlink: attr.nlink,
         uid: attr.uid,
         gid: attr.gid,
         rdev: attr.rdev,
-        #[cfg(target_os = "macos")]
+        #[cfg(fuser_macfuse_abi)]
         flags: attr.flags,
         blksize: attr.blksize,
         padding: 0,
@@ -555,7 +555,7 @@ mod test {
 
     #[test]
     fn reply_entry() {
-        let mut expected = if cfg!(target_os = "macos") {
+        let mut expected = if cfg!(fuser_macfuse_abi) {
             vec![
                 0x98, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
                 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xaa, 0x00, 0x00, 0x00,
@@ -615,7 +615,7 @@ mod test {
 
     #[test]
     fn reply_attr() {
-        let mut expected = if cfg!(target_os = "macos") {
+        let mut expected = if cfg!(fuser_macfuse_abi) {
             vec![
                 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
                 0x00, 0x00, 0x65, 0x87, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x43, 0x00, 0x00,
@@ -733,7 +733,7 @@ mod test {
 
     #[test]
     fn reply_create() {
-        let mut expected = if cfg!(target_os = "macos") {
+        let mut expected = if cfg!(fuser_macfuse_abi) {
             vec![
                 0xa8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
                 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xaa, 0x00, 0x00, 0x00,
