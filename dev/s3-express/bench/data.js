@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789993226930,
+  "lastUpdate": 1790085896653,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5006f4e98aab4e5f09f5df030233c5b37cf5f5ed",
-          "message": "Upgrade actions/checkout from 6.0.3 to 7.0.1 (#1914)\n\nReplaces #1901: by default, `actions/checkout` v7 disallows checking out\nfork PR code from `pull_request_target` workflows, which is a feature we\nrely on in our integration, bench, and stress workflows. This change\nopts in by setting `allow-unsafe-pr-checkout`, which is safe because\nevery affected job sits behind `needs: approval`, a protected\nenvironment requiring maintainer review.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
-          "timestamp": "2026-08-10T12:30:40Z",
-          "tree_id": "65ff9ef0c12afa05763a772569a7877b9562f9ad",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/5006f4e98aab4e5f09f5df030233c5b37cf5f5ed"
-        },
-        "date": 1786373302574,
-        "tool": "customBiggerIsBetter",
-        "benches": [
-          {
-            "name": "sequential_read,sequential_write_four_threads",
-            "value": 5238.96259765625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_two_threads,sequential_write_two_threads",
-            "value": 4606.05361328125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads,sequential_write",
-            "value": 6015.1701171875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io",
-            "value": 106.83388671875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io_small_file",
-            "value": 147.01337890625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads",
-            "value": 102.56591796875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_small_file",
-            "value": 135.86162109375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io",
-            "value": 25.8509765625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io_small_file",
-            "value": 35.8681640625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read",
-            "value": 24.31044921875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_small_file",
-            "value": 33.6390625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io",
-            "value": 6640.6236328125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io_small_file",
-            "value": 540.48828125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads",
-            "value": 5396.67373046875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_small_file",
-            "value": 529.2279296875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io",
-            "value": 1755.02333984375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io_small_file",
-            "value": 130.43759765625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read",
-            "value": 1427.801953125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 1317.41181640625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_small_file",
-            "value": 131.902734375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write_direct_io",
-            "value": 1788.3548828125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write",
-            "value": 949.267578125,
-            "unit": "MiB/s"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_write",
             "value": 1153.7396484375,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "20302932+yerzhan7@users.noreply.github.com",
+            "name": "Yerzhan Mazhkenov",
+            "username": "yerzhan7"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffa5658c676e4c646d06a2b013ead6b27160f2e2",
+          "message": "Update CRT submodules to latest releases (#1967)\n\nUpdate the CRT submodules to the latest releases:\n\n* `aws-c-auth` `v0.10.4` -> `v1.0.0`\n* `aws-c-cal` `v0.9.14` -> `v1.0.0`\n* `aws-c-common` `v0.14.2` -> `v1.0.1`\n* `aws-c-compression` `v0.3.2` -> `v1.0.0`\n* `aws-c-http` `v0.11.0` -> `v1.0.0`\n* `aws-c-io` `v0.27.3` -> `v1.0.0`\n* `aws-c-s3` `v0.12.8` -> `v1.1.3`\n* `aws-c-sdkutils` `v0.2.7` -> `v1.0.0`\n* `aws-checksums` `v0.2.10` -> `v1.0.0`\n* `aws-lc` `v5.1.0` -> `v5.9.0`\n* `s2n-tls` `v1.7.5` -> `v1.7.10`\n\nAlso exclude aws-lc's new Keccak test vectors from the published\nmountpoint-s3-crt-sys archive, as they are not required to build the\nCRT. The compressed crate is 9.2MiB, within the 10MiB crates.io limit.\n\n<details>\n  <summary>Full CRT changelog:</summary>\n\n```\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-auth 4b5d524bf..055e822f0:\n  > chore(release): add governance files (#303)\n  > Clean up docs (#301)\n  > chore(release): patch-update to VERSION - 0.10.5\n  > CI/CD improvements (#302)\n  > Use latest as aws-crt-builder version (#300)\n  > Add thread sanitizer CI job (#299)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-cal 9edd8eac2..2441187f3:\n  > chore(release): add governance files (#257)\n  > Clean up docs (#255)\n  > CI/CD improvements (#256)\n  > Expand ecc validation test (#254)\n  > ECC Validation Test (#253)\n  > Use latest as aws-crt-builder version (#252)\n  > Swap fatal for soft error (#251)\n  > Update deprecated OpenBSD CI job (#250)\n  > Regression Labeler Fix (#249)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-common a9d57d2d3..69cd45209:\n  > chore(release): patch-update to VERSION - 1.0.1\n  > Helpers for file descriptor opertaions.  (#1272)\n  > Debug API to override default thread options (#1273)\n  > Bullseye -> Bookworm (#1276)\n  > Fix wrong libdir on some platforms (#1271)\n  > Add some error code utility functions (#1270)\n  > External shutdown error (#1269)\n  > chore(release): add governance files (#1267)\n  > Suppress MSAN false positive (#1264)\n  > Clean up docs (#1263)\n  > Release 0.14.5 (patch)\n  > CI/CD improvements (#1250)\n  > Use latest as aws-crt-builder version (#1261)\n  > aws_file_get_last_modified_epoch (#1258)\n  > Fix windows nonascii env (#1260)\n  > Add HWASan suppression support (#1256)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-compression d8264e64f..891312c05:\n  > chore(release): add governance files (#81)\n  > Clean up docs (#79)\n  > chore(release): patch-update to VERSION - 0.3.3\n  > CI/CD improvements (#80)\n  > Use latest as aws-crt-builder version (#78)\n  > Regression Labeler Fix (#77)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-http 8aefd899f..2b563f8a7:\n  > chore(release): add governance files (#575)\n  > Clean up docs (#573)\n  > chore(release): patch-update to VERSION - 0.11.1\n  > CI/CD improvements (#574)\n  > HPACK String Length Validation (#572)\n  > Enforce MAX_HEADER_LIST_SIZE (#568)\n  > Fix use-after-free in stats gathering during connection shutdown(#570)\n  > Use latest as aws-crt-builder version (#569)\n  > Regression Labeler Fix (#564)\n  > Support s2n-tls on macOS (#560)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-io 8bda5cf0f..1685abcd3:\n  > chore(release): add governance files (#828)\n  > Clean up docs (#821)\n  > chore(release): patch-update to VERSION - 0.27.7\n  > CI/CD improvements (#824)\n  > Fix read-window stall by gating window updates on the scarcest slot (#818)\n  > Automate test cert renewal (#820)\n  > Use latest as aws-crt-builder version (#817)\n  > Expose option to set TCP_NODELAY on sockets (#816)\n  > log the negotiated TLS version (#815)\n  > Handle optional s2n-tls in the install CMake config (#814)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-s3 448ec5e49..805ca0f4c:\n  > chore(release): patch-update to VERSION - 1.1.3\n  > feat: add more metrics to S3 metrics object (#673)\n  > Checksum validation handling cleanup (#678)\n  > API to Get Default S3 Memory Limits (#681)\n  > chore(release): patch-update to VERSION - 1.1.2\n  > move the check and relax it for the file streaming case (#680)\n  > chore(release): patch-update to VERSION - 1.1.1\n  > Add S3 Metrics (#674)\n  > chore(release): minor-update to VERSION - 1.1.0\n  > Add retry_config to aws_s3_client_config (#672)\n  > Retry on 502 504 errors (#671)\n  > Sub 10Gbps S3 Throughput Handling (#670)\n  > chore(release): add governance files (#668)\n  > chore(release): patch-update to VERSION - 0.13.7\n  > update doc on endpoint resolver update script (#667)\n  > fix(copy-object): forward request-payer to the source-size HEAD (#654)\n  > Clean up docs (#665)\n  > chore(release): patch-update to VERSION - 0.13.6\n  > CI/CD improvements (#666)\n  > Combine per-part CRCs for whole-object download checksum validation (#663)\n  > support opaque etags (#664)\n  > fix resume token build (#661)\n  > Use latest as aws-crt-builder version (#660)\n  > [feat.] async pause and on_error_resume_token (#649)\n  > Turn nagle off (#659)\n  > Restore enums values that were deleted on accident. (#658)\n  > fix ordering of read from stream (#655)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-sdkutils cb14fea36..de0fbe807:\n  > chore(release): add governance files (#74)\n  > Clean up docs (#72)\n  > chore(release): patch-update to VERSION - 0.2.10\n  > CI/CD improvements (#73)\n  > Relax handling of unmodeled context params in bdd (#71)\n  > Use latest as aws-crt-builder version (#70)\n  > fix bdd header encoding (#69)\nSubmodule mountpoint-s3-crt-sys/crt/aws-checksums 1d5f2f1f3..ee7c435de:\n  > chore(release): add governance files (#119)\n  > Clean up docs (#116)\n  > chore(release): patch-update to VERSION - 0.2.11\n  > CI/CD improvements (#117)\n  > Use latest as aws-crt-builder version (#115)\n  > Update deprecated OpenBSD CI job (#114)\n  > Regression Labeler Fix (#113)\n  > Fix clang-cl compilation (#112)\nSubmodule mountpoint-s3-crt-sys/crt/aws-lc 6283365b1..39b142ec3:\n  > Prepare v5.9.0 (#3523)\n  > Report unexpected EOF as `SSL_ERROR_SSL` for OpenSSL 3.x parity (#3484)\n  > Parallelise the serial Windows builds in Windows Alternative Compilers (#3516)\n  > Avoid duplicate formal-verification runs on PR branches (#3526)\n  > Fail the ABI check when abidiff cannot run (#3511)\n  > Bump the pip-ci group across 1 directory with 3 updates (#3399)\n  > Replace the error-queue trim helpers with a suppression scope (#3529)\n  > Run the macOS jobs on a single OS version (#3513)\n  > Stop building the test suite in the ABI diff image (#3512)\n  > Thin the compiler-tests config axis (#3515)\n  > Remove duplicate Python CRT integration work (#3525)\n  > ci: enable shared libraries for clang-tidy provider build (#3520)\n  > ci: fix OpenSSH integration (#3519)\n  > ci: fix librelp integration test (#3517)\n  > ci: fix mariadb integration (#3518)\n  > Add ERR_num_errors and ERR_pop_to_count (#3501)\n  > Cache the CMake-from-source image layers in CMake compatibility CI (#3510)\n  > Add OpenSSL-compatible EVP_CTRL_CCM_* aliases (#3490)\n  > Fix EVP signing-context control collision (#3458)\n  > Fix BN_CTX leak on allocation failure in `EC_GROUP_new_curve_GFp` (#3506)\n  > ci: handle expired Bullseye repository in legacy GCC jobs (#3508)\n  > Export OpenSSL-compatible ECPKParameters buffer APIs (#3493)\n  > Fix tpm2-tss integration build without SM4 (#3507)\n  > Add legacy SSL function codes for OpenSSL compatibility (#3491)\n  > Register -tls1_2 and -tls1_3 flags in bssl client (#3492)\n  > Gate ruby master rubygems ML-DSA tests on key loading, not generation (#3479)\n  > Use OpenSSL-compatible long names for ML-DSA OIDs (#3481)\n  > Document the AWS-LC provider (#3434)\n  > Implement SHA-256 through the AWS-LC provider (#3433)\n  > ci: record integration failure metadata (#3482)\n  > ci: fix failing librelp integration (#3480)\n  > Add ML-KEM support to HPKE (draft-ietf-hpke-pq-05) (#3277)\n  > Limit push-triggered CI to main and fips-* branches (#3478)\n  > Prepare 5.8.0 (#3476)\n  > Implement the AWS-LC provider interface (#3432)\n  > Route req -extensions to the certificate and add -reqexts for the CSR (#3469)\n  > Add FIPS_module_name to report the cryptographic module name (#3473)\n  > Print FIPS module name in cli tooling (#3471)\n  > Prepare 5.7.0 (#3465)\n  > Fix EVP_DecryptUpdate output handling (#3460)\n  > Define AT_HWCAP* when <sys/auxv.h> hides them (#3429)\n  > Add SECURITY.md with AWS-LC threat model (#3421)\n  > Prepare 5.6.0 (#3448)\n  > Re-import mlkem-native and mldsa-native; drop custom meta headers (#3367)\n  > Define BN_FLG_CONSTTIME as zero for source compatibility (#3446)\n  > ci: consolidate android-omnibus deployments on external PRs (#3447)\n  > ci: stop deployment noise for maintainers (#3445)\n  > Install OpenSSL-compat libcrypto.pc and libssl.pc with the shim (#3370)\n  > Pin librelp to a release, wrap `SSL_get_shutdown` for failing integration test (#3431)\n  > Fix ML-DSA externalMu JSON tags (#3439)\n  > Upgrade JDK to JDK21 for ACCP tests (#3440)\n  > Decouple symbol versioning from distribution packaging mode (#3426)\n  > Bump the cargo-ci-lambda group in /tests/ci/lambda with 4 updates (#3390)\n  > Add latest compiler coverage to CI (#3406)\n  > Move network-dependent s_client tests into integration_test (#3407)\n  > Update pull request template (#3436)\n  > Add AWS-LC provider build and CI infrastructure (#3419)\n  > Add backport apply command (#3414)\n  > ci: re-enable gcc-14 + FIPS build in gcc-14-hardened job (#3428)\n  > ci: use preinstalled Rust in pyopenssl integration (#3430)\n  > Fix Windows OPENSSL_SMALL Debug builds with NASM 2.16.01 (#3420)\n  > ci: install Rust in the Linux docker images (#3393)\n  > Enable mtr retries in MariaDB CI integration (#3427)\n  > Add Backport Tool Analysis (#3389)\n  > Reject GCM IV lengths below 8 in EVP_CTRL_GCM_IV_GEN (#3424)\n  > ci: pin security review to the PR head commit (#3425)\n  > Add Keccak-256 (Ethereum-style, original 0x01 padding) (#3245)\n  > Add memcached integration test (#3410)\n  > Add CPython 3.15 integration test (#3422)\n  > Add brainpool EC_group symbols; make public API symbol registration self-service (#3423)\n  > Harden CLI input validation and file output (#3347)\n  > Document how to build applications against AWS-LC (#3386)\n  > Add brainpoolP224r1, brainpoolP256r1, brainpoolP320r1, brainpoolP384r1, brainpoolP512r1 EC group support (#3286)\n  > Avoid /usr/bin/env dependency in FIPS compiler wrapper (#3411)\n  > BoringSSL: Fix beeu_mod_inverse_vartime on aarch64 (#3381)\n  > Update MySQL CI integration to mysql-cluster-9.7.2 (#3409)\n  > Fix `grpc-master-x86_64` integration test  (#3346)\n  > ci: remove Graviton5 c9g fleet and job (#3400)\n  > Share Bedrock model settings between autofix and util/backport (#3395)\n  > Fix thread-local destructors with MSYS2 clang64 (#3405)\n  > Prepare 5.5.0 (#3401)\n  > Enable linker garbage collection for non-FIPS static builds (#3397)\n  > Update concurrency in `security-review` (#3403)\n  > Add MinGW shared-library Windows CI coverage (#3398)\n  > Bump urllib3 from 2.6.3 to 2.7.0 in /tests/ci (#3372)\n  > Update FIPS.md (#3382)\n  > Fix docker image dependencies and update octocrab initialization (#3388)\n  > Bump ring from 0.17.8 to 0.17.14 in /tests/ci/lambda (#3375)\n  > Add Neoverse-V3 (Graviton5) detection and dispatch (#3374)\n  > delocate: Drop redundant `-dI` flag (#3384)\n  > ci: pin openssh required job (#3387)\n  > Rename autofix reasoning role to AwsLcGitHubActionsBedrockRole (#3376)\n  > Link header documentation from README (#3378)\n  > Add tests for RSASSA-PSS with SHA-3 digest and MGF1 (#3377)\n  > chore: simplify the api docs workflow (#3186)\n  > Fix flaky s_client cipher tests by using better ciphers (#3373)\n  > ci: harden security-review.yml against script injection (#3365)\n  > Include <openssl/cipher.h> from <openssl/hmac.h> for OpenSSL compat (#3371)\n  > Restore ADX/AVX2 code paths under OPENSSL_SMALL via new MY_ASSEMBLER_IS_TOO_OLD_FOR_ADX_AVX2 flag (#3368)\n  > Bump to v5.4.0, add AES-KWP wrap/unwrap CASTs (#3366)\n  > Use built-in Camellia in krb5 integration patch; fix CTS doc label (#3349)\n  > Remove dead P-256 nistz asm under OPENSSL_SMALL and extend the size-check harness (#3350)\n  > ci:ctest timing summary for MacOS (#3288)\n  > Support for `EVP_AEAD_CTX_copy` (#3332)\n  > Add AArch64 NEON runtime fallback for ML-KEM and ML-DSA (#3353)\n  > Prepare 5.3.0 (#3354)\n  > Add ACVP support for multi-expansion HKDF (#3352)\n  > Bump golang.org/x/crypto from 0.47.0 to 0.52.0 in /util/vecgen (#3339)\n  > Auto-fix integration patches and upload to S3 (#3324)\n  > Bump log from 0.4.30 to 0.4.33 in /tests/ci/lambda in the cargo-ci-lambda group (#3329)\n  > Prepare v5.2.0 (#3348)\n  > Fix `SSL_OP_IGNORE_UNEXPECTED_EOF` being ignored over sockets (#3341)\n  > Gate s2n-bignum _alt variants under OPENSSL_SMALL (#3320)\n  > Add CTS mode, krb5 integration test (#3308)\n  > Bump github.com/google/go-cmp from 0.6.0 to 0.7.0 in /tests/ci/x509/limbo-report in the gomod-limbo-report group (#3328)\n  > Bump github.com/cloudflare/circl from 1.6.3 to 1.6.4 in /util/vecgen in the gomod-vecgen group (#3327)\n  > openssl/target.h: Allow building for the e2k architecture (#3314)\n  > ci: harden GitHub Actions workflows against script injection (#3323)\n  > Pin required libssh2 integration to a release; track main separately (#3343)\n  > Add ML-KEM decapsulate CASTs to break-kat tooling (#3342)\n  > Update security review workflow (#3333)\n  > Symbol versioning follow-ups: register peer cert APIs, fix dist_pkg_tests matrix (#3338)\n  > Add Symbol Versioning Support (#3096)\n  > Null-guard EVP_AEAD_CTX_cleanup for fork+shm safety (#3336)\n  > Fix libgit2, xtrabackup, grpc tests and add OSSL3 peer cert APIs (#3331)\n  > Documented and added feature stability tests for EVP_AEAD implementations that support concurrency through EVP_AEAD_CTX_seal/gather functions (#3325)\n  > OPENSSL_SMALL: imply MY_ASSEMBLER_IS_TOO_OLD_FOR_512AVX on x86_64 (#3319)\nSubmodule mountpoint-s3-crt-sys/crt/s2n-tls f5f6c6c2c..bce022f41:\n  > feat(metrics-subscriber): expose compatibility profile allow-lists (#6086)\n  > fix: free client pub_key on all error paths in server shared secret (#6063)\n  > fix: free encoded point on write failure in s2n_ecc_evp_write_params_point (#5964)\n  > fix: zero-initialize s2n_tls13_keys in PSK binder functions (#6048)\n  > fix: enforce JA4 list limit when building fingerprint (#6047)\n  > fix: always free async offload op during connection teardown (#6080)\n  > feat(s2n-tls-metrics): Add hello_retry_request_count (#6078)\n  > fix(integration): replace BoringSSL fork git dependency with btls crate (#6067)\n  > fix: bounds-check cert pkey type before array indexing (#6054)\n  > feat(bindings): add signature_public_key_type to Connection (#6076)\n  > fix(metrics): normalize s2n signature (#6077)\n  > fix: restrict cert signature preferences in custom CNSA2 interop policies (#6073)\n  > feat: skip blinding delay on missing required client cert (#6072)\n  > feat(metrics): add negotiated metrics for compatibility (#6068)\n  > feat: add `s2n_conn_get_signature_public_key_type` API (#5963)\n  > chore(bindings): release bump v0.3.43 (#6070)\n  > perf(sidetrail): Avoid digest zeroing in proof (#6056)\n  > chore: upgrade CBMC to 6.11.0 (#6061)\n  > fix: set actual_protocol_version_established on deserialized connections (#6049)\n  > fix(bindings): avoid mutable aliasing in shared Config callbacks (#6053)\n  > docs: io callback examples (#6036)\n  > feat: add backwards compatible hybrid PQ policies (#6044)\n  > chore: bump metrics subscriber for release (#6050)\n  > fix(metrics): jitter export timing (#6046)\n  > fix(cbc): Disable padding after key init and check decrypt len (#6042)\n  > test: print assertion backtraces in FAIL_MSG_PRINT (#5785)\n  > build(deps): bump cross-platform-actions/action from 1.3.0 to 1.4.0 in /.github/workflows in the all-gha-updates group (#6035)\n  > fix(connection): Make set_config validator replacement transactional (#5847)\n  > feat: add s2n_connection_handshake_complete() public API (#5906)\n  > fix: Add fail-closed default cases to all switch statements (#6006)\n  > fix: Zero-initialize all local variable declarations (#6007)\n  > feat(metrics): flush on drop (#6032)\n  > fix: fail explicitly when server selects unavailable KEM group in key share recv (#6026)\n  > ci: Use GitHub mirror for musl and upgrade octokit action to Node 24 (#6031)\n  > chore: update http test with new status code (#6034)\n  > fix(bindings): default to efficient record size (#6020)\n  > test: add behavior tests for Connection::wipe (#6029)\n  > fix: handshake integrity over content types (#6017)\n  > fix: zero-init hash state and guard async offload wipe against in-flight ops (#6028)\n  > chore(bindings): release bump (#6027)\n  > chore: remove inline policy builder code (#6025)\n  > fix: prevent use-after-free in `Connection::set_config` when C setter rejects replacement (#6023)\n  > fix(psk): return usage error for uninitialized offered PSK (#6009)\n  > test: peer_cert_chain behavior with elided CA (#5914)\n  > fix(docs): Hide unstable-renegotiate poll_send cfg in rustdoc (#6022)\n  > fix: null `evp_cipher_ctx` after free in `s2n_session_key_alloc()` error path (#6024)\n  > fix(ci): update msrv check to use Cargo.toml (#6021)\n  > feat: add custom CNSA2 interop policies (#6011)\n  > docs(build): clarify OpenSSL FIPS support and shared responsibility (#5856)\n  > docs: document threading contract on s2n_async_pkey_op_apply and reje… (#5845)\n  > fix: emit trailing colons for IPv6 addresses ending in a zero run (#5842)\n  > fix: ensure record integrity over header version (#6014)\n  > build(deps): bump actions/stale from 10 to 11 in /.github/workflows in the all-gha-updates group (#6016)\n  > refactor: use header struct for decryption (#6004)\n  > docs: add resources about Coordinated Vulnerability Disclosure to SECURITY.md (#5927)\n  > build(deps): update crabgrind requirement from 0.2 to 0.3 in /tests/regression in the all-cargo-updates group across 1 directory (#5972)\n  > style(integv2): run latest ruff format & check (#6005)\n  > ci: update stale patch files for clang-format (#6000)\n  > build(deps): bump the all-gha-updates group across 1 directory with 4 updates (#5994)\n  > fix: use leaf public key NID for ML-DSA signature scheme matching (#5997)\n  > feat: Include the error code in s2n_error Display impl (#5988)\n  > fix: prefer clang for libs2n LTO to work under rust-lld (#5996)\n  > chore: s2n-tls rust bindings v0.3.41 release (#5998)\n  > fix(duvet): Correct CCS quote attribution to RFC 8446 section 5 (#5999)\n  > Merge commit from fork\n  > Merge commit from fork\n  > fix: guard against underflow in record wipe length (#5973)\n  > feat(docs): Render Cargo feature-gated code in docs (#5967)\n  > ci: upgrade cppcheck from 2.3 to 2.13 via apt (#5943)\n  > ci: add MSRV consumer check (#5986)\n  > feat: add per-message handshake timing instrumentation (#5903)\n  > chore: version bump (#5984)\n  > feat: add client issue metrics (#5979)\n  > refactor: export trait owns MetricRecord (#5981)\n  > docs: Windows MinGW support is available (#5970)\n  > chore: delete unused functions (#5978)\n  > test: enable rust bindings tests on Windows (#5969)\n  > ci: bump MSRV for extended workspace from 1.89 to 1.91 (#5980)\n  > refactor(metrics): make record update infallible (#5976)\n  > test: client_hello retrieval with HRR (#5975)\n  > feat(bindings): add init feature flag (#5831)\n  > build(deps): update openssl-src requirement from 300.5 to 400.0 in /bindings/rust/standard (#5971)\n  > feat: enable rust bindings build and tests on Windows (#5958)\n  > chore: metrics-subscriber release v0.0.4 (#5965)\n  > refactor: two more self talk tests to use in-memory io pair (#5950)\n  > refactor: fork based handshake tests to use in memory io pair (#5940)\n  > chore: bindings release 0.3.39 (#5962)\n```\n</details>\n\n### Does this change impact existing behavior?\n\nNo breaking changes. There are a few behaviour changes inherited from\nthe CRT worth calling out:\n- `aws-c-s3` now retries `502 Bad Gateway` and `504 Gateway Timeout`\nresponses\n([aws-c-s3#671](https://github.com/awslabs/aws-c-s3/pull/671)).\n- `aws-c-s3` now disables Nagle's algorithm on S3 connections\n([aws-c-s3#659](https://github.com/awslabs/aws-c-s3/pull/659)).\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Yerzhan Mazhkenov <20302932+yerzhan7@users.noreply.github.com>",
+          "timestamp": "2026-09-22T11:45:26Z",
+          "tree_id": "3a665dae4d7743bffc23d3b2d0ab6d792515d2cf",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/ffa5658c676e4c646d06a2b013ead6b27160f2e2"
+        },
+        "date": 1790085895086,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "sequential_read,sequential_write_four_threads",
+            "value": 5157.93740234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_two_threads,sequential_write_two_threads",
+            "value": 4566.0271484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads,sequential_write",
+            "value": 5889.26142578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 101.74443359375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 145.29111328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 98.84150390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 134.47412109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 25.69736328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 35.4736328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read",
+            "value": 23.72451171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 33.1580078125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6377.8490234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 534.59306640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 5310.17998046875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 526.8865234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 1440.9595703125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 128.55234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1683.9775390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 1291.98564453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 132.37138671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write_direct_io",
+            "value": 1789.409765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write",
+            "value": 1148.0484375,
             "unit": "MiB/s"
           }
         ]
