@@ -1,9 +1,11 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - mountpoint-s3-[0-9]+.*
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v2.0.0)"
+        required: true
 
 permissions:
   contents: write
@@ -11,9 +13,34 @@ permissions:
 
 jobs:
   create-github-release:
+    name: "Create release"
     runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/main' }}
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Checkout main
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: main
+        fetch-depth: 0
+    - name: Verify correct release tag
+      env:
+        REQUESTED_TAG: ${{ inputs.tag }}
+      run: |
+        VERSION=$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[] | select(.name == "mountpoint-s3") | .version')
+        echo "Crate version (mountpoint-s3/Cargo.toml): ${VERSION}"
+        echo "Requested release tag:                    ${REQUESTED_TAG}"
+        if [ "${REQUESTED_TAG}" != "v${VERSION}" ]; then
+          echo "::error::Requested tag '${REQUESTED_TAG}' does not match the crate version 'v${VERSION}'."
+          exit 1
+        fi
+        echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+    - name: Create release tags
+      run: |
+        git tag "mountpoint-s3-${VERSION}"
+        git tag "v${VERSION}"
+    - name: Push release tags
+      run: |
+        git push origin "mountpoint-s3-${VERSION}" "v${VERSION}"
     - uses: taiki-e/create-gh-release-action@eba8ea96c86cca8a37f1b56e94b4d13301fba651 # v1.11.0
       with:
         title: "mountpoint-s3 v$version"
@@ -25,3 +52,4 @@ jobs:
         allow-missing-changelog: true
         branch: main
         token: ${{ secrets.GITHUB_TOKEN }}
+        ref: "refs/tags/mountpoint-s3-${{env.VERSION}}"
