@@ -846,7 +846,7 @@ mod tests {
     use fuser::FileType;
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::{MockClient, MockObject};
-    use mountpoint_s3_client::types::ETag;
+    use mountpoint_s3_client::types::{ETag, GetObjectParams, HeadObjectParams};
     use test_case::test_case;
 
     #[tokio::test]
@@ -1095,6 +1095,196 @@ mod tests {
             .expect("re-open for a released file should succeed");
     }
 
+    /// Size of `key` in the mock bucket, panicking if it does not exist.
+    async fn object_size(client: &MockClient, key: &str) -> u64 {
+        client
+            .head_object("bucket", key, &HeadObjectParams::new())
+            .await
+            .expect("object should exist")
+            .size
+    }
+
+    /// Full contents of `key` in the mock bucket, panicking if it does not exist.
+    async fn object_content(client: &MockClient, key: &str) -> Vec<u8> {
+        client
+            .get_object("bucket", key, &GetObjectParams::new())
+            .await
+            .expect("object should exist")
+            .collect()
+            .await
+            .expect("collect should succeed")
+            .to_vec()
+    }
+
+    const APPENDED_CONTENT: &[u8] = b"appended";
+    const RACING_CONTENT: &[u8] = b"written by another client";
+
+    /// Assert that closing a handle whose append was rejected keeps reporting the failure, and that
+    /// the racing writer's content survives. On `close` the kernel sends `flush` and then `release`,
+    /// so a real application sees this path rather than the `fsync` that first surfaced the error.
+    async fn assert_close_reports_failure(
+        fs: &S3Filesystem<MockClient>,
+        client: &MockClient,
+        ino: InodeNo,
+        fh: u64,
+        key: &str,
+    ) {
+        let err = fs
+            .flush(ino, fh, 0, 0)
+            .await
+            .expect_err("flush should keep reporting the failed upload");
+        assert_eq!(err.to_errno(), libc::EIO);
+
+        fs.release(ino, fh, 0, Some(0), false)
+            .await
+            .expect("release should tear the handle down");
+
+        assert_eq!(object_content(client, key).await, RACING_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn test_append_to_existing_empty_object_is_conditional() {
+        let test_name = "test_append_to_existing_empty_object_is_conditional";
+        let (fs, client) = setup_mock_fs_and_client_with_config(
+            test_name,
+            S3FilesystemConfig {
+                incremental_upload: true,
+                ..Default::default()
+            },
+        );
+
+        // Seed an existing, empty object and look it up so the inode carries its ETag.
+        let name = format!("{test_name}-empty.txt");
+        let key = format!("dir1/{name}");
+        client.add_object(&key, MockObject::from([]));
+        let dir_ino = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap().attr.ino;
+        let file_ino = fs.lookup(dir_ino, name.as_ref()).await.unwrap().attr.ino;
+
+        // Open for append without `O_TRUNC`, so the handle keeps the object's ETag.
+        let fd = fs
+            .open(file_ino, OpenFlags::O_WRONLY, 0)
+            .await
+            .expect("open for writing should succeed");
+
+        // Another writer replaces the object, invalidating the ETag the handle holds.
+        client.add_object(&key, MockObject::from(RACING_CONTENT));
+
+        // The write is buffered locally, so the precondition is only evaluated on the flush.
+        fs.write(file_ino, fd.fh, 0, APPENDED_CONTENT, 0, 0, None)
+            .await
+            .expect("buffering a write should succeed");
+        let err = fs
+            .fsync(file_ino, fd.fh, false)
+            .await
+            .expect_err("appending to a replaced object should fail");
+        assert_eq!(err.to_errno(), libc::EIO);
+
+        assert_close_reports_failure(&fs, &client, file_ino, fd.fh, &key).await;
+    }
+
+    #[tokio::test]
+    async fn test_append_after_flushing_truncated_file_is_conditional() {
+        let test_name = "test_append_after_flushing_truncated_file_is_conditional";
+        let (fs, client) = setup_mock_fs_and_client_with_config(
+            test_name,
+            S3FilesystemConfig {
+                allow_overwrite: true,
+                incremental_upload: true,
+                ..Default::default()
+            },
+        );
+        // The pre-existing 15-byte object seeded by `setup_mock_fs_and_client_with_config`.
+        let (_dir_ino, file_ino) = lookup_dir_and_file(test_name, &fs).await;
+        let key = format!("dir1/{test_name}1.txt");
+        assert_eq!(object_size(&client, &key).await, 15);
+
+        let fd = fs
+            .open(file_ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 0)
+            .await
+            .expect("open for truncating should succeed");
+
+        // Flush without writing: replaces the object with an empty one, unconditionally, and the
+        // stream restarts at offset 0 now holding the new object's ETag.
+        fs.fsync(file_ino, fd.fh, false)
+            .await
+            .expect("first fsync should succeed");
+        assert_eq!(object_size(&client, &key).await, 0);
+
+        // Replace the object behind the file system's back, invalidating that ETag.
+        client.add_object(&key, MockObject::from(RACING_CONTENT));
+
+        fs.write(file_ino, fd.fh, 0, APPENDED_CONTENT, 0, 0, None)
+            .await
+            .expect("buffering a write should succeed");
+        let err = fs
+            .fsync(file_ino, fd.fh, false)
+            .await
+            .expect_err("writing after the truncation was flushed should fail");
+        assert_eq!(err.to_errno(), libc::EIO);
+
+        assert_close_reports_failure(&fs, &client, file_ino, fd.fh, &key).await;
+    }
+
+    /// A new file flushed before anything is written to it becomes an empty object, and the stream
+    /// restarts at offset 0 now holding that object's ETag. A subsequent write must therefore be
+    /// conditional, and must fail if a racing writer replaced the object in the meantime.
+    #[test_case(true; "racing writer")]
+    #[test_case(false; "no racing writer")]
+    #[tokio::test]
+    async fn test_append_after_flushing_empty_file(racing_writer: bool) {
+        let test_name = "test_append_after_flushing_empty_file";
+        let (fs, client) = setup_mock_fs_and_client_with_config(
+            test_name,
+            S3FilesystemConfig {
+                incremental_upload: true,
+                ..Default::default()
+            },
+        );
+        let dentry = setup_file(test_name, &fs).await;
+        let key = format!("dir1/{test_name}2.txt");
+
+        let fd = fs
+            .open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
+            .await
+            .expect("open for writing should succeed");
+
+        // Flush without writing: uploads an empty object, and the stream restarts at offset 0
+        // holding its ETag.
+        fs.fsync(dentry.attr.ino, fd.fh, false)
+            .await
+            .expect("first fsync should succeed");
+        assert_eq!(object_size(&client, &key).await, 0);
+
+        if racing_writer {
+            // Replace the object behind the file system's back, invalidating that ETag.
+            client.add_object(&key, MockObject::from(RACING_CONTENT));
+        }
+
+        // The write is buffered locally, so the precondition is only evaluated on the flush.
+        fs.write(dentry.attr.ino, fd.fh, 0, APPENDED_CONTENT, 0, 0, None)
+            .await
+            .expect("buffering a write should succeed");
+        let result = fs.fsync(dentry.attr.ino, fd.fh, false).await;
+
+        if racing_writer {
+            let err = result.expect_err("writing to a replaced object should fail");
+            assert_eq!(err.to_errno(), libc::EIO);
+
+            assert_close_reports_failure(&fs, &client, dentry.attr.ino, fd.fh, &key).await;
+        } else {
+            result.expect("appending after a flush should succeed");
+
+            fs.flush(dentry.attr.ino, fd.fh, 0, 0)
+                .await
+                .expect("flush should succeed");
+            fs.release(dentry.attr.ino, fd.fh, 0, Some(0), false)
+                .await
+                .expect("release should succeed");
+
+            assert_eq!(object_content(&client, &key).await, APPENDED_CONTENT);
+        }
+    }
+
     async fn setup_file(test_name: &str, fs: &S3Filesystem<MockClient>) -> Entry {
         // Lookup inode of the dir1 directory
         let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
@@ -1128,6 +1318,13 @@ mod tests {
     }
 
     fn setup_mock_fs_with_config(test_name: &str, fs_config: S3FilesystemConfig) -> S3Filesystem<MockClient> {
+        setup_mock_fs_and_client_with_config(test_name, fs_config).0
+    }
+
+    fn setup_mock_fs_and_client_with_config(
+        test_name: &str,
+        fs_config: S3FilesystemConfig,
+    ) -> (S3Filesystem<MockClient>, MockClient) {
         let bucket = Bucket::new("bucket").unwrap();
         let client = MockClient::config()
             .bucket(bucket.to_string())
@@ -1155,7 +1352,8 @@ mod tests {
                 s3_personality: fs_config.s3_personality,
             },
         );
-        S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config)
+        let fs = S3Filesystem::new(client.clone(), prefetcher_builder, pool, runtime, superblock, fs_config);
+        (fs, client)
     }
 
     #[test_case(false, true)]
