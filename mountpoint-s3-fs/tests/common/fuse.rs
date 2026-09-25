@@ -53,6 +53,8 @@ pub trait TestClient: Send {
 
     fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>>;
 
+    fn get_object_content(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
+
     fn get_object_content_type(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>>;
 
     fn restore_object(&self, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>>;
@@ -313,7 +315,7 @@ pub mod mock_session {
 
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::MockClient;
-    use mountpoint_s3_client::types::{HeadObjectParams, ObjectAttribute};
+    use mountpoint_s3_client::types::{GetObjectParams, HeadObjectParams, ObjectAttribute};
     use mountpoint_s3_fs::prefetch::Prefetcher;
     use mountpoint_s3_fs::s3::Bucket;
 
@@ -491,6 +493,18 @@ pub mod mock_session {
                 &HeadObjectParams::new(),
             ))?;
             Ok(head_object.size as usize)
+        }
+
+        fn get_object_content(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            let body = tokio_block_on(async {
+                let request = self
+                    .client
+                    .get_object(BUCKET_NAME, &full_key, &GetObjectParams::new())
+                    .await?;
+                request.collect().await
+            })?;
+            Ok(body.to_vec())
         }
 
         fn get_object_content_type(&self, _key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
@@ -822,6 +836,13 @@ pub mod s3_session {
             let full_key = format!("{}{}", self.prefix, key);
             let head_object = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(&full_key).send())?;
             Ok(head_object.content_length().unwrap() as usize)
+        }
+
+        fn get_object_content(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            let output = tokio_block_on(self.sdk_client.get_object().bucket(&self.bucket).key(&full_key).send())?;
+            let body = tokio_block_on(output.body.collect())?;
+            Ok(body.to_vec())
         }
 
         fn get_object_content_type(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
