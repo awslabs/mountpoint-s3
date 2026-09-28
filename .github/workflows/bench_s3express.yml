@@ -126,7 +126,7 @@ jobs:
         S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/${{ github.job }}${{ matrix.results_subdir_suffix }}
         COMMIT_ID: ${{ inputs.ref }}
     - name: Check benchmark results
-      uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+      uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
       with:
         name: Throughput Benchmark (S3 Express One Zone${{ matrix.name_suffix }})
         tool: 'customBiggerIsBetter'
@@ -142,7 +142,7 @@ jobs:
         max-items-in-chart: ${{ env.MAX_VALUES_IN_BENCH_CHART }}
         summary-always: true
     - name: Check resource utilization
-      uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+      uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
       with:
         name: Throughput Benchmark - Peak Memory Usage (S3 Express One Zone${{ matrix.name_suffix }})
         tool: 'customSmallerIsBetter'
@@ -212,7 +212,7 @@ jobs:
         S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/${{ github.job }}
         COMMIT_ID: ${{ inputs.ref }}
     - name: Check benchmark results
-      uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+      uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
       with:
         name: Latency Benchmark (S3 Express One Zone)
         tool: 'customSmallerIsBetter'
