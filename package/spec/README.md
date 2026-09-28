@@ -6,7 +6,7 @@ This directory contains the infrastructure to generate RPM spec files for differ
 
 - `generate_spec.py` - Python script that generates distribution-specific RPM spec files
 - `templates/` - template files for different distributions
-  - `amzn2023.spec.template` - Amazon Linux 2023 RPM spec template
+  - `amzn.spec.template` - Amazon Linux 2023/2027 RPM spec template
 - `pyproject.toml` - Python project configuration with dependencies
 
 ## How it works
@@ -26,8 +26,4 @@ The spec generator automatically:
 
 Generate a spec file for a target distribution:
 
-    uv run python generate_spec.py amzn2023 --output ~/rpmbuild/SPECS/amzn2023.spec
-
-You can use custom templates and output files:
-
-    uv run python generate_spec.py amzn2023 --template custom.spec.template --output my-package.spec
+    uv run python generate_spec.py amzn2023 --template amzn.spec.template --output ~/rpmbuild/SPECS/amzn2023.spec
