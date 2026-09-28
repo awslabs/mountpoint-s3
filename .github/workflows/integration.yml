@@ -341,18 +341,21 @@ jobs:
     name: Build SRPM
     needs: approval
     runs-on: ubuntu-latest
-    container:
-      image: amazonlinux:2023
 
-    outputs:
-      version-tag: ${{ steps.build-srpm.outputs.version-tag }}
+    strategy:
+      fail-fast: false
+      matrix:
+        dist: [2023, 2027]
+
+    container:
+      image: amazonlinux:${{ matrix.dist }}
 
     steps:
     - name: Install build tools and dependencies
       run: |
         dnf -y install git rpm-build rpmdevtools rust cargo wget
-        wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.8.2/cargo-about-0.8.2-$(uname -p)-unknown-linux-musl.tar.gz" && \
-        wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.8.2/cargo-about-0.8.2-$(uname -p)-unknown-linux-musl.tar.gz.sha256" && \
+        wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.8.2/cargo-about-0.8.2-$(uname -m)-unknown-linux-musl.tar.gz" && \
+        wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.8.2/cargo-about-0.8.2-$(uname -m)-unknown-linux-musl.tar.gz.sha256" && \
         echo -n "$(sha256sum cargo-about-*.tar.gz | cut -d' ' -f1)" > checksum.sha256 && \
         diff cargo-about-*.tar.gz.sha256 checksum.sha256 && \
         tar xzf cargo-about-*.tar.gz && \
@@ -374,40 +377,45 @@ jobs:
     - name: Create SRPM
       id: build-srpm
       run: |
-        chmod +x package/generate_amzn2023_srpm.sh
-        ./package/generate_amzn2023_srpm.sh
+        chmod +x package/generate_amzn_srpm.sh
+        ./package/generate_amzn_srpm.sh "amzn${{ matrix.dist }}"
 
-        echo "## Generated Amazon Linux 2023 Spec File" >> $GITHUB_STEP_SUMMARY
+        echo "## Generated Amazon Linux ${{ matrix.dist }} Spec File" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo '```spec' >> $GITHUB_STEP_SUMMARY
-        cat ~/rpmbuild/SPECS/amzn2023.spec >> $GITHUB_STEP_SUMMARY
+        cat ~/rpmbuild/SPECS/amzn${{ matrix.dist }}.spec >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
 
     - name: Upload SRPM artifact
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: srpm-package
+        name: srpm-package-${{ matrix.dist }}
         path: ~/rpmbuild/SRPMS/mount-s3-*.src.rpm
         retention-days: 1
 
   test-rpm:
-    name: Test RPM on ${{ matrix.arch }}
+    name: Test Amazon Linux ${{ matrix.dist }} RPM on ${{ matrix.runner.arch }}
     needs: [build-srpm, approval]
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner.tags }}
     env:
-      test-prefix: "${S3_BUCKET_TEST_PREFIX}test-rpm/${{ matrix.arch }}/"
+      test-prefix: "${S3_BUCKET_TEST_PREFIX}test-rpm/amzn${{ matrix.dist }}-${{ matrix.runner.arch }}/"
 
     strategy:
+      fail-fast: false
       matrix:
-        include:
-          - arch: x86_64
-            runner: ubuntu-latest
-          - arch: aarch64
-            runner: [self-hosted, linux, arm64]
-
+        dist: [2023, 2027]
+        runner:
+        - arch: x86_64
+          tags: [ubuntu-22.04] # GitHub-hosted
+        - arch: aarch64
+          tags: [self-hosted, linux, arm64]
+        exclude:
+          # The released version of `mock` does not support AL2027 yet. 
+          - dist: 2027
+        
     container:
-      image: amazonlinux:2023
+      image: amazonlinux:${{ matrix.dist }}
       options: --privileged
 
     steps:
@@ -429,24 +437,28 @@ jobs:
     - name: Download SRPM artifact
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        name: srpm-package
+        name: srpm-package-${{ matrix.dist }}
         path: /tmp/srpms
 
-    - name: Test RPM build with Mock in Amazon Linux 2023 chroot
+    - name: Resolve SRPM version tag
+      id: srpm
+      run: echo "version-tag=$(basename /tmp/srpms/mount-s3-*.src.rpm .src.rpm | sed 's/^mount-s3-//')" >> "$GITHUB_OUTPUT"
+
+    - name: Test RPM build with Mock in Amazon Linux ${{ matrix.dist }} chroot
       run: |
-        VERSION_TAG="${{ needs.build-srpm.outputs.version-tag }}"
-        sudo mock -r amazonlinux-2023-${{ matrix.arch }} --rebuild /tmp/srpms/mount-s3-${VERSION_TAG}.src.rpm
+        VERSION_TAG="${{ steps.srpm.outputs.version-tag }}"
+        sudo mock -r amazonlinux-${{ matrix.dist }}-${{ matrix.runner.arch }} --rebuild /tmp/srpms/mount-s3-${VERSION_TAG}.src.rpm
 
     - name: Build log
       if: always()
       run: |
         echo "Mock build log:"
-        cat /var/lib/mock/amazonlinux-2023-${{ matrix.arch }}/result/build.log
+        cat /var/lib/mock/amazonlinux-${{ matrix.dist }}-${{ matrix.runner.arch }}/result/build.log
 
     - name: Test RPM installation
       run: |
-        VERSION_TAG="${{ needs.build-srpm.outputs.version-tag }}"
-        dnf -y install /var/lib/mock/amazonlinux-2023-${{ matrix.arch }}/result/mount-s3-${VERSION_TAG}.${{ matrix.arch }}.rpm
+        VERSION_TAG="${{ steps.srpm.outputs.version-tag }}"
+        dnf -y install /var/lib/mock/amazonlinux-${{ matrix.dist }}-${{ matrix.runner.arch }}/result/mount-s3-${VERSION_TAG}.${{ matrix.runner.arch }}.rpm
         which mount-s3
         mount-s3 --version
         mount-s3 --help

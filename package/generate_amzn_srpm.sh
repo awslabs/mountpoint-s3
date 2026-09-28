@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+DIST="${1:?usage: $0 <[amzn2023|amzn2027]>}"
+
 # Setup RPM build environment
 # This script uses the standard RPM build directory structure at ~/rpmbuild which is created by rpmdev-setuptree and is the RPM packaging convention.
 # The paths are hardcoded because this is the standard location expected by RPM build tools and cannot be easily configured.
@@ -12,12 +14,14 @@ SOURCES_DIR=~/rpmbuild/SOURCES
 PACKAGE_DIR="$(dirname "$0")"
 MOUNTPOINT_DIR="$(realpath "${PACKAGE_DIR}/..")"
 
+SPECS_FILE="${SPECS_DIR}/${DIST}.spec"
+
 # Generate spec file
-uv run --directory "${MOUNTPOINT_DIR}/package/spec" python generate_spec.py amzn2023 --output "${SPECS_DIR}/amzn2023.spec"
+uv run --directory "${MOUNTPOINT_DIR}/package/spec" python generate_spec.py ${DIST} --template amzn.spec.template --output ${SPECS_FILE}
 
 # Extract version and release from spec file
-VERSION=$(rpmspec --query --srpm --queryformat="%{version}" "${SPECS_DIR}/amzn2023.spec")
-RELEASE=$(rpmspec --query --srpm --queryformat="%{release}" "${SPECS_DIR}/amzn2023.spec")
+VERSION=$(rpmspec --query --srpm --queryformat="%{version}" ${SPECS_FILE})
+RELEASE=$(rpmspec --query --srpm --queryformat="%{release}" ${SPECS_FILE})
 echo "spec version=${VERSION}"
 echo "spec release=${RELEASE}"
 
@@ -34,7 +38,7 @@ rm -rf vendor
 cp LICENSE NOTICE "${SOURCES_DIR}/"
 
 # Build SRPM
-rpmbuild -bs "${SPECS_DIR}/amzn2023.spec"
+rpmbuild -bs ${SPECS_FILE}
 
 # For GitHub Actions (if running in CI)
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
