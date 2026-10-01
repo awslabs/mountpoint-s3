@@ -49,9 +49,10 @@ pub trait ObjectClient {
 
     /// Sample client-level metrics into the process metrics facade.
     ///
-    /// The metrics publisher invokes this on each publication cycle, immediately before publishing.
+    /// Callers should invoke this periodically (for example, from a metrics publisher) to emit
+    /// `s3.client.*` metrics.
     /// The default implementation is a no-op so mock and other non-CRT clients do not need
-    /// CRT-specific behavior. CRT-backed clients override this to export `s3.client.*` gauges.
+    /// CRT-specific behavior. CRT-backed clients override this to export the gauges.
     fn poll_client_metrics(&self) {}
 
     /// Delete a single object from the object store.

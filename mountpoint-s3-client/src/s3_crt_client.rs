@@ -425,14 +425,6 @@ impl S3CrtClient {
     pub fn event_loop_group(&self) -> EventLoopGroup {
         self.inner.event_loop_group.clone()
     }
-
-    /// Sample CRT client metrics and emit them to the metrics facade.
-    ///
-    /// Intended to be invoked by the metrics publisher on each publication cycle, not when
-    /// individual meta requests are created.
-    pub fn poll_client_metrics(&self) {
-        self.inner.emit_client_metrics();
-    }
 }
 
 #[derive(Debug)]
@@ -1613,7 +1605,7 @@ impl ObjectClient for S3CrtClient {
     }
 
     fn poll_client_metrics(&self) {
-        S3CrtClient::poll_client_metrics(self);
+        self.inner.emit_client_metrics();
     }
 
     async fn delete_object(

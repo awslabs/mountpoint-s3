@@ -2,7 +2,7 @@ use std::{fs::File, io::Read, path::Path, time::Instant};
 
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
-use mountpoint_s3_client::{config::AddressingStyle, instance_info::InstanceInfo, user_agent::UserAgent};
+use mountpoint_s3_client::{ObjectClient, config::AddressingStyle, instance_info::InstanceInfo, user_agent::UserAgent};
 use mountpoint_s3_fs::{
     MountpointConfig, Runtime, S3FilesystemConfig, autoconfigure,
     data_cache::{CacheLimit, DataCacheConfig, DiskDataCacheConfig, ManagedCacheDir},
