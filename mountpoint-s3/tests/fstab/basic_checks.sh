@@ -5,7 +5,7 @@ set -e
 
 # Edit the Github Actions fstab file to not mount some azure disk which times out and fails the CI.
 if [[ "${GITHUB_ACTIONS}" ]]; then
-  sudo sed -i -E 's/^(\/dev\/disk\/cloud\/azure_resource-part1)/#\1/g' /etc/fstab
+  sudo sed -i -E 's|^([^#]\S*\s+/mnt\s)|#\1|' /etc/fstab
 fi
 
 source "$(dirname "$(which "$0")")/spawn_mounts.sh"
