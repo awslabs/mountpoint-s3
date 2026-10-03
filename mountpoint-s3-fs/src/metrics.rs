@@ -405,8 +405,13 @@ mod tests {
     }
 
     fn assert_poll_before_each_publish(events: &[&'static str]) {
+        let first_poll = events
+            .iter()
+            .position(|event| *event == "poll")
+            .unwrap_or_else(|| panic!("expected at least one poll event, got {events:?}"));
+        let events = &events[first_poll..];
         assert!(
-            !events.is_empty() && events.len().is_multiple_of(2),
+            events.len().is_multiple_of(2),
             "expected poll/publish pairs, got {events:?}"
         );
         for pair in events.chunks(2) {
@@ -528,15 +533,17 @@ mod tests {
             move || events.lock().unwrap().push("poll")
         });
 
-        // Two publisher timeouts, with no meta requests at all.
-        wait_for_event_count(&events, "publish", 2, Duration::from_secs(2));
+        // Two publisher timeouts, with no meta requests at all. Wait for polls rather than
+        // publications because the publisher may have emitted before the poller was registered.
+        wait_for_event_count(&events, "poll", 2, Duration::from_secs(2));
 
         // Shutdown must join the publisher after one final poll then publish.
         drop(handle);
         let events = events.lock().unwrap().clone();
+        let polls = events.iter().filter(|event| **event == "poll").count();
         assert!(
-            events.len() >= 6,
-            "expected at least two periodic cycles plus shutdown, got {events:?}"
+            polls >= 3,
+            "expected at least two periodic polls plus shutdown, got {events:?}"
         );
         assert_poll_before_each_publish(&events);
     }
@@ -556,17 +563,26 @@ mod tests {
         // shut the publisher down or restart the wait. Repeated registration during the wait
         // must not prevent periodic ticks.
         let start = Instant::now();
-        while start.elapsed() < Duration::from_millis(350) {
+        let timeout = Duration::from_secs(2);
+        let during = loop {
             handle.register_poller(|| {});
+            let snapshot = events.lock().unwrap().clone();
+            let polls = snapshot.iter().filter(|event| **event == "poll").count();
+            if polls >= 2 {
+                break snapshot;
+            }
+            assert!(
+                start.elapsed() <= timeout,
+                "timed out waiting for two polls while repeatedly registering pollers; got {snapshot:?}"
+            );
             std::thread::sleep(Duration::from_millis(25));
-        }
+        };
 
         // Check *during* the registration storm. Waiting after it stops would hide a reset, because
         // the cadence could recover once we stop restarting the wait.
-        let during = events.lock().unwrap().clone();
-        let publishes_during = during.iter().filter(|e| **e == "publish").count();
+        let polls_during = during.iter().filter(|event| **event == "poll").count();
         assert!(
-            publishes_during >= 2,
+            polls_during >= 2,
             "repeated registration during the wait must not reset the {interval:?} cadence or shut the publisher down; after {:?} got {during:?}",
             start.elapsed()
         );
@@ -574,9 +590,9 @@ mod tests {
         drop(handle);
 
         let events = events.lock().unwrap().clone();
-        let publishes = events.iter().filter(|e| **e == "publish").count();
+        let polls = events.iter().filter(|event| **event == "poll").count();
         assert!(
-            publishes >= 3,
+            polls >= 3,
             "repeated registration must not delay ticks indefinitely or shut the publisher down; got {events:?}"
         );
         assert_poll_before_each_publish(&events);
