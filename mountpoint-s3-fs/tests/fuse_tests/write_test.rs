@@ -1798,7 +1798,7 @@ fn append_with_checksums_mock(checksum_algorithm: Option<ChecksumAlgorithm>) {
     append_with_checksums(fuse::mock_session::new, checksum_algorithm);
 }
 
-fn append_fails_on_object_replaced(creator_fn: impl TestSessionCreator) {
+fn append_fails_on_object_replaced(creator_fn: impl TestSessionCreator, initial_content: &[u8]) {
     const KEY: &str = "append.txt";
 
     let config = TestSessionConfig {
@@ -1813,12 +1813,13 @@ fn append_fails_on_object_replaced(creator_fn: impl TestSessionCreator) {
     let path = test_session.mount_path().join(KEY);
 
     // Create the file with the initial content
-    const INITIAL_CONTENT: &[u8] = b"original";
-    test_session.client().put_object(KEY, INITIAL_CONTENT).unwrap();
+    test_session.client().put_object(KEY, initial_content).unwrap();
 
     let f = File::options().read(false).append(true).open(&path).unwrap();
 
-    // Replace the original file
+    // Replace the original file. The replacement must have the same length as a non-empty
+    // `initial_content`, so that the append offset stays valid and only the `If-Match` check can
+    // reject the append. An empty `initial_content` appends at offset 0, which is always valid.
     const REPLACED_CONTENT: &[u8] = b"replaced";
     test_session.client().put_object(KEY, REPLACED_CONTENT).unwrap();
 
@@ -1829,17 +1830,22 @@ fn append_fails_on_object_replaced(creator_fn: impl TestSessionCreator) {
     }
 
     append_to_file(f).expect_err("appending to a replaced file should fail");
+
+    // The rejected append must have left the replacing writer's content intact.
+    assert_eq!(test_session.client().get_object_content(KEY).unwrap(), REPLACED_CONTENT);
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn append_fails_on_object_replaced_s3() {
-    append_fails_on_object_replaced(fuse::s3_session::new);
+#[test_case(b"original"; "non-empty object")]
+#[test_case(b""; "empty object")]
+fn append_fails_on_object_replaced_s3(initial_content: &[u8]) {
+    append_fails_on_object_replaced(fuse::s3_session::new, initial_content);
 }
 
-#[test]
-fn append_fails_on_object_replaced_mock() {
-    append_fails_on_object_replaced(fuse::mock_session::new);
+#[test_case(b"original"; "non-empty object")]
+#[test_case(b""; "empty object")]
+fn append_fails_on_object_replaced_mock(initial_content: &[u8]) {
+    append_fails_on_object_replaced(fuse::mock_session::new, initial_content);
 }
 
 const MOCK: fn(&str, TestSessionConfig) -> fuse::TestSession = fuse::mock_session::new;

@@ -417,8 +417,12 @@ async fn append<Client: ObjectClient>(
     let mut request_params = if offset == 0 {
         PutObjectSingleParams::new()
     } else {
-        PutObjectSingleParams::new_for_append(offset).if_match(etag)
+        PutObjectSingleParams::new_for_append(offset)
     };
+    // Condition the request on the ETag whenever we know it: if someone else has replaced the
+    // object in the meantime, the request fails instead of overwriting what they wrote, avoiding
+    // potential data loss.
+    request_params = request_params.if_match(etag);
     let (sse_type, key_id) = server_side_encryption
         .into_inner()
         .map_err(UploadError::SseCorruptedError)?;
@@ -1044,6 +1048,93 @@ mod tests {
             upload_request.complete().await,
             Err(UploadError::UploadAlreadyTerminated)
         ));
+    }
+
+    #[tokio::test]
+    async fn test_append_at_offset_zero_fails_on_object_replaced() {
+        let bucket = "bucket";
+        let key = "hello";
+
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
+        let existing_object = MockObject::from([]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
+        client.add_object(key, existing_object.clone());
+
+        let buffer_size = 256;
+        let uploader = new_uploader_for_test(client.clone(), buffer_size, None, None);
+
+        // Start appending to the empty object, pinning its ETag.
+        let mut upload_request =
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), 0, Some(existing_object.etag()));
+
+        // Replace the object out from under us, invalidating the ETag we pinned.
+        const REPLACED_CONTENT: &[u8] = b"replaced";
+        client.add_object(
+            key,
+            MockObject::from(REPLACED_CONTENT).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]),
+        );
+
+        // The write only buffers, so it succeeds; the precondition is evaluated by the PutObject
+        // that completion issues.
+        upload_request
+            .write(0, &[0xaa; 128])
+            .await
+            .expect("buffering a write should succeed");
+        let error = upload_request
+            .complete()
+            .await
+            .expect_err("appending to a replaced object should fail");
+        assert!(
+            matches!(
+                error,
+                UploadError::PutRequestFailed(ObjectClientError::ServiceError(PutObjectError::PreconditionFailed))
+            ),
+            "expected a precondition failure, got {error:?}"
+        );
+
+        // The failed upload must not have modified the object.
+        let get_request = client
+            .get_object(bucket, key, &GetObjectParams::default())
+            .await
+            .expect("get_object failed");
+        let actual = get_request.collect().await.expect("failed to collect body");
+        assert_eq!(REPLACED_CONTENT, &*actual);
+    }
+
+    #[test_case(None)]
+    #[test_case(Some(MockObject::from([]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c])))]
+    #[test_case(Some(MockObject::from([0xbb; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c])))]
+    #[tokio::test]
+    async fn test_append_without_etag_is_unconditional(existing_object: Option<MockObject>) {
+        let bucket = "bucket";
+        let key = "hello";
+
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
+        if let Some(object) = existing_object {
+            client.add_object(key, object);
+        }
+
+        let buffer_size = 256;
+        let uploader = new_uploader_for_test(client.clone(), buffer_size, None, None);
+
+        // Offset 0 with no ETag, as `FileHandleState` sets up a create or an `O_TRUNC` overwrite.
+        let mut upload_request = uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), 0, None);
+
+        let content = [0xaa; 128];
+        upload_request
+            .write(0, &content)
+            .await
+            .expect("write should be buffered");
+        upload_request
+            .complete()
+            .await
+            .expect("unconditional upload should succeed");
+
+        let get_request = client
+            .get_object(bucket, key, &GetObjectParams::default())
+            .await
+            .expect("get_object failed");
+        let actual = get_request.collect().await.expect("failed to collect body");
+        assert_eq!(content, *actual);
     }
 
     #[tokio::test]

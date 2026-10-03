@@ -1,5 +1,6 @@
-## Unreleased
+## Unreleased (v0.11.1)
 
+* Incremental uploads now send an `If-Match` precondition whenever the ETag of the object being written is known, including when the write starts at offset 0. Previously, appending to an existing *empty* object issued an unconditional `PutObject`, which could silently overwrite a concurrent modification. ([#1970](https://github.com/awslabs/mountpoint-s3/pull/1970))
 * Fix existing directories incorrectly appearing as missing when S3 returns an empty page of listing results. Mountpoint now checks subsequent pages before deciding a directory does not exist. ([#1954](https://github.com/awslabs/mountpoint-s3/pull/1954))
 
 ## v0.11.0 (August 24, 2026)

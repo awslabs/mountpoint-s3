@@ -247,6 +247,17 @@ impl MockClient {
             return self.append_object(key, offset, params, contents);
         }
 
+        // Hold the write lock across the precondition check and the insert, so the overwrite is
+        // atomic with respect to concurrent mutations of the same key.
+        let mut objects = self.objects.write().unwrap();
+        if let Some(expected_etag) = &params.if_match {
+            match objects.get(key) {
+                Some(object) if object.etag == *expected_etag => {}
+                Some(_) => return Err(ObjectClientError::ServiceError(PutObjectError::PreconditionFailed)),
+                None => return Err(ObjectClientError::ServiceError(PutObjectError::NoSuchKey)),
+            }
+        }
+
         let checksum = validate_checksum(contents.as_ref(), params.checksum.as_ref())?;
 
         let mut object: MockObject = contents.into();
@@ -255,7 +266,7 @@ impl MockClient {
         object.set_checksum(checksum);
 
         let etag = object.etag.clone();
-        add_object(&self.objects, key, object);
+        objects.insert(key.to_owned(), object);
         Ok(PutObjectResult {
             etag,
             sse_type: None,
@@ -2293,6 +2304,103 @@ mod tests {
                 .await
                 .expect("object should now exist with new key");
         }
+    }
+
+    /// Read the whole object back, or `None` if it doesn't exist.
+    async fn get_object_contents(client: &MockClient, key: &str) -> Option<Vec<u8>> {
+        let request = client.get_object("test_bucket", key, &GetObjectParams::new()).await;
+        match request {
+            Ok(request) => Some(request.collect().await.expect("collect should succeed").to_vec()),
+            Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey(_))) => None,
+            Err(e) => panic!("get_object failed: {e:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn put_object_single_if_match_matching() {
+        let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
+
+        let existing: MockObject = b"original".into();
+        let etag = existing.etag.clone();
+        client.add_object("key", existing);
+
+        let params = PutObjectSingleParams::new().if_match(Some(etag));
+        client
+            .put_object_single("test_bucket", "key", &params, b"replaced")
+            .await
+            .expect("put with a matching etag should succeed");
+
+        assert_eq!(
+            get_object_contents(&client, "key").await.as_deref(),
+            Some(&b"replaced"[..])
+        );
+    }
+
+    #[tokio::test]
+    async fn put_object_single_if_match_mismatching() {
+        let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
+
+        let existing: MockObject = b"original".into();
+        let stale_etag = existing.etag.clone();
+        client.add_object("key", existing);
+
+        // Replace the object out from under us, invalidating `stale_etag`.
+        client.add_object("key", b"replaced".into());
+
+        let params = PutObjectSingleParams::new().if_match(Some(stale_etag));
+        let error = client
+            .put_object_single("test_bucket", "key", &params, b"clobbered")
+            .await
+            .expect_err("put with a stale etag should fail");
+        assert!(matches!(
+            error,
+            ObjectClientError::ServiceError(PutObjectError::PreconditionFailed)
+        ));
+
+        // The failed request must not have modified the object.
+        assert_eq!(
+            get_object_contents(&client, "key").await.as_deref(),
+            Some(&b"replaced"[..])
+        );
+    }
+
+    #[tokio::test]
+    async fn put_object_single_if_match_missing_object() {
+        let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
+
+        let params = PutObjectSingleParams::new().if_match(Some(ETag::for_tests()));
+        let error = client
+            .put_object_single("test_bucket", "key", &params, b"contents")
+            .await
+            .expect_err("put with an etag for a missing object should fail");
+        assert!(
+            matches!(error, ObjectClientError::ServiceError(PutObjectError::NoSuchKey)),
+            "expected NoSuchKey, got {error:?}"
+        );
+
+        assert_eq!(get_object_contents(&client, "key").await, None);
+    }
+
+    #[test_case(false)]
+    #[test_case(true)]
+    #[tokio::test]
+    async fn put_object_single_without_if_match_is_unconditional(object_exists: bool) {
+        let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
+
+        if object_exists {
+            client.add_object("key", b"original".into());
+        }
+
+        let params = PutObjectSingleParams::new();
+        client
+            .put_object_single("test_bucket", "key", &params, b"replaced")
+            .await
+            .expect("put without an etag should succeed");
+
+        assert_eq!(
+            get_object_contents(&client, "key").await.as_deref(),
+            Some(&b"replaced"[..])
+        );
     }
 
     #[tokio::test]
