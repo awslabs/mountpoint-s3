@@ -247,6 +247,8 @@ impl MockClient {
             return self.append_object(key, offset, params, contents);
         }
 
+        let checksum = validate_checksum(contents.as_ref(), params.checksum.as_ref())?;
+
         // Hold the write lock across the precondition check and the insert, so the overwrite is
         // atomic with respect to concurrent mutations of the same key.
         let mut objects = self.objects.write().unwrap();
@@ -257,8 +259,6 @@ impl MockClient {
                 None => return Err(ObjectClientError::ServiceError(PutObjectError::NoSuchKey)),
             }
         }
-
-        let checksum = validate_checksum(contents.as_ref(), params.checksum.as_ref())?;
 
         let mut object: MockObject = contents.into();
         object.set_storage_class(params.storage_class.clone());

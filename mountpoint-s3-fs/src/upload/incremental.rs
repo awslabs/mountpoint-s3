@@ -419,9 +419,9 @@ async fn append<Client: ObjectClient>(
     } else {
         PutObjectSingleParams::new_for_append(offset)
     };
-    // Condition the request on the ETag whenever we know it: if someone else has replaced the
-    // object in the meantime, the request fails instead of overwriting what they wrote, avoiding
-    // potential data loss.
+    // Condition the request on the ETag whenever we know it, i.e. unless this is the first request
+    // for a new file or one opened with `O_TRUNC`: if someone else has replaced the object in the
+    // meantime, the request fails instead of overwriting what they wrote, avoiding potential data loss.
     request_params = request_params.if_match(etag);
     let (sse_type, key_id) = server_side_encryption
         .into_inner()

@@ -1,6 +1,6 @@
 ## Unreleased (v1.24.1)
 
-* Fix `--incremental-upload` silently overwriting concurrent changes when writing at offset 0 to an object whose ETag Mountpoint already holds: an existing empty object opened without `O_TRUNC`, or a file flushed before any data was written. Mountpoint now conditions these writes on that ETag, so they fail with `EIO` if the object was replaced or deleted in the meantime instead of discarding the other writer's changes. ([#1970](https://github.com/awslabs/mountpoint-s3/pull/1970) by @yerzhan7)
+* Make `--incremental-upload` consistently check for concurrent writes when appending (i.e. without `O_TRUNC`), even at offset 0. Previously, appending to an existing empty object could silently overwrite another writer's changes instead of failing with `EIO`. ([#1970](https://github.com/awslabs/mountpoint-s3/pull/1970) by @yerzhan7)
 
 ## v1.24.0 (August 24, 2026)
 

@@ -1817,10 +1817,11 @@ fn append_fails_on_object_replaced(creator_fn: impl TestSessionCreator, initial_
 
     let f = File::options().read(false).append(true).open(&path).unwrap();
 
-    // Replace the original file. The replacement must have the same length as a non-empty
-    // `initial_content`, so that the append offset stays valid and only the `If-Match` check can
-    // reject the append. An empty `initial_content` appends at offset 0, which is always valid.
+    // Replace the original file. A non-empty `initial_content` must be as long as the replacement, so
+    // that the append offset stays valid and only the `If-Match` check can reject the append. An empty
+    // `initial_content` appends at offset 0, which is always valid.
     const REPLACED_CONTENT: &[u8] = b"replaced";
+    assert!(initial_content.is_empty() || initial_content.len() == REPLACED_CONTENT.len());
     test_session.client().put_object(KEY, REPLACED_CONTENT).unwrap();
 
     fn append_to_file(mut f: File) -> std::io::Result<()> {
