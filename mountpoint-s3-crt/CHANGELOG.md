@@ -1,5 +1,7 @@
 ## Unreleased
 
+* Fix a hang at process exit when a client is still alive. The CRT cleanup that runs at exit now waits at most 1 second for CRT threads to exit, and is skipped if they are still running.
+
 ## v0.16.1 (September 24, 2026)
 
 * Update to latest CRT dependencies.
