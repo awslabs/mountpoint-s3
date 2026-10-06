@@ -2,7 +2,7 @@ use std::{fs::File, io::Read, path::Path, time::Instant};
 
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
-use mountpoint_s3_client::{config::AddressingStyle, instance_info::InstanceInfo, user_agent::UserAgent};
+use mountpoint_s3_client::{ObjectClient, config::AddressingStyle, instance_info::InstanceInfo, user_agent::UserAgent};
 use mountpoint_s3_fs::{
     MountpointConfig, Runtime, S3FilesystemConfig, autoconfigure,
     data_cache::{CacheLimit, DataCacheConfig, DiskDataCacheConfig, ManagedCacheDir},
@@ -300,6 +300,7 @@ fn mount_filesystem(
     config: &ConfigOptions,
     manifest: Manifest,
     error_logger: impl ErrorLogger + Send + Sync + 'static,
+    metrics: &MetricsSinkHandle,
 ) -> Result<FuseSession> {
     // Create the Mountpoint configuration
     let fs_config = config.build_filesystem_config()?;
@@ -322,6 +323,10 @@ fn mount_filesystem(
     let client = client_config
         .create_client(pool.clone(), None)
         .context("Failed to create S3 client")?;
+    {
+        let client = client.clone();
+        metrics.register_poller(move || client.poll_client_metrics());
+    }
     let runtime = Runtime::new(client.event_loop_group());
 
     let metablock = ManifestMetablock::new(manifest)?;
@@ -359,12 +364,13 @@ fn main() -> Result<()> {
     })
     .context("Failed to create an event log")?;
     // Set up logging
-    let (_logging, _metrics) = setup_logging(&config).context("Failed to setup logging")?;
+    let (_logging, metrics) = setup_logging(&config).context("Failed to setup logging")?;
     // Process manifests if needed
     let temporary_dir = tempdir_in(&config.metadata_store_dir).context("Failed to create manifest")?;
     let manifest = process_manifests(&config, temporary_dir.path()).context("Failed to create manifest")?;
     // Build all configurations
-    let fuse_session = mount_filesystem(&config, manifest, error_logger).context("Failed to mount filesystem")?;
+    let fuse_session =
+        mount_filesystem(&config, manifest, error_logger, &metrics).context("Failed to mount filesystem")?;
     // Join the session and wait until it completes
     fuse_session.join().context("Failed to join session")?;
     Ok(())
