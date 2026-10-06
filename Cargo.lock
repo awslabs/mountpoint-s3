@@ -2848,7 +2848,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-crt"
-version = "0.16.1"
+version = "0.16.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -2860,6 +2860,7 @@ dependencies = [
  "mountpoint-s3-crt-sys",
  "rand 0.10.2",
  "rcgen",
+ "rusty-fork",
  "serde_json",
  "static_assertions",
  "tempfile",

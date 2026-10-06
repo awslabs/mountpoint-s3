@@ -1,6 +1,7 @@
 ## Unreleased (v0.22.2)
 
 * `MockClient::put_object_single` now honors `PutObjectSingleParams::if_match` for requests without a write offset, failing with `PutObjectError::PreconditionFailed` when the object's ETag differs and with `PutObjectError::NoSuchKey` when the object does not exist, as S3 does. Previously the precondition was only checked on append requests. ([#1970](https://github.com/awslabs/mountpoint-s3/pull/1970))
+* Add `ObjectClient::poll_client_metrics` (default no-op). `S3CrtClient` implements it to emit `s3.client.*` metrics, which are no longer sampled at meta-request creation. ([#1957](https://github.com/awslabs/mountpoint-s3/pull/1957))
 
 ## v0.22.1 (September 24, 2026)
 
