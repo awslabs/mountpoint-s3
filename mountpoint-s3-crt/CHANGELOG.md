@@ -1,4 +1,6 @@
-## Unreleased (v0.16.2)
+## Unreleased
+
+## v0.16.2 (October 6, 2026)
 
 * Fix a hang at process exit when a client is still alive. The CRT cleanup that runs at exit now waits at most 1 second for CRT threads to exit, and is skipped if they are still running. ([#1978](https://github.com/awslabs/mountpoint-s3/pull/1978))
 
