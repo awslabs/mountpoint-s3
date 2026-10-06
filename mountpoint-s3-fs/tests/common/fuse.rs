@@ -840,8 +840,16 @@ pub mod s3_session {
 
         fn get_object_content(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            let output = tokio_block_on(self.sdk_client.get_object().bucket(&self.bucket).key(&full_key).send())?;
-            let body = tokio_block_on(output.body.collect())?;
+            let body = tokio_block_on(async {
+                let output = self
+                    .sdk_client
+                    .get_object()
+                    .bucket(&self.bucket)
+                    .key(&full_key)
+                    .send()
+                    .await?;
+                Ok::<_, Box<dyn std::error::Error>>(output.body.collect().await?)
+            })?;
             Ok(body.to_vec())
         }
 
