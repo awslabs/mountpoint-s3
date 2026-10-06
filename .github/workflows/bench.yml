@@ -63,7 +63,7 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
       with:
         role-to-assume: ${{ vars.ACTIONS_BENCH_IAM_ROLE }}
         aws-region: ${{ vars.S3_BENCH_REGION }}
@@ -95,6 +95,7 @@ jobs:
         S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}bench${{ matrix.results_subdir_suffix }}/
       run: mountpoint-s3/scripts/fs_bench.sh
     - name: Render memory summary
+      id: mem_summary
       if: matrix.variant == 'mem-limited'
       run: .github/actions/scripts/render-mem-summary.sh
     - name: Save benchmark results in S3
@@ -106,7 +107,7 @@ jobs:
         S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/${{ github.job }}${{ matrix.results_subdir_suffix }}
         COMMIT_ID: ${{ inputs.ref }}
     - name: Check benchmark results
-      uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+      uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
       with:
         name: Throughput Benchmark (S3 Standard${{ matrix.name_suffix }})
         tool: 'customBiggerIsBetter'
@@ -123,7 +124,7 @@ jobs:
         max-items-in-chart: ${{ env.MAX_VALUES_IN_BENCH_CHART }}
         summary-always: true
     - name: Check resource utilization
-      uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+      uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
       with:
         name: Throughput Benchmark - Peak Memory Usage (S3 Standard${{ matrix.name_suffix }})
         tool: 'customSmallerIsBetter'
@@ -145,6 +146,9 @@ jobs:
       run: |
         .github/actions/scripts/copy-static-files.sh dev/bench${{ matrix.data_path_suffix }} dev/bench${{ matrix.data_path_suffix }}/peak_mem_usage
         git push 'https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git' gh-pages:gh-pages
+    - name: Fail on memory breach
+      if: ${{ !cancelled() && steps.mem_summary.outputs.breached == 'true' }}
+      run: exit 1
 
   latency-bench:
     name: Benchmark (Latency)
@@ -154,7 +158,7 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
       with:
         role-to-assume: ${{ vars.ACTIONS_BENCH_IAM_ROLE }}
         aws-region: ${{ vars.S3_BENCH_REGION }}
@@ -193,7 +197,7 @@ jobs:
         S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/${{ github.job }}
         COMMIT_ID: ${{ inputs.ref }}
     - name: Check benchmark results
-      uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+      uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
       with:
         name: Latency Benchmark (S3 Standard)
         tool: 'customSmallerIsBetter'
@@ -238,7 +242,7 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
       with:
         role-to-assume: ${{ vars.ACTIONS_BENCH_IAM_ROLE }}
         aws-region: ${{ vars.S3_BENCH_REGION }}
@@ -271,6 +275,7 @@ jobs:
         S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}cache-bench${{ matrix.results_subdir_suffix }}/
       run: mountpoint-s3/scripts/fs_cache_bench.sh
     - name: Render memory summary
+      id: mem_summary
       if: matrix.variant == 'mem-limited'
       run: .github/actions/scripts/render-mem-summary.sh
     - name: Save benchmark results in S3
@@ -282,7 +287,7 @@ jobs:
         S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/${{ github.job }}${{ matrix.results_subdir_suffix }}
         COMMIT_ID: ${{ inputs.ref }}
     - name: Check benchmark results
-      uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+      uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
       with:
         name: Cache Throughput Benchmark (S3 Standard${{ matrix.name_suffix }})
         tool: 'customBiggerIsBetter'
@@ -298,7 +303,7 @@ jobs:
         max-items-in-chart: ${{ env.MAX_VALUES_IN_BENCH_CHART }}
         summary-always: true
     - name: Check resource utilization
-      uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+      uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
       with:
         name: Cache Throughput Benchmark - Peak Memory Usage (S3 Standard${{ matrix.name_suffix }})
         tool: 'customSmallerIsBetter'
@@ -320,3 +325,6 @@ jobs:
       run: |
         .github/actions/scripts/copy-static-files.sh dev/cache_bench${{ matrix.data_path_suffix }} dev/cache_bench${{ matrix.data_path_suffix }}/peak_mem_usage
         git push 'https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git' gh-pages:gh-pages
+    - name: Fail on memory breach
+      if: ${{ !cancelled() && steps.mem_summary.outputs.breached == 'true' }}
+      run: exit 1
