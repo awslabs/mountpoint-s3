@@ -19,6 +19,7 @@ pub mod s3;
 
 use std::ptr::NonNull;
 use std::sync::Once;
+use std::time::Duration;
 use std::{ffi::OsStr, os::unix::prelude::OsStrExt};
 
 use crate::common::error::Error;
@@ -30,7 +31,8 @@ static CRT_CLEANUP_REGISTER: Once = Once::new();
 /// CRT library init is a demand-driven, boolean-guarded singleton with no automatic cleanup. Cleanup
 /// is what joins the CRT's managed worker threads; without it, a worker thread can still be running
 /// native code when the process runs its C runtime destructors, which aborts the process under the
-/// aws-lc FIPS RNG. Called from every `*_library_init` so we register regardless of entry point.
+/// aws-lc FIPS RNG. Cleanup is best-effort only (see [crt_cleanup_at_exit]). Called from every
+/// `*_library_init` so we register regardless of entry point.
 fn register_crt_cleanup_at_exit() {
     CRT_CLEANUP_REGISTER.call_once(|| {
         // SAFETY: `crt_cleanup_at_exit` is a `'static` `extern "C"` function. Called at most once,
@@ -41,13 +43,32 @@ fn register_crt_cleanup_at_exit() {
     });
 }
 
+/// How long [crt_cleanup_at_exit] waits for CRT worker threads to exit before skipping cleanup.
+const CRT_CLEANUP_JOIN_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// Runs at process exit to tear down every CRT library that was initialized.
 extern "C" fn crt_cleanup_at_exit() {
+    // Join the CRT's managed worker threads before tearing anything down. They only exit once the
+    // clients that own them are dropped, so a client that is still alive at exit (e.g. held in a
+    // `static`, by a thread that is never joined, or across `process::exit`) keeps them running
+    // forever. The join also never finishes if `exit` is called from a CRT thread (e.g. in a client
+    // callback), because `atexit` handlers run on that thread and the join would wait for it too.
+    // Bound the wait, and if threads are still running when it times out, skip cleanup: waiting
+    // longer can't help, and tearing the libraries down under running threads risks a crash. Each
+    // `aws_*_library_clean_up` below starts with its own join, which ignores the result; with every
+    // thread joined here, those return immediately.
+    //
+    // SAFETY: both calls take no pointers and touch only process-global CRT thread state.
+    unsafe {
+        aws_thread_set_managed_join_timeout_ns(CRT_CLEANUP_JOIN_TIMEOUT.as_nanos() as u64);
+        if aws_thread_join_all_managed() != AWS_OP_SUCCESS {
+            return;
+        }
+    }
+
     // Each `aws_*_library_clean_up` is self-guarded and idempotent, so the full sequence is safe
     // regardless of which libraries were initialized; top-down order lets higher layers release
-    // their references before lower layers tear down. The first step of each is
-    // `aws_thread_join_all_managed`, which blocks until CRT worker threads exit — so this must run
-    // on a non-CRT thread, which `atexit` guarantees (it runs on the thread that calls `exit`).
+    // their references before lower layers tear down.
     //
     // SAFETY: each cleanup is safe whether or not its library was initialized (see above); they take
     // no arguments and touch only process-global CRT state.
@@ -171,7 +192,13 @@ impl CrtError for i32 {
 
 #[cfg(test)]
 mod test {
+    use std::sync::OnceLock;
+
+    use futures::task::SpawnExt;
+
+    use crate::common::allocator::Allocator;
     use crate::common::rust_log_adapter::RustLogAdapter;
+    use crate::io::event_loop::EventLoopGroup;
 
     /// Enable tracing when running unit tests.
     #[ctor::ctor(unsafe)]
@@ -205,5 +232,31 @@ mod test {
         // bugs. `heap_ptr` points to a freed allocation, so this causes a use-after-free that ASan
         // should catch.
         let _ = unsafe { aws_byte_cursor_is_valid(heap_ptr) };
+    }
+
+    // rusty_fork runs each test body in a child process that calls `process::exit` once the body
+    // returns, and fails the test if the child doesn't exit within the timeout.
+    rusty_fork::rusty_fork_test! {
+        #![rusty_fork(timeout_ms = 10_000)]
+
+        /// Exiting while CRT threads are still running must not hang in [crate::crt_cleanup_at_exit].
+        #[test]
+        fn exit_with_live_event_loop_group() {
+            // Rust never drops `static`s, so the group's threads are still running at exit. Being
+            // reachable from a `static` also keeps LeakSanitizer from reporting the group.
+            static EVENT_LOOP_GROUP: OnceLock<EventLoopGroup> = OnceLock::new();
+            let event_loop_group = EventLoopGroup::new_default(&Allocator::default(), None, || {}).unwrap();
+            assert!(EVENT_LOOP_GROUP.set(event_loop_group).is_ok());
+        }
+
+        /// Exiting from a CRT thread must not hang either, although the join can never finish there.
+        #[test]
+        fn exit_from_event_loop_thread() {
+            let event_loop_group = EventLoopGroup::new_default(&Allocator::default(), None, || {}).unwrap();
+            event_loop_group.spawn(async { std::process::exit(0); }).unwrap();
+            loop {
+                std::thread::park();
+            }
+        }
     }
 }
