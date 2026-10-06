@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::fs::{File, ReadDir};
 use std::os::fd::AsFd;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use fuser::{Mount, MountOption, Session};
@@ -537,6 +537,7 @@ pub mod s3_session {
     use mountpoint_s3_client::config::S3ClientConfig;
     use mountpoint_s3_client::types::Checksum;
     use mountpoint_s3_fs::prefetch::Prefetcher;
+    use std::path::PathBuf;
 
     /// Create a FUSE mount backed by a real S3 client
     pub fn new(test_name: &str, test_config: TestSessionConfig) -> TestSession {
