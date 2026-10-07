@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::fs::{File, ReadDir};
 use std::os::fd::AsFd;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use fuser::{Mount, MountOption, Session};
@@ -52,6 +52,8 @@ pub trait TestClient: Send {
     fn get_object_checksums(&self, key: &str) -> Result<ObjectChecksums, Box<dyn std::error::Error>>;
 
     fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>>;
+
+    fn get_object_content(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
 
     fn get_object_content_type(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>>;
 
@@ -313,7 +315,7 @@ pub mod mock_session {
 
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::MockClient;
-    use mountpoint_s3_client::types::{HeadObjectParams, ObjectAttribute};
+    use mountpoint_s3_client::types::{GetObjectParams, HeadObjectParams, ObjectAttribute};
     use mountpoint_s3_fs::prefetch::Prefetcher;
     use mountpoint_s3_fs::s3::Bucket;
 
@@ -493,6 +495,18 @@ pub mod mock_session {
             Ok(head_object.size as usize)
         }
 
+        fn get_object_content(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            let body = tokio_block_on(async {
+                let request = self
+                    .client
+                    .get_object(BUCKET_NAME, &full_key, &GetObjectParams::new())
+                    .await?;
+                request.collect().await
+            })?;
+            Ok(body.to_vec())
+        }
+
         fn get_object_content_type(&self, _key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
             // MockClient's HeadObject does not expose Content-Type headers.
             Ok(None)
@@ -523,6 +537,7 @@ pub mod s3_session {
     use mountpoint_s3_client::config::S3ClientConfig;
     use mountpoint_s3_client::types::Checksum;
     use mountpoint_s3_fs::prefetch::Prefetcher;
+    use std::path::PathBuf;
 
     /// Create a FUSE mount backed by a real S3 client
     pub fn new(test_name: &str, test_config: TestSessionConfig) -> TestSession {
@@ -822,6 +837,21 @@ pub mod s3_session {
             let full_key = format!("{}{}", self.prefix, key);
             let head_object = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(&full_key).send())?;
             Ok(head_object.content_length().unwrap() as usize)
+        }
+
+        fn get_object_content(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            let body = tokio_block_on(async {
+                let output = self
+                    .sdk_client
+                    .get_object()
+                    .bucket(&self.bucket)
+                    .key(&full_key)
+                    .send()
+                    .await?;
+                Ok::<_, Box<dyn std::error::Error>>(output.body.collect().await?)
+            })?;
+            Ok(body.to_vec())
         }
 
         fn get_object_content_type(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {

@@ -1,5 +1,6 @@
-## Unreleased
+## Unreleased (v1.24.1)
 
+* Make `--incremental-upload` consistently check for concurrent writes when appending (i.e. without `O_TRUNC`), even at offset 0. Previously, appending to an existing empty object could silently overwrite another writer's changes instead of failing with `EIO`. ([#1970](https://github.com/awslabs/mountpoint-s3/pull/1970) by @yerzhan7)
 * Fix S3 CRT client metrics (`s3.client.*`) not updating on every metrics publication cycle for requests lasting longer than five seconds. These gauges are now sampled when metrics are published, rather than only when a new S3 request starts. ([#1957](https://github.com/awslabs/mountpoint-s3/pull/1957))
 
 ## v1.24.0 (August 24, 2026)
