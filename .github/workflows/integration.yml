@@ -410,9 +410,6 @@ jobs:
           tags: [ubuntu-22.04] # GitHub-hosted
         - arch: aarch64
           tags: [self-hosted, linux, arm64]
-        exclude:
-          # The released version of `mock` does not support AL2027 yet. 
-          - dist: 2027
         
     container:
       image: amazonlinux:${{ matrix.dist }}
