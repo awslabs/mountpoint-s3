@@ -723,6 +723,10 @@ mod tests {
             .expect("get_object failed");
 
         let checksum = get_request.get_object_checksum().expect("failed to get checksum");
+        // A new object uploaded without a checksum gets S3's default CRC64NVME checksum.
+        if existing_object_checksum_algorithms.is_none() && default_checksum_algorithm.is_none() {
+            expected_checksum_algorithm = &[ChecksumAlgorithm::Crc64nvme];
+        }
         assert_eq!(checksum.algorithms(), expected_checksum_algorithm);
 
         let actual = get_request.collect().await.expect("failed to collect body");
