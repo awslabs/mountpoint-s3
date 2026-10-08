@@ -60,6 +60,8 @@ procfs = { version = "0.18.0", default-features = false }
 
 [dev-dependencies]
 mountpoint-s3-client = { path = "../mountpoint-s3-client", features = ["mock"] }
+# Enable our own `mock` feature for integration tests, like mountpoint-s3-client does.
+mountpoint-s3-fs = { path = ".", features = ["mock"] }
 
 assert_cmd = "2.2.2"
 assert_fs = "1.1.4"
@@ -93,6 +95,9 @@ wiremock = "0.6.5"
 block_size = []
 event_log = []
 manifest = ["csv", "rusqlite"]
+
+# In-memory test doubles (InMemoryMetadata); enabled for this crate's own tests
+mock = ["mountpoint-s3-client/mock"]
 
 # Features for choosing tests
 fips_tests = []

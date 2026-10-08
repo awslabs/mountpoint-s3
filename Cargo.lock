@@ -2945,6 +2945,7 @@ dependencies = [
  "metrics",
  "mime_guess",
  "mountpoint-s3-client",
+ "mountpoint-s3-fs",
  "mountpoint-s3-fuser",
  "nix 0.31.3",
  "opentelemetry",

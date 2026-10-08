@@ -30,12 +30,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::{FutureExt, select_biased};
-use mountpoint_s3_client::ObjectClient;
-use mountpoint_s3_client::error::{HeadObjectError, ListObjectsError, ObjectClientError, RenameObjectError};
-use mountpoint_s3_client::types::{
-    ETag, HeadObjectParams, HeadObjectResult, ListObjectsResult, ObjectClientResult, RenameObjectParams,
-    RenamePreconditionTypes,
-};
+use mountpoint_s3_client::types::ETag;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
@@ -52,7 +47,14 @@ use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, RwLock};
 
 mod handles_map;
+
+mod metadata_client;
 use handles_map::{InodeHandleMap, SetWriterError};
+#[cfg(any(test, feature = "mock"))]
+pub use metadata_client::InMemoryMetadata;
+pub use metadata_client::{
+    HeadInfo, ListPage, ListedObject, MetadataClient, MetadataError, MetadataErrorKind, MetadataErrorSource,
+};
 
 mod inode;
 pub use inode::{Inode, InodeKindData, InodeLockedForWriting, InodeState, WriteStatus};
@@ -65,7 +67,7 @@ use readdir::{DirHandle, DirectoryEntryReaddir};
 
 /// Superblock is the root object of the file system
 #[derive(Debug)]
-pub struct Superblock<OC: ObjectClient + Send + Sync> {
+pub struct Superblock<OC: MetadataClient> {
     inner: Arc<SuperblockInner<OC>>,
 }
 
@@ -108,7 +110,7 @@ impl RenameCache {
 }
 
 #[derive(Debug)]
-struct SuperblockInner<OC: ObjectClient + Send + Sync> {
+struct SuperblockInner<OC: MetadataClient> {
     s3_path: Arc<S3Path>,
     inodes: RwLock<InodeMap>,
     open_handles: InodeHandleMap,
@@ -175,7 +177,7 @@ pub struct RenameLockGuard<'a> {
 
 /// A manager for automatically locking two inodes in filesysyem locking order.
 impl<'a> RenameLockGuard<'a> {
-    fn new<OC: ObjectClient + Send + Sync>(
+    fn new<OC: MetadataClient>(
         source_parent: &'a Inode,
         dest_parent: &'a Inode,
         superblock_inner: &'a SuperblockInner<OC>,
@@ -222,7 +224,7 @@ impl<'a> RenameLockGuard<'a> {
     }
 }
 
-impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
+impl<OC: MetadataClient> Superblock<OC> {
     /// Create a new Superblock that targets the given bucket/prefix
     pub fn new(client: OC, s3_path: S3Path, config: SuperblockConfig) -> Self {
         let mount_time = OffsetDateTime::now_utc();
@@ -413,7 +415,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
 }
 
 #[async_trait]
-impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
+impl<OC: MetadataClient + Clone> Metablock for Superblock<OC> {
     /// Lookups inode and increments its lookup count.
     async fn lookup(&self, parent_ino: InodeNo, name: &OsStr) -> Result<Lookup, InodeError> {
         trace!(parent=?parent_ino, ?name, "lookup");
@@ -498,17 +500,10 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             .map_err(|_| InodeError::NotADirectory(dst_parent.err()))?;
         let dest_key: String = format!("{}{}", self.inner.s3_path.prefix, dest_full_valid_name.as_ref());
         debug!(?src_key, ?dest_key, "rename on remote file will now be actioned");
-        // TODO-RENAME: Consider adding ETag-matching here
-        let rename_params = if allow_overwrite {
-            RenameObjectParams::new()
-        } else {
-            RenameObjectParams::new().if_none_match(Some("*".to_string()))
-        };
-
         let rename_object_result = self
             .inner
             .client
-            .rename_object(&self.inner.s3_path.bucket, src_key.as_ref(), &dest_key, &rename_params)
+            .rename_object(&self.inner.s3_path.bucket, src_key.as_ref(), &dest_key, allow_overwrite)
             .await;
 
         match rename_object_result {
@@ -518,20 +513,17 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             Err(error) => {
                 debug!(?src_key, ?dest_key, ?error, "RenameObject failed");
 
-                return match error {
-                    ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
-                        RenamePreconditionTypes::IfNoneMatch,
-                    )) => Err(InodeError::RenameDestinationExists {
-                        dest_key,
-                        src_inode: src_inode.err(),
-                    }),
-                    ObjectClientError::ServiceError(RenameObjectError::KeyNotFound) => {
-                        Err(InodeError::InodeDoesNotExist(src_inode.ino()))
+                return match error.kind() {
+                    // The only precondition sent is "destination does not exist" (when not overwriting).
+                    MetadataErrorKind::PreconditionFailed if !allow_overwrite => {
+                        Err(InodeError::RenameDestinationExists {
+                            dest_key,
+                            src_inode: src_inode.err(),
+                        })
                     }
-                    ObjectClientError::ServiceError(RenameObjectError::KeyTooLong) => {
-                        Err(InodeError::NameTooLong(dest_key))
-                    }
-                    ObjectClientError::ServiceError(RenameObjectError::NotImplementedError) => {
+                    MetadataErrorKind::NotFound => Err(InodeError::InodeDoesNotExist(src_inode.ino())),
+                    MetadataErrorKind::KeyTooLong => Err(InodeError::NameTooLong(dest_key)),
+                    MetadataErrorKind::NotImplemented => {
                         // We only cache `NotImplemented` responses negatively,
                         // as other failures do not imply that the bucket does not support rename
                         self.inner.cached_rename_support.cache_failure();
@@ -1403,7 +1395,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
     }
 }
 
-impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
+impl<OC: MetadataClient> SuperblockInner<OC> {
     /// Retrieve the inode for the given number if it exists.
     ///
     /// The expiry of its stat field is not checked.
@@ -1471,7 +1463,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
     /// If no record for the given `name` is found, returns [None].
     /// If an entry is found in the negative cache, returns [Some(Err(InodeError::FileDoesNotExist))].
     fn cache_lookup(&self, parent_ino: InodeNo, name: &str) -> Option<Result<LookedUpInode, InodeError>> {
-        fn do_cache_lookup<O: ObjectClient + Send + Sync>(
+        fn do_cache_lookup<O: MetadataClient>(
             superblock: &SuperblockInner<O>,
             parent: Inode,
             name: &str,
@@ -1556,11 +1548,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
         //       "/" to the prefix in the request, the first common prefix we'll get back will be
         //       "dir-1/", because that precedes "dir/" in lexicographic order. Doing the
         //       ListObjects with "/" appended makes sure we always observe the correct prefix.
-        let head_object_params = HeadObjectParams::new();
-        let mut file_lookup = self
-            .client
-            .head_object(&self.s3_path.bucket, object_key, &head_object_params)
-            .fuse();
+        let mut file_lookup = self.client.head_object(&self.s3_path.bucket, object_key).fuse();
         let dir_lookup = lookup_directory(&self.client, &self.s3_path.bucket, directory_prefix).fuse();
         futures::pin_mut!(dir_lookup);
 
@@ -1570,12 +1558,12 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
             select_biased! {
                 result = file_lookup => {
                     match result {
-                        Ok(HeadObjectResult { size, last_modified, restore_status, etag, storage_class, .. }) => {
-                            let stat = InodeStat::for_file(size as usize, last_modified, Some(etag.into_inner().into_boxed_str()), storage_class.as_deref(), restore_status, self.config.cache_config.file_ttl);
+                        Ok(HeadInfo { size, last_modified, restore_status, etag, storage_class }) => {
+                            let stat = InodeStat::for_file(size as usize, last_modified, Some(etag.into_boxed_str()), storage_class.as_deref(), restore_status, self.config.cache_config.file_ttl);
                             file_state = Some(stat);
                         }
                         // If the object is not found, might be a directory, so keep going
-                        Err(ObjectClientError::ServiceError(HeadObjectError::NotFound)) => {},
+                        Err(e) if e.kind() == &MetadataErrorKind::NotFound => {},
                         Err(e) => return Err(InodeError::client_error(e, "HeadObject failed", &self.s3_path.bucket, object_key)),
                     }
                 }
@@ -1904,11 +1892,11 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
 /// does not prove the directory is absent. Follow those tokens until an object or common prefix
 /// proves the directory exists, or there are no more pages. Only existence is needed, so stop
 /// at the first nonempty page rather than listing the entire directory.
-async fn lookup_directory<OC: ObjectClient>(
+async fn lookup_directory<OC: MetadataClient>(
     client: &OC,
     bucket: &str,
     directory_prefix: &str,
-) -> ObjectClientResult<ListObjectsResult, ListObjectsError, OC::ClientError> {
+) -> Result<ListPage, MetadataError> {
     let mut continuation_token = None;
     loop {
         let result = client
@@ -2071,8 +2059,9 @@ pub enum InodeMapError {
 #[cfg(test)]
 mod tests {
     use mountpoint_s3_client::{
+        ObjectClient,
         mock_client::{MockClient, MockObject, Operation},
-        types::ETag,
+        types::{ETag, HeadObjectParams},
     };
     use std::ffi::OsString;
     use std::str::FromStr;
@@ -2214,11 +2203,11 @@ mod tests {
                         .expect("inode should exist");
                     // Grab last modified time according to mock S3
                     let full_key = file.s3_location().expect("should have location").full_key();
-                    let modified_time = client
-                        .head_object(&bucket, full_key.as_ref(), &HeadObjectParams::new())
-                        .await
-                        .expect("object should exist")
-                        .last_modified;
+                    let modified_time =
+                        ObjectClient::head_object(&client, &bucket, full_key.as_ref(), &HeadObjectParams::new())
+                            .await
+                            .expect("object should exist")
+                            .last_modified;
                     assert_inode_stat!(file, InodeKind::File, modified_time, object_size);
                     assert_eq!(full_key.as_ref(), format!("{prefix}dir{dir}/sdir{sdir}/file{i}.txt"));
                 }
