@@ -46,7 +46,7 @@ impl ThroughputMockClient {
         let rate_limiter = LeakyBucket::builder()
             .refill_interval(interval)
             .refill_amount(bytes_per_interval as u32)
-            .max(config.part_size as u32)
+            .max(config.data.part_size as u32)
             .tokens(0)
             .build()
             .into();
