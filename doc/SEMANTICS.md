@@ -13,7 +13,9 @@ While the rest of this document gives details on specific file system behaviors,
 
 Mountpoint supports opening and reading existing objects from your S3 bucket. It is optimized for reading large files sequentially, and will automatically make multiple concurrent requests to S3 to improve throughput when reads are sequential. Mountpoint also supports random reads from an existing object, including seeking in an open file.
 
-Mountpoint supports creating new objects in your S3 bucket by allowing writes to new files. If the `--allow-overwrite` flag is set at startup time, Mountpoint also supports replacing existing objects by allowing writes to existing files, but only when the `O_TRUNC` flag is used at open time to truncate the existing file. In both cases, writes must always start from the beginning of the file and must be made sequentially. Mountpoint uploads new files to S3 asynchronously, and optimizes for high write throughput using multiple concurrent upload requests. If your application needs to guarantee that a new file has been uploaded to S3, it should call `fsync` on the file before closing it. You cannot continue writing to the file after calling `fsync`. The new (or overwritten) object will be visible to other S3 clients only after successfully closing it (or on `fsync`).
+Mountpoint supports creating new objects in your S3 bucket by allowing writes to new files. If the `--allow-overwrite` flag is set at startup time, Mountpoint also supports replacing existing objects by allowing writes to existing files, but only when the `O_TRUNC` flag is used at open time to truncate the existing file. In both cases, writes must always start from the beginning of the file and must be made sequentially. Mountpoint uploads new files to S3 asynchronously, and optimizes for high write throughput using multiple concurrent upload requests. If your application needs to guarantee that a new file has been uploaded to S3, it should call `fsync` on the file before closing it. You cannot continue writing to the file after calling `fsync`. The new (or overwritten) object will be visible to other S3 clients only after successfully closing it (or on `fsync`). 
+
+Note that even when the `--allow-overwrite` flag is not set, Mountpoint may still replace existing objects on your S3 bucket. Before creating a new file, Mountpoint checks whether an object with the same key already exists, but if one is uploaded to the bucket after that check, Mountpoint will replace it when completing the write. Enabling metadata caching widens this window, since Mountpoint will trust a cached negative entry (within the specified TTL) when creating a new file.
 
 For objects stored in S3 Express One Zone, Mountpoint supports appending to files. If the `--incremental-upload` flag is set at startup time, Mountpoint allows opening existing files for writing without specifying the `O_TRUNC` flag. All writes must still be sequential and start from the end of the file. In this mode, Mountpoint will always upload data to S3 in sequential increments and offer the same throughput of a single PUT API call on S3. Moreover, partial writes will be visible to other S3 clients before the file is closed. Applications can call `fsync` to guarantee that the data written so far is uploaded to S3 and are then allowed to continue writing to the file.
 
@@ -111,6 +113,8 @@ When caching is enabled, Mountpoint also remembers when objects do *not* exist. 
 access a file that does not exist in your mounted S3 bucket, subsequent attempts (within the configured TTL) may still
 fail, even if it was later added to the mounted S3 bucket, until the TTL expires.
 
+When caching is enabled, Mountpoint also remembers when objects do *not* exist. Once you try to access a file that does not exist in your mounted S3 bucket, subsequent attempts may still fail, even if an object with the same key was later uploaded to the bucket, until the TTL expires. In this time, Mountpoint will also allow you to create a new file and eventually replace that object, even when the `--allow-overwrite` flag was not set.
+
 Caching does not affect the behavior of writing to files. Files that are being written to remain
 unavailable for reading until the file is closed, consistent with behavior without caching.
 After the file is closed, it is possible to open it for reading. Parts of the file that are read
@@ -203,6 +207,7 @@ but with some limitations:
 
 * All writes must be sequential: writes after seeking to any offset other than the end of the previous write will fail.
 * Writes to new files are supported and must start at the beginning of the file.
+  * Mountpoint only checks whether an object with the same key already exists when the file is opened. If an object with the same key is created after that check, the new file may replace it, even without the `--allow-overwrite` flag. Metadata caching widens this window. See [the caching section](#optional-metadata-and-object-content-caching).
 * If the `--allow-overwrite` flag is set, replacing an existing file is also allowed:
   * The existing file must be opened in truncate mode (`O_TRUNC`).
   * You cannot overwrite files that are currently being read or renamed.
