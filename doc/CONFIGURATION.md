@@ -277,6 +277,9 @@ Rename operations are performed atomically and immediately actioned against the 
 
 If you want to allow overwriting existing files, use the `--allow-overwrite` flag at mount time. The file must be opened with the `O_TRUNC` flag which will truncate the existing file. All writes must start from the beginning of the file and must be made sequentially.
 
+> [!WARNING]
+> Even when the `--allow-overwrite` flag is not set, Mountpoint may still replace existing objects on your S3 bucket. Before creating a new file, Mountpoint checks whether an object with the same key already exists, but if one is uploaded to the bucket after that check, Mountpoint will replace it when completing the write. Enabling metadata caching (see [Caching configuration](#caching-configuration)) widens this window, since Mountpoint will trust a cached negative entry (within the specified TTL) when creating a new file.
+
 You can also allow appending to existing files for objects stored in the S3 Express One Zone storage class, by setting the `--incremental-upload` flag at mount time. In this mode, writes to existing files opened without the `O_TRUNC` flag are allowed, provided they start at the end of the file and are made sequentially. For more details, see [Reading and writing files](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#reading-and-writing-files).
 
 If you want to forbid all mutating actions on your S3 bucket via Mountpoint, use the `--read-only` command-line flag.
@@ -539,6 +542,12 @@ It can be set to a positive numerical value in seconds, or to one of the pre-con
 > [!WARNING]
 > Caching of metadata entries relaxes the strong read-after-write consistency offered by Amazon S3 and Mountpoint in its default configuration.
 > See the [consistency and concurrency section of the semantics documentation](./SEMANTICS.md#consistency-and-concurrency) for more details.
+
+The command-line flag `--negative-metadata-ttl <SECONDS|indefinite|minimal>` controls the TTL for cached negative entries, which record that an object does not exist.
+It accepts the same values as `--metadata-ttl` and defaults to the same TTL as `--metadata-ttl` when not set.
+
+> [!WARNING]
+> Mountpoint will trust a cached negative entry (within the specified TTL) when creating a new file. This means that an object concurrently uploaded to your S3 bucket within the TTL may be overwritten even if Mountpoint was launched without the `--allow-overwrite` flag. See [File modifications and deletions](#file-modifications-and-deletions) for more details.
 
 The `--metadata-ttl` flag is used to control how long Mountpoint considers it's file system metadata (file existence, size, object etag, etc) accurate before re-fetching from S3.
 When configured, on its own or in conjunction with local cache or shared cache, Mountpoint will typically perform fewer requests to the mounted S3 bucket, but will not guarantee that the information it reports
