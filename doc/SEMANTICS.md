@@ -109,10 +109,6 @@ To force an up-to-date view of a file, use the `O_DIRECT` flag when opening the 
 When this option is provided, Mountpoint will check S3 to ensure the object exists, and return the latest object content.
 Unlike other file systems, Mountpoint does not support setting the `O_DIRECT` flag via `fcntl` after the file has been opened.
 
-When caching is enabled, Mountpoint also remembers when objects do *not* exist. Once you try to
-access a file that does not exist in your mounted S3 bucket, subsequent attempts (within the configured TTL) may still
-fail, even if it was later added to the mounted S3 bucket, until the TTL expires.
-
 When caching is enabled, Mountpoint also remembers when objects do *not* exist. Once you try to access a file that does not exist in your mounted S3 bucket, subsequent attempts may still fail, even if an object with the same key was later uploaded to the bucket, until the TTL expires. In this time, Mountpoint will also allow you to create a new file and eventually replace that object, even when the `--allow-overwrite` flag was not set.
 
 Caching does not affect the behavior of writing to files. Files that are being written to remain
