@@ -111,10 +111,7 @@ Unlike other file systems, Mountpoint does not support setting the `O_DIRECT` fl
 
 When caching is enabled, Mountpoint also remembers when objects do *not* exist. Once you try to access a file that does not exist in your mounted S3 bucket, subsequent attempts may still fail, even if an object with the same key was later uploaded to the bucket, until the TTL expires. In this time, Mountpoint will also allow you to create a new file and eventually replace that object, even when the `--allow-overwrite` flag was not set.
 
-Caching does not affect the behavior of writing to files. Files that are being written to remain
-unavailable for reading until the file is closed, consistent with behavior without caching.
-After the file is closed, it is possible to open it for reading. Parts of the file that are read
-from S3 will then be cached and available for subsequent repeated reads.
+Caching is not write-through: while a file is being written to, it remains unavailable for reading until it is closed, consistent with behavior without caching. After the file is closed, it is possible to open it for reading. Parts of the file that are read from S3 will then be cached and available for subsequent repeated reads.
 
 ## Durability
 
