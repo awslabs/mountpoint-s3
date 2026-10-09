@@ -25,7 +25,7 @@ The container will create an `out` folder in the root of the Git repository cont
 
 For Amazon Linux 2023 specifically, you can build an SRPM (Source RPM) package using the dedicated build script. **The script must be run from the repository root directory:**
 
-    ./package/generate_amzn2023_srpm.sh
+    ./package/generate_amzn_srpm.sh amzn2023
 
 This script will:
 1. Generate an RPM spec file using the spec generator in `spec/`
