@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791829696712,
+  "lastUpdate": 1791832790206,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "49699333+dependabot[bot]@users.noreply.github.com",
-            "name": "dependabot[bot]",
-            "username": "dependabot[bot]"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "32779e2790b07cdf53df6efac5169e53c64d80bf",
-          "message": "Bump taiki-e/install-action from 2.86.2 to 2.87.2 (#1955)\n\nBumps\n[taiki-e/install-action](https://github.com/taiki-e/install-action) from\n2.86.2 to 2.87.2.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/taiki-e/install-action/releases\">taiki-e/install-action's\nreleases</a>.</em></p>\n<blockquote>\n<h2>2.87.2</h2>\n<ul>\n<li>\n<p>Update <code>typos@latest</code> to 1.50.0.</p>\n</li>\n<li>\n<p>Update <code>tombi@latest</code> to 1.5.0.</p>\n</li>\n<li>\n<p>Update <code>shfmt@latest</code> to 3.14.0.</p>\n</li>\n</ul>\n<h2>2.87.1</h2>\n<ul>\n<li>\n<p>Update <code>uv@latest</code> to 0.12.7.</p>\n</li>\n<li>\n<p>Update <code>typos@latest</code> to 1.49.1.</p>\n</li>\n<li>\n<p>Update <code>syft@latest</code> to 1.51.1.</p>\n</li>\n<li>\n<p>Update <code>prek@latest</code> to 0.5.0.</p>\n</li>\n<li>\n<p>Update <code>d2@latest</code> to 0.8.2.</p>\n</li>\n<li>\n<p>Update <code>cargo-zigbuild@latest</code> to 0.23.3.</p>\n</li>\n<li>\n<p>Update <code>cargo-rdme@latest</code> to 2.2.2.</p>\n</li>\n<li>\n<p>Update <code>biome@latest</code> to 2.5.11.</p>\n</li>\n</ul>\n<h2>2.87.0</h2>\n<ul>\n<li>\n<p>Support <code>kache</code>. (<a\nhref=\"https://redirect.github.com/taiki-e/install-action/pull/1980\">#1980</a>,\nthanks <a\nhref=\"https://github.com/ChrisJr404\"><code>@​ChrisJr404</code></a>)</p>\n</li>\n<li>\n<p>Update <code>vacuum@latest</code> to 0.30.1.</p>\n</li>\n<li>\n<p>Update <code>uv@latest</code> to 0.12.6.</p>\n</li>\n<li>\n<p>Update <code>mise@latest</code> to 2026.8.14.</p>\n</li>\n<li>\n<p>Update <code>editorconfig-checker@latest</code> to 3.11.2.</p>\n</li>\n</ul>\n<h2>2.86.8</h2>\n<ul>\n<li>\n<p>Update <code>wasmtime@latest</code> to 48.0.1.</p>\n</li>\n<li>\n<p>Update <code>wasm-tools@latest</code> to 1.258.0.</p>\n</li>\n<li>\n<p>Update <code>oxfmt@latest</code> to 1.80.0.</p>\n</li>\n<li>\n<p>Update <code>mise@latest</code> to 2026.8.12.</p>\n</li>\n<li>\n<p>Update <code>kingfisher@latest</code> to 2.0.0.</p>\n</li>\n<li>\n<p>Update <code>cargo-zigbuild@latest</code> to 0.23.2.</p>\n</li>\n</ul>\n<h2>2.86.7</h2>\n<ul>\n<li>Update <code>tombi@latest</code> to 1.4.1.</li>\n</ul>\n<!-- raw HTML omitted -->\n</blockquote>\n<p>... (truncated)</p>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/1ed6d7be6168f6c9046541087ff549b6bc581fdf\"><code>1ed6d7b</code></a>\nRelease 2.87.2</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/0fbfc5b541ba726278965a75a3fd222af703b279\"><code>0fbfc5b</code></a>\nUpdate <code>typos@latest</code> to 1.50.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/5f68cef2c452eb3fcb5dccbbcd5f6d192a13a892\"><code>5f68cef</code></a>\nUpdate <code>tombi@latest</code> to 1.5.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/d46a5ec40dd3eef68104c5b342f24e599519675f\"><code>d46a5ec</code></a>\nUpdate <code>shfmt@latest</code> to 3.14.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/742a3317eac7bd62f91cd888b4eead5e784ba833\"><code>742a331</code></a>\nRelease 2.87.1</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/c5b69cd73ba573d80324cdcd0b052ca509084b22\"><code>c5b69cd</code></a>\nUpdate <code>uv@latest</code> to 0.12.7</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/85e6400c85d74d612698536feafd9e20f40aa257\"><code>85e6400</code></a>\nUpdate <code>typos@latest</code> to 1.49.1</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/91f3a12371baac5722df4e5c6d42937d16656ffe\"><code>91f3a12</code></a>\nUpdate tombi manifest</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/160f8b13c099dc3c9067e0658c0da7ac925a00ff\"><code>160f8b1</code></a>\nUpdate <code>syft@latest</code> to 1.51.1</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/aa48d3e72e94215619c754df53a143cdaabefc8b\"><code>aa48d3e</code></a>\nUpdate shfmt manifest</li>\n<li>Additional commits viewable in <a\nhref=\"https://github.com/taiki-e/install-action/compare/v2.86.2...v2.87.2\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\n\n[![Dependabot compatibility\nscore](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=taiki-e/install-action&package-manager=github_actions&previous-version=2.86.2&new-version=2.87.2)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)\n\nDependabot will resolve any conflicts with this PR as long as you don't\nalter it yourself. You can also trigger a rebase manually by commenting\n`@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits\nthat have been made to it\n- `@dependabot show <dependency name> ignore conditions` will show all\nof the ignore conditions of the specified dependency\n- `@dependabot ignore this major version` will close this PR and stop\nDependabot creating any more for this major version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this minor version` will close this PR and stop\nDependabot creating any more for this minor version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this dependency` will close this PR and stop\nDependabot creating any more for this dependency (unless you reopen the\nPR or upgrade to it yourself)\n\n\n</details>\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
-          "timestamp": "2026-09-07T17:50:38Z",
-          "tree_id": "e4cb7d97babd524b9053de2a55a3bbb4c4c6d3ef",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/32779e2790b07cdf53df6efac5169e53c64d80bf"
-        },
-        "date": 1788812067110,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 2164.0078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 59.91796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 2164.875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 58.77734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 2183.703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 46.1953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 2189.6796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 46.25,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 2382.33984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 56.99609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 2182.83984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 64.37109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2186.9609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 42.640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2172.1875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2184.76953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 43.07421875,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3269,6 +3160,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 42.6640625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f6866c101cae19d1e99a1e89c260c646b4730f6",
+          "message": "Bump hydra-core from 1.3.4 to 1.3.7 in /benchmark (#1981)\n\nBumps [hydra-core](https://github.com/facebookresearch/hydra) from 1.3.4\nto 1.3.7.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/facebookresearch/hydra/releases\">hydra-core's\nreleases</a>.</em></p>\n<blockquote>\n<h2>Hydra 1.3.7</h2>\n<h2>What's Changed</h2>\n<ul>\n<li>Strengthen defense-in-depth checks for configured targets, Python\nruntime state, process-environment mutation, and logging formatters.\nThese checks are not a complete security boundary. (<a\nhref=\"https://redirect.github.com/hydra-ecosystem/hydra/issues/3442\">#3442</a>)</li>\n</ul>\n<p><strong>Full Changelog</strong>: <a\nhref=\"https://github.com/hydra-ecosystem/hydra/compare/v1.3.6...v1.3.7\">https://github.com/hydra-ecosystem/hydra/compare/v1.3.6...v1.3.7</a></p>\n<h2>Hydra 1.3.6</h2>\n<h2>What's Changed</h2>\n<ul>\n<li>Harden instantiate authorization against unsafe aliases and callable\nresults. (<a\nhref=\"https://redirect.github.com/facebookresearch/hydra/issues/3410\">#3410</a>)</li>\n<li>Apply Hydra's target blacklist to Python logging configuration. (<a\nhref=\"https://redirect.github.com/facebookresearch/hydra/issues/3418\">#3418</a>)</li>\n</ul>\n<p><strong>Full Changelog</strong>: <a\nhref=\"https://github.com/hydra-ecosystem/hydra/compare/v1.3.5...v1.3.6\">https://github.com/hydra-ecosystem/hydra/compare/v1.3.5...v1.3.6</a></p>\n<h2>Hydra 1.3.5</h2>\n<h2>What's Changed</h2>\n<ul>\n<li>Warn Hydra 1.3 users relying on Hydra 1.1 behavior (<a\nhref=\"https://redirect.github.com/facebookresearch/hydra/issues/3347\">#3347</a>)</li>\n</ul>\n<p><strong>Full Changelog</strong>: <a\nhref=\"https://github.com/facebookresearch/hydra/compare/v1.3.4...v1.3.5\">https://github.com/facebookresearch/hydra/compare/v1.3.4...v1.3.5</a></p>\n</blockquote>\n</details>\n<details>\n<summary>Changelog</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/hydra-ecosystem/hydra/blob/v1.3.7/NEWS.md\">hydra-core's\nchangelog</a>.</em></p>\n<blockquote>\n<h1>1.3.7 (2026-09-14)</h1>\n<h3>Bug Fixes</h3>\n<ul>\n<li>Strengthen defense-in-depth checks for configured targets, Python\nruntime state,\nprocess-environment mutation, and logging formatters. These checks are\nnot a\ncomplete security boundary. (<a\nhref=\"https://redirect.github.com/facebookresearch/hydra/issues/3442\">#3442</a>)\n1.3.6 (2026-08-29)\n==================</li>\n</ul>\n<h3>Bug Fixes</h3>\n<ul>\n<li>Harden instantiate authorization against unsafe aliases and callable\nresults.\n(<a\nhref=\"https://redirect.github.com/facebookresearch/hydra/issues/3410\">#3410</a>)</li>\n<li>Apply Hydra's target blocklist to Python logging configuration.\n(<a\nhref=\"https://redirect.github.com/facebookresearch/hydra/issues/3418\">#3418</a>)</li>\n</ul>\n<h1>1.3.5 (2026-08-06)</h1>\n<h3>API Change (Renames, deprecations and removals)</h3>\n<ul>\n<li>Warn Hydra 1.3 applications that rely on Hydra 1.1 compatibility\nbefore\nupgrading to Hydra 1.4. (<a\nhref=\"https://redirect.github.com/facebookresearch/hydra/issues/3334\">#3334</a>)</li>\n</ul>\n</blockquote>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/hydra-ecosystem/hydra/commit/81715a5a258ae2657369344f4e3523e5fbabb2af\"><code>81715a5</code></a>\nPrepare hydra-core 1.3.7 release</li>\n<li><a\nhref=\"https://github.com/hydra-ecosystem/hydra/commit/4720dfca2bde27fa140ec287a05709668fbdf168\"><code>4720dfc</code></a>\nMerge commit from fork</li>\n<li><a\nhref=\"https://github.com/hydra-ecosystem/hydra/commit/27df7550bfd6582a111df148ef96de499474c243\"><code>27df755</code></a>\nPrepare Hydra 1.3.6 release</li>\n<li><a\nhref=\"https://github.com/hydra-ecosystem/hydra/commit/ff3e4dba890c29a21d8c2bb867ee87d37ccf21d0\"><code>ff3e4db</code></a>\nHarden logging target resolution on 1.3 (<a\nhref=\"https://redirect.github.com/facebookresearch/hydra/issues/3420\">#3420</a>)</li>\n<li><a\nhref=\"https://github.com/hydra-ecosystem/hydra/commit/aa102eaabfa8c93f481ac4938dd7a34203c58d24\"><code>aa102ea</code></a>\nHarden deferred instantiate dispatch on 1.3</li>\n<li><a\nhref=\"https://github.com/hydra-ecosystem/hydra/commit/2c82bbb3f39603b336cb852461739fdf7a38798a\"><code>2c82bbb</code></a>\nBackport instantiate target authorization hardening to 1.3 (<a\nhref=\"https://redirect.github.com/facebookresearch/hydra/issues/3413\">#3413</a>)</li>\n<li><a\nhref=\"https://github.com/hydra-ecosystem/hydra/commit/06613cef4c44bf3473b92ecde533487647784b0b\"><code>06613ce</code></a>\nBump Hydra to 1.3.6.dev0</li>\n<li><a\nhref=\"https://github.com/hydra-ecosystem/hydra/commit/51647a2183512bc4e5556842c494e7efdbd75375\"><code>51647a2</code></a>\nRelease Hydra 1.3.5</li>\n<li><a\nhref=\"https://github.com/hydra-ecosystem/hydra/commit/445b0a7505c0c07a7f0bd3dde3baf4811c2fea27\"><code>445b0a7</code></a>\nWarn Hydra 1.3 users relying on 1.1 compatibility (<a\nhref=\"https://redirect.github.com/facebookresearch/hydra/issues/3347\">#3347</a>)</li>\n<li>See full diff in <a\nhref=\"https://github.com/facebookresearch/hydra/compare/v1.3.4...v1.3.7\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\n\n[![Dependabot compatibility\nscore](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=hydra-core&package-manager=uv&previous-version=1.3.4&new-version=1.3.7)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)\n\nDependabot will resolve any conflicts with this PR as long as you don't\nalter it yourself. You can also trigger a rebase manually by commenting\n`@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits\nthat have been made to it\n- `@dependabot show <dependency name> ignore conditions` will show all\nof the ignore conditions of the specified dependency\n- `@dependabot ignore this major version` will close this PR and stop\nDependabot creating any more for this major version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this minor version` will close this PR and stop\nDependabot creating any more for this minor version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this dependency` will close this PR and stop\nDependabot creating any more for this dependency (unless you reopen the\nPR or upgrade to it yourself)\nYou can disable automated security fix PRs for this repo from the\n[Security Alerts\npage](https://github.com/awslabs/mountpoint-s3/network/alerts).\n\n</details>\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-12T16:53:49Z",
+          "tree_id": "2cbe058a18d7d75fdf61ce5f778dcc719a9f85bc",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/4f6866c101cae19d1e99a1e89c260c646b4730f6"
+        },
+        "date": 1791832790126,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 2164.6328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 62.03125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 2173.71484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 58.26171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 2173.21484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 46.46875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 2181.84375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 46.4140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 2186.2890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 56.0625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 2170.27734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 63.6171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2168.67578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 42.8671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2169.796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2179.2734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 42.9453125,
             "unit": "MiB"
           }
         ]
