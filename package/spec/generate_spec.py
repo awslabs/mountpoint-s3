@@ -8,10 +8,10 @@ and outputs a complete RPM spec file ready for rpmbuild.
 
 import argparse
 import subprocess
+import tomllib
 from datetime import datetime
 from pathlib import Path
 
-import tomllib
 from jinja2 import Environment, FileSystemLoader
 
 script_dir = Path(__file__).parent
@@ -69,7 +69,7 @@ def main() -> None:
     version = get_version()
     rust_version = get_rust_version()
     submodule_versions = get_submodule_versions()
-    current_date = datetime.now().strftime("%a %b %d %Y")  # noqa: DTZ005
+    current_date = datetime.now().strftime("%a %b %d %Y")
 
     env = Environment(loader=FileSystemLoader(templates_dir), trim_blocks=True, lstrip_blocks=True)
 

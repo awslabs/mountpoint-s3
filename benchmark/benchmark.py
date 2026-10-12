@@ -3,7 +3,7 @@ import logging
 import os
 import subprocess
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -109,7 +109,7 @@ def run_experiment(cfg: DictConfig) -> None:
     benchmark_type = cfg.benchmark_type
     metadata = {
         "ec2_instance_id": get_ec2_instance_id(),
-        "start_time": datetime.now(tz=timezone.utc),
+        "start_time": datetime.now(tz=UTC),
         "success": False,
     }
 
@@ -183,7 +183,7 @@ def run_experiment(cfg: DictConfig) -> None:
                 log.info("No results bucket specified (s3_result_bucket), skipping upload")
 
             write_metadata(metadata)
-            metadata["end_time"] = datetime.now(tz=timezone.utc)
+            metadata["end_time"] = datetime.now(tz=UTC)
 
 
 if __name__ == "__main__":
