@@ -1,7 +1,7 @@
 import logging
 import subprocess
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import hydra
@@ -63,7 +63,7 @@ class FioBenchmark(BaseBenchmark):
         fio_env["APP_WORKERS"] = str(self.cfg.application_workers)
         fio_env["SIZE_GIB"] = str(self.cfg.object_size_in_gib)
         fio_env["DIRECT"] = "1" if self.cfg.benchmarks.fio.direct_io else "0"
-        fio_env["UNIQUE_DIR"] = datetime.now(tz=timezone.utc).isoformat()
+        fio_env["UNIQUE_DIR"] = datetime.now(tz=UTC).isoformat()
         fio_env["IO_ENGINE"] = self.cfg.benchmarks.fio.fio_io_engine
         fio_env["RUN_TIME"] = str(self.cfg.run_time)
         fio_env["BLOCK_SIZE"] = str(self.cfg.read_size)
