@@ -1312,6 +1312,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             (lookup, inode)
         };
 
+        self.inner.negative_cache.remove(dir, name.as_ref());
         self.inner.remember(&inode);
         Ok(lookup)
     }
@@ -2344,6 +2345,43 @@ mod tests {
                 lookup.expect("new object should have been looked up in S3");
             }
         }
+    }
+
+    #[test_case(InodeKind::File, "file.txt", "file.txt"; "file")]
+    #[test_case(InodeKind::Directory, "dir", "dir/file.txt"; "directory")]
+    #[tokio::test]
+    async fn test_create_purges_negative_cache(kind: InodeKind, name: &str, key: &str) {
+        let bucket = Bucket::new("test_bucket").unwrap();
+        let prefix = Prefix::new("prefix/").expect("valid prefix");
+        let client = Arc::new(MockClient::config().bucket(bucket.to_string()).part_size(32).build());
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, prefix.clone()),
+            SuperblockConfig {
+                cache_config: CacheConfig::new(TimeToLive::Indefinite),
+                s3_personality: S3Personality::Standard,
+            },
+        );
+
+        _ = superblock
+            .lookup(FUSE_ROOT_INODE, name.as_ref())
+            .await
+            .expect_err("should not exist");
+
+        let lookup = superblock
+            .create(FUSE_ROOT_INODE, name.as_ref(), kind)
+            .await
+            .expect("create should succeed");
+        client.add_object(
+            &format!("{prefix}{key}"),
+            MockObject::constant(0xaa, 30, ETag::for_tests()),
+        );
+        superblock.forget(lookup.ino(), 1).await;
+
+        superblock
+            .lookup(FUSE_ROOT_INODE, name.as_ref())
+            .await
+            .expect("created entry should not be served from the negative cache");
     }
 
     #[tokio::test]
