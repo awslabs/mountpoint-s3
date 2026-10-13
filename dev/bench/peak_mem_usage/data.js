@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791917837886,
+  "lastUpdate": 1791919340277,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "renanmag@amazon.co.uk",
-            "name": "Renan Magagnin",
-            "username": "renanmagagnin"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "634df5d09017293d24bd2b821aa8530ade9d14c7",
-          "message": "Run cargo update (#1953)\n\nRuns `cargo update` to refresh transitive dependencies in `Cargo.lock`.\nThis clears a `cargo-deny` yanked-crate warning for `chacha20` 0.10.1\n(pulled in via `rand`) and picks up routine upstream patch releases.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/)\n\nSigned-off-by: Renan Magagnin <renanmag@amazon.co.uk>",
-          "timestamp": "2026-09-07T17:51:22Z",
-          "tree_id": "d6a7d12f79da5ca590512783c7d456b040f58644",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/634df5d09017293d24bd2b821aa8530ade9d14c7"
-        },
-        "date": 1788820093313,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 3284.69140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 4818.9453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8374.2421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 54.7421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 90.05859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 56.83984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 88.25,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 46.3515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 58.54296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 50.63671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 56.953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8274.19921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 84.55078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8267.8203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 85.55078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2153.19921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 53.8515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2159.6796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2159.0859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 53.50390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 564.1796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 465.6328125,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 524.890625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "109811970+samridh10exe@users.noreply.github.com",
+            "name": "Samridh",
+            "username": "samridh10exe"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6b965f46c655b14be6fbbf9db3d93907cbbb6061",
+          "message": "Purge the negative cache entry on create (#1985)\n\n`create` doesn't purge the new name from the negative metadata cache.\nWith negative caching enabled, if a lookup misses, the file or directory\nis then created through Mountpoint, and the kernel later forgets its\ninode, lookups for it return `ENOENT` until the negative entry expires.\n\nPurge the entry in `create`, as `rename` already does for its\ndestination. This picks up #1250 by @c-hagem and adds the test requested\nthere: `test_create_purges_negative_cache` covers a file and a\ndirectory, and fails without the change.\n\nAlso reproduced with `--metadata-ttl indefinite` against a local\nS3-compatible endpoint: after dropping the kernel's dentry and inode\ncaches, the created file and directory return `ENOENT` with unpatched\nMountpoint and are found with this change.\n\n### Does this change impact existing behavior?\n\nNo breaking changes. Files and directories created after a failed lookup\nof the same name are no longer reported as missing.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Samridh <109811970+samridh10exe@users.noreply.github.com>",
+          "timestamp": "2026-10-13T16:25:10Z",
+          "tree_id": "15226e77d43d7e2040c2f91b8809e0ed240f0981",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/6b965f46c655b14be6fbbf9db3d93907cbbb6061"
+        },
+        "date": 1791919340194,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 3302.05859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 4714.6171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 8284.23828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 55.09375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 89.11328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 55.546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 88.1171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 45.49609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 57.80859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 48.1640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 59.05078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8108.90234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 84.3046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 8132.7890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 86.13671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2153.81640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 52.85546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2161.07421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2158.78125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 53.98046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 829.33984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 428.64453125,
             "unit": "MiB"
           }
         ]
