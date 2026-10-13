@@ -103,7 +103,7 @@ jobs:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
     - name: Install nextest
-      uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+      uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
       with:
         tool: nextest
     - name: Install operating system dependencies
@@ -168,7 +168,7 @@ jobs:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
     - name: Install nextest
-      uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+      uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
       with:
         tool: nextest
     - name: Install operating system dependencies
@@ -279,7 +279,7 @@ jobs:
         build-warnings: "warn"
         components: rust-src
     - name: Install nextest
-      uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+      uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
       with:
         tool: nextest
     - name: Install operating system dependencies
