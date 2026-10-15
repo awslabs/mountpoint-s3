@@ -31,7 +31,8 @@ To send us a pull request, please:
 
 1. Fork the repository.
 2. Modify the source. Please focus on the specific change you are contributing; we value multiple small pull requests that are easier to review.
-3. Run `make pre-pr-check` to ensure local tests pass and formatting is correct.
+3. Run `make pre-pr-check` to ensure local tests pass and formatting is correct,
+   and review your change against our [code review guidelines](REVIEW_GUIDELINES.md).
 4. Commit to your fork using clear commit messages.
      * We require all contributors to agree to the terms of the [Developer Certificate of Origin (DCO)](https://developercertificate.org/), and to indicate this agreement by signing their commits using [Git's `Signed-off-by` support](https://git-scm.com/docs/git-commit#Documentation/git-commit.txt---signoff).
      * To add this trailer to your commits, use the `-s, --sign-off` option to `git commit`.
