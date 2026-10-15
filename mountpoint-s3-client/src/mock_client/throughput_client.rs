@@ -95,7 +95,7 @@ impl GetObjectResponse for ThroughputGetObjectResponse {
     }
 
     fn get_object_checksum(&self) -> Result<Checksum, ObjectChecksumError> {
-        Ok(self.request.object.checksum.clone())
+        self.request.get_object_checksum()
     }
 }
 
