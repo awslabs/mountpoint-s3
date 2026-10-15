@@ -76,6 +76,9 @@ pub mod config {
         TlsConfig, TlsConfigValidationError,
     };
 
+    pub use mountpoint_s3_crt::auth::credentials::{
+        Credentials, CredentialsCallback, CredentialsOptions, CredentialsSource,
+    };
     pub use mountpoint_s3_crt::common::allocator::Allocator;
     pub use mountpoint_s3_crt::common::rust_log_adapter::{AWSCRT_LOG_TARGET, RustLogAdapter};
 
