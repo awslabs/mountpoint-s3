@@ -7,6 +7,7 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
+use mountpoint_s3_client::checksums::{crc64nvme, crc64nvme_to_base64};
 use mountpoint_s3_client::types::{Checksum, ChecksumAlgorithm, PutObjectSingleParams, UploadChecksum};
 use rand::rngs::SmallRng;
 use rand::{RngExt, SeedableRng};
@@ -1587,15 +1588,17 @@ fn write_checksums_test(
             }
         }
         None => {
-            // If no checksum was sent with the PutObject request, S3 automatically uses CRC-64NVME.
-            // We'll ignore it for the test below.
+            // Without upload checksums, S3 (and the mock) store a full-object CRC-64NVME checksum
+            // computed over the whole object, and no other checksum.
             // See https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html.
-            assert!(
-                object_checksum.is_none_or(|c| Checksum {
-                    checksum_crc64nvme: None,
-                    ..c
-                } == Checksum::empty()),
-                "checksums should not be present when upload checksums are disabled"
+            let expected = Checksum {
+                checksum_crc64nvme: Some(crc64nvme_to_base64(&crc64nvme::checksum(&body))),
+                ..Checksum::empty()
+            };
+            assert_eq!(
+                object_checksum,
+                Some(expected),
+                "object should have S3's default CRC-64NVME checksum when upload checksums are disabled"
             );
 
             // For S3 Standard, the list of parts is only present if checksums were used, but for S3
@@ -1603,7 +1606,7 @@ fn write_checksums_test(
             for part_checksum in part_checksums {
                 assert!(
                     part_checksum.is_none_or(|c| c == Checksum::empty()),
-                    "checksums should not be present when upload checksums are disabled"
+                    "part checksums should not be present when upload checksums are disabled"
                 );
             }
         }
