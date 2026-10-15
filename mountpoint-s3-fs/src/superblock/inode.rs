@@ -588,6 +588,41 @@ mod tests {
             ))
         }
 
+        /// A rename races with the forget of a sibling inode in the same directory.
+        ///
+        /// Reproduces a lock-order inversion: `rename` holds the parent's state lock and then takes
+        /// the inode map lock, while `forget` holds the inode map lock and then takes the parent's
+        /// state lock. Remove `should_panic` once fixed.
+        #[test]
+        #[should_panic(expected = "deadlock")]
+        fn test_rename_and_forget_race_condition() {
+            async fn test_helper(bucket: &Bucket) {
+                let client = in_memory_metadata(bucket, true);
+                client.bucket().add_object("dir/a", b"a".into());
+                client.bucket().add_object("dir/c", b"c".into());
+                let superblock = Arc::new(Superblock::new(
+                    client,
+                    S3Path::new(bucket.clone(), Default::default()),
+                    Default::default(),
+                ));
+                let dir = superblock.lookup(ROOT_INODE_NO, "dir".as_ref()).await.unwrap().ino();
+                superblock.lookup(dir, "a".as_ref()).await.unwrap();
+                let c = superblock.lookup(dir, "c".as_ref()).await.unwrap().ino();
+
+                let superblock_clone = superblock.clone();
+                let forget_task = thread::spawn(move || block_on(superblock_clone.forget(c, 1)));
+                superblock
+                    .rename(dir, "a".as_ref(), dir, "b".as_ref(), true)
+                    .await
+                    .expect("rename should succeed");
+                forget_task.join().unwrap();
+                assert_eq!(superblock.get_lookup_count(c), 0);
+            }
+
+            let bucket = Bucket::new("test_bucket").unwrap();
+            check_dfs(move || block_on(test_helper(&bucket)), Some(100000));
+        }
+
         #[test]
         fn test_create_and_forget_race_condition() {
             let bucket = Bucket::new("test_bucket").unwrap();
