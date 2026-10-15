@@ -10,7 +10,7 @@ When leaving feedback, make clear how important it is:
 * **Blocking**: incorrect behavior, data loss or corruption, undocumented changes to file system semantics,
   soundness issues in `unsafe` code, security issues, missing changelog or version updates, missing tests for a bug fix.
 * **Non-blocking**: readability, naming, simplifications, and suggestions that the author may reasonably decline.
-  Prefix these with "nit:" or "suggestion:".
+  Prefix these with "nit:", "np:", or "suggestion:".
 
 ## Formatting, lints, and comments
 
@@ -32,6 +32,12 @@ Contributors can run most of these locally with `make pre-pr-check`.
 * The title and description explain what changed and why, and every section of the
   [pull request template](../.github/pull_request_template.md) is answered.
   They become the squash commit message, so they must stay accurate as the change evolves.
+* "Does this change impact existing behavior?" calls out any user-visible or breaking change,
+  checked against [File system semantics](#file-system-semantics) and
+  [Configuration, CLI, and metrics](#configuration-cli-and-metrics) below.
+  "No" is only accepted if the diff supports it.
+* "Does this change need a changelog entry? Does it require a version change?" either names the affected crates
+  and version bumps, or justifies why none are needed. See [Changelog and versioning](#changelog-and-versioning).
 * The change is focused. Unrelated refactors belong in a separate pull request.
 * Significant work has a linked issue where the approach was discussed.
 * Commits are signed off for the [DCO](https://developercertificate.org/).
