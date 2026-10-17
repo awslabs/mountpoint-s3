@@ -1,8 +1,11 @@
+use std::sync::OnceLock;
+
 use aws_config::{BehaviorVersion, Region};
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, Uri};
 use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
 use rand::TryRng;
 use rand::rngs::SysRng;
+use tokio::runtime::{Builder, Handle, Runtime};
 
 pub fn get_test_s3_path(test_name: &str) -> S3Path {
     let (bucket, prefix) = get_test_bucket_and_prefix(test_name);
@@ -139,4 +142,18 @@ pub fn deny_single_object_access_policy(bucket: &str, key: &str) -> String {
         ]
     }"#;
     template.replace("__BUCKET__", bucket).replace("__KEY__", key)
+}
+
+/// A handle to a Tokio runtime shared by the tests in this process, which lives until it exits.
+pub fn tokio_handle() -> Handle {
+    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("Tokio runtime should build")
+        })
+        .handle()
+        .clone()
 }

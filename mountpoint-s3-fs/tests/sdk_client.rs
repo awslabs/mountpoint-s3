@@ -6,7 +6,10 @@ mod common;
 
 use aws_sdk_s3::config::SharedCredentialsProvider;
 use aws_sdk_s3::primitives::ByteStream;
-use mountpoint_s3_client::config::AddressingStyle;
+use mountpoint_s3_client::config::{AddressingStyle, S3ClientConfig};
+use mountpoint_s3_client::types::PutObjectSingleParams;
+use mountpoint_s3_client::{ObjectClient, S3CrtClient};
+use mountpoint_s3_fs::s3::credentials::{SdkCredentialsChain, SdkCredentialsConfig, SharedCredentials};
 use mountpoint_s3_fs::s3::sdk_client::{SdkClientAuth, SdkClientConfig, build_sdk_client};
 use test_case::test_case;
 
@@ -119,4 +122,50 @@ async fn test_fips(dual_stack: bool, test_name: &str) {
         test_name,
     )
     .await;
+}
+
+/// The SDK client and the CRT client sign with credentials from one [SharedCredentials] over the
+/// SDK credentials chain: the CRT client uploads an object, and the SDK client lists and heads it.
+/// On S3 Express One Zone, each client creates its session with these credentials.
+#[tokio::test]
+async fn test_shared_credentials() {
+    let credentials_config = SdkCredentialsConfig::new(SdkCredentialsChain::Default);
+    let credentials = SharedCredentials::from_sdk(credentials_config, common::s3::tokio_handle())
+        .await
+        .unwrap();
+
+    let bucket = get_test_bucket();
+    let prefix = get_test_prefix("sdk_client_shared_credentials");
+    let key = format!("{prefix}hello");
+    let crt_config = S3ClientConfig::new()
+        .endpoint_config(get_test_endpoint_config())
+        .auth_config(credentials.auth_config());
+    let crt_client = S3CrtClient::new(crt_config).unwrap();
+    crt_client
+        .put_object_single(&bucket, &key, &PutObjectSingleParams::new(), BODY)
+        .await
+        .expect("PutObject through the CRT client should succeed");
+
+    let sdk_config = SdkClientConfig::new(
+        get_test_endpoint_config(),
+        SdkClientAuth::SharedCredentials(credentials.clone()),
+    );
+    let sdk_client = build_sdk_client(&sdk_config).unwrap();
+    let list = sdk_client
+        .list_objects_v2()
+        .bucket(&bucket)
+        .prefix(&prefix)
+        .send()
+        .await
+        .expect("ListObjectsV2 through the SDK client should succeed");
+    let keys: Vec<_> = list.contents().iter().filter_map(|object| object.key()).collect();
+    assert_eq!(keys, [key.as_str()]);
+    let head = sdk_client
+        .head_object()
+        .bucket(&bucket)
+        .key(&key)
+        .send()
+        .await
+        .expect("HeadObject through the SDK client should succeed");
+    assert_eq!(head.content_length(), Some(BODY.len() as i64));
 }

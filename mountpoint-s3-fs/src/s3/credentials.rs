@@ -1,12 +1,13 @@
-//! AWS credentials resolved by the AWS SDK for Rust and shared with the CRT client.
+//! AWS credentials resolved by the AWS SDK for Rust and shared by the CRT and SDK clients.
 //!
 //! ```text
-//! CRT S3 client ──► delegate provider ──► SharedCredentials ──► SdkCredentialsSource, an aws-config chain:
-//!                   (auth_config)         (one cache)             1. environment variables
-//!                                                                 2. profile (shared files)
-//!                                                                 3. web identity
-//!                                                                 4. container credentials
-//!                                                                 5. instance metadata
+//! CRT S3 client ──► delegate provider ──┐
+//!                   (auth_config)       ├──► SharedCredentials ──► SdkCredentialsSource, an aws-config chain:
+//! SDK S3 client ────────────────────────┘    (one cache)             1. environment variables
+//!   (SdkClientAuth::SharedCredentials)                               2. profile (shared files)
+//!                                                                    3. web identity
+//!                                                                    4. container credentials
+//!                                                                    5. instance metadata
 //! ```
 //!
 //! With [SdkCredentialsChain::Default], the chain tries the sources in this order; with
@@ -15,7 +16,8 @@
 //! [SdkCredentialsSource] runs an `aws-config` credentials chain. [SharedCredentials] caches its
 //! credentials, fetched on a Tokio runtime given as a [Handle], and refreshes them 5 minutes
 //! before they expire, or every 15 minutes if they don't expire, with one fetch from the chain per
-//! refresh. The CRT client reads the cache through [SharedCredentials::auth_config].
+//! refresh. The CRT client reads the cache through [SharedCredentials::auth_config], and an SDK
+//! client through [SdkClientAuth::SharedCredentials](super::sdk_client::SdkClientAuth::SharedCredentials).
 
 use std::fmt::Debug;
 use std::path::PathBuf;

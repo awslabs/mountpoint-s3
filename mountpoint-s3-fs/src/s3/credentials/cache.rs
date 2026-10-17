@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 
 use aws_credential_types::Credentials as SdkCredentials;
 use aws_credential_types::provider::error::CredentialsError;
-use aws_credential_types::provider::{ProvideCredentials, SharedCredentialsProvider};
+use aws_credential_types::provider::{self, ProvideCredentials, SharedCredentialsProvider};
 use aws_sdk_s3::error::DisplayErrorContext;
 use futures::channel::oneshot;
 use mountpoint_s3_client::config::{
@@ -41,7 +41,10 @@ const REFRESH_INTERVAL: Duration = Duration::from_secs(15 * 60);
 ///
 /// The CRT client queries the cache through [SharedCredentials::auth_config], for every request it
 /// signs, and only sees whether a query failed: the cache logs why each fetch failed, as an error.
-/// [SharedCredentials::load] returns the reason.
+/// [SharedCredentials::load] returns the reason, and so does the [ProvideCredentials]
+/// implementation, for SDK clients. An SDK client must not put an identity cache of its own in
+/// front of it, or that cache could keep credentials after this one has replaced them (see
+/// [SdkClientAuth::SharedCredentials](crate::s3::sdk_client::SdkClientAuth::SharedCredentials)).
 #[derive(Clone)]
 pub struct SharedCredentials {
     cache: Arc<Cache>,
@@ -103,6 +106,17 @@ impl SharedCredentials {
     /// The authentication configuration for a CRT client that signs with these credentials.
     pub fn auth_config(&self) -> S3ClientAuthConfig {
         S3ClientAuthConfig::Provider(self.provider.clone())
+    }
+}
+
+impl ProvideCredentials for SharedCredentials {
+    fn provide_credentials<'a>(&'a self) -> provider::future::ProvideCredentials<'a>
+    where
+        Self: 'a,
+    {
+        provider::future::ProvideCredentials::new(async move {
+            self.load().await.map_err(|e| CredentialsError::provider_error(e.0))
+        })
     }
 }
 
@@ -394,6 +408,23 @@ mod tests {
         let seconds = expiration.duration_since(UNIX_EPOCH).unwrap().as_secs();
         assert_eq!(crt.expiration(), Some(UNIX_EPOCH + Duration::from_secs(seconds)));
         assert_eq!(source.fetches(), 1);
+    }
+
+    #[test]
+    fn sdk_provider_reads_the_cache() {
+        let runtime = new_runtime();
+        let source = TestSource::new([Answer::Fail, Answer::Credentials(None)]);
+        let credentials = SharedCredentials::new(source.clone(), runtime.handle().clone()).unwrap();
+
+        let error = block_on(credentials.provide_credentials()).unwrap_err();
+        assert!(matches!(error, CredentialsError::ProviderError(_)), "{error:?}");
+        let message = format!("{}", DisplayErrorContext(&error));
+        assert!(message.contains("no credentials for fetch 1"), "{message}");
+
+        let provided = block_on(credentials.provide_credentials()).unwrap();
+        assert_eq!(provided.access_key_id(), access_key_id(2));
+        assert_eq!(crt_query(&credentials).unwrap().access_key_id(), access_key_id(2));
+        assert_eq!(source.fetches(), 2);
     }
 
     #[test]
