@@ -2815,6 +2815,7 @@ dependencies = [
  "syscalls",
  "tempfile",
  "test-case",
+ "tikv-jemalloc-sys",
  "tikv-jemallocator",
  "tokio",
  "tracing",
