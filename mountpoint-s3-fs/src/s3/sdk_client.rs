@@ -7,17 +7,27 @@
 //! other settings from the SDK's own environment variables and profile files.
 
 use aws_sdk_s3::config::{
-    BehaviorVersion, Region, RequestChecksumCalculation, ResponseChecksumValidation, SharedCredentialsProvider,
-    StalledStreamProtectionConfig,
+    BehaviorVersion, IdentityCache, Region, RequestChecksumCalculation, ResponseChecksumValidation,
+    SharedCredentialsProvider, StalledStreamProtectionConfig,
 };
 use mountpoint_s3_client::config::{AddressingStyle, Allocator, EndpointConfig, Uri};
 use thiserror::Error;
 
+use super::credentials::SharedCredentials;
+
 /// How the SDK client authenticates its requests.
 #[derive(Debug, Clone)]
 pub enum SdkClientAuth {
-    /// Sign requests with credentials from the given provider. For S3 Express One Zone buckets, the
-    /// SDK uses these credentials to create sessions, and signs requests with the session credentials.
+    /// Sign requests with the credentials in the cache of a [SharedCredentials], the same
+    /// credentials a CRT client configured with [SharedCredentials::auth_config] signs with. The
+    /// SDK client has no identity cache of its own: it reads the shared cache for every request,
+    /// so both clients switch to new credentials when the cache refreshes them. For S3 Express One
+    /// Zone buckets, the SDK uses these credentials to create sessions, and signs requests with the
+    /// session credentials.
+    SharedCredentials(SharedCredentials),
+    /// Sign requests with credentials from the given provider, behind the SDK's default identity
+    /// cache. For S3 Express One Zone buckets, the SDK uses these credentials to create sessions,
+    /// and signs requests with the session credentials.
     Provider(SharedCredentialsProvider),
     /// Send requests unsigned (anonymous access).
     NoSigning,
@@ -98,6 +108,13 @@ pub fn build_sdk_client(config: &SdkClientConfig) -> Result<aws_sdk_s3::Client, 
     }
 
     builder = match &config.auth {
+        // The S3 Express One Zone session resolver also gets the credentials for `CreateSession`
+        // through the client's identity cache, so it reads the shared cache too: on every request,
+        // for its session cache key, and again to sign `CreateSession`. A refresh between the two
+        // reads costs at most one extra `CreateSession`.
+        SdkClientAuth::SharedCredentials(credentials) => builder
+            .credentials_provider(credentials.clone())
+            .identity_cache(IdentityCache::no_cache()),
         SdkClientAuth::Provider(provider) => builder.credentials_provider(provider.clone()),
         SdkClientAuth::NoSigning => builder.allow_no_auth(),
     };
@@ -502,4 +519,326 @@ mod tests {
 
     const CREATE_SESSION_RESPONSE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <CreateSessionResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Credentials><SessionToken>TESTSESSIONTOKEN</SessionToken><SecretAccessKey>TESTSECRETKEY</SecretAccessKey><AccessKeyId>ASIATESTKEYID</AccessKeyId><Expiration>2099-01-01T00:00:00Z</Expiration></Credentials></CreateSessionResult>"#;
+}
+
+#[cfg(test)]
+mod shared_credentials_tests {
+    //! End-to-end tests in which an SDK client and a CRT client sign requests to a local server
+    //! with credentials from the same [SharedCredentials].
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    use aws_credential_types::Credentials;
+    use aws_credential_types::provider::{ProvideCredentials, future};
+    use mountpoint_s3_client::config::S3ClientConfig;
+    use mountpoint_s3_client::types::HeadObjectParams;
+    use mountpoint_s3_client::{ObjectClient, S3CrtClient};
+    use test_case::test_case;
+    use tokio::runtime::Handle;
+
+    use super::*;
+
+    const BUCKET: &str = "amzn-s3-demo-bucket";
+    const EXPRESS_BUCKET: &str = "amzn-s3-demo-bucket--usw2-az1--x-s3";
+    const KEY: &str = "key";
+    const SECRET_ACCESS_KEY: &str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+
+    /// How long before their expiration time the cache refreshes credentials.
+    const REFRESH_BEFORE_EXPIRATION: Duration = Duration::from_secs(5 * 60);
+
+    /// How long the cache keeps the first credentials in the tests that refresh them: long enough
+    /// for the requests before the refresh, short enough to keep the tests quick.
+    const FIRST_CREDENTIALS_LIFETIME: Duration = Duration::from_secs(4);
+
+    /// The access key ID a [CountingSource] returns for its `n`-th fetch (from 1).
+    fn access_key_id(n: usize) -> String {
+        format!("AKIAIOSFODNN7EXAMPL{n}")
+    }
+
+    /// A credentials source that counts its fetches and returns different credentials for each
+    /// one. The credentials of the first fetch expire so that the cache keeps them for
+    /// [FIRST_CREDENTIALS_LIFETIME]; later ones don't expire.
+    #[derive(Debug, Clone, Default)]
+    struct CountingSource {
+        fetches: Arc<AtomicUsize>,
+        /// The expiration time of the credentials of the first fetch, once it has run.
+        first_expiration: Arc<Mutex<Option<SystemTime>>>,
+    }
+
+    impl CountingSource {
+        fn fetches(&self) -> usize {
+            self.fetches.load(Ordering::SeqCst)
+        }
+
+        fn first_expiration(&self) -> SystemTime {
+            self.first_expiration
+                .lock()
+                .unwrap()
+                .expect("the first fetch should have returned credentials that expire")
+        }
+
+        fn shared_credentials(&self) -> SharedCredentials {
+            SharedCredentials::new(self.clone(), Handle::current()).unwrap()
+        }
+    }
+
+    impl ProvideCredentials for CountingSource {
+        fn provide_credentials<'a>(&'a self) -> future::ProvideCredentials<'a>
+        where
+            Self: 'a,
+        {
+            let n = self.fetches.fetch_add(1, Ordering::SeqCst) + 1;
+            future::ProvideCredentials::new(async move {
+                // Take a little time, so that concurrent requests overlap.
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                let expiration = (n == 1).then(|| {
+                    let expiration = expiration_after(FIRST_CREDENTIALS_LIFETIME);
+                    *self.first_expiration.lock().unwrap() = Some(expiration);
+                    expiration
+                });
+                Ok(Credentials::new(
+                    access_key_id(n),
+                    SECRET_ACCESS_KEY,
+                    Some(format!("token-{n}")),
+                    expiration,
+                    "CountingSource",
+                ))
+            })
+        }
+    }
+
+    /// An expiration time for credentials that the cache keeps for about `lifetime`, in whole
+    /// seconds (the precision of the CRT's expiration times).
+    fn expiration_after(lifetime: Duration) -> SystemTime {
+        let expiration = SystemTime::now() + REFRESH_BEFORE_EXPIRATION + lifetime;
+        UNIX_EPOCH + Duration::from_secs(expiration.duration_since(UNIX_EPOCH).unwrap().as_secs())
+    }
+
+    /// Wait until the cache is due to refresh credentials that expire at `expiration`.
+    async fn wait_for_refresh(expiration: SystemTime) {
+        let refresh_at = expiration - REFRESH_BEFORE_EXPIRATION + Duration::from_millis(200);
+        if let Ok(wait) = refresh_at.duration_since(SystemTime::now()) {
+            tokio::time::sleep(wait).await;
+        }
+    }
+
+    /// A local HTTP server that answers every request with `200 OK` (and S3 Express One Zone
+    /// `CreateSession` requests with session credentials), and records which access key ID signed
+    /// each request.
+    struct SigningServer {
+        server: wiremock::MockServer,
+        /// How many of the received requests [SigningServer::new_requests] has returned.
+        seen: Mutex<usize>,
+    }
+
+    /// A request received by [SigningServer].
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct SignedRequest {
+        /// Whether this is an S3 Express One Zone `CreateSession` request.
+        create_session: bool,
+        /// The access key ID in the request's SigV4 credential scope.
+        access_key_id: String,
+    }
+
+    const SESSION_ACCESS_KEY_ID: &str = "ASIATESTKEYID";
+
+    const CREATE_SESSION_RESPONSE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<CreateSessionResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Credentials><SessionToken>TESTSESSIONTOKEN</SessionToken><SecretAccessKey>TESTSECRETKEY</SecretAccessKey><AccessKeyId>ASIATESTKEYID</AccessKeyId><Expiration>2099-01-01T00:00:00Z</Expiration></Credentials></CreateSessionResult>"#;
+
+    impl SigningServer {
+        async fn start() -> Self {
+            let server = wiremock::MockServer::start().await;
+            wiremock::Mock::given(wiremock::matchers::query_param_contains("session", ""))
+                .respond_with(wiremock::ResponseTemplate::new(200).set_body_string(CREATE_SESSION_RESPONSE))
+                .with_priority(1)
+                .mount(&server)
+                .await;
+            wiremock::Mock::given(wiremock::matchers::any())
+                .respond_with(wiremock::ResponseTemplate::new(200))
+                .mount(&server)
+                .await;
+            Self {
+                server,
+                seen: Mutex::new(0),
+            }
+        }
+
+        fn endpoint_config(&self, region: &str) -> EndpointConfig {
+            let uri = Uri::new_from_str(&Allocator::default(), self.server.uri()).unwrap();
+            EndpointConfig::new(region).endpoint(uri)
+        }
+
+        /// The requests received since the last call, in order.
+        async fn new_requests(&self) -> Vec<SignedRequest> {
+            let received = self.server.received_requests().await.unwrap();
+            let mut seen = self.seen.lock().unwrap();
+            let requests = received[*seen..]
+                .iter()
+                .map(|request| {
+                    let authorization = request.headers.get("authorization").unwrap().to_str().unwrap();
+                    let (_, credential) = authorization.split_once("Credential=").unwrap();
+                    let (access_key_id, _) = credential.split_once('/').unwrap();
+                    SignedRequest {
+                        create_session: request.url.query_pairs().any(|(key, _)| key == "session"),
+                        access_key_id: access_key_id.to_owned(),
+                    }
+                })
+                .collect();
+            *seen = received.len();
+            requests
+        }
+
+        /// The access key IDs that signed the requests received since the last call, without
+        /// consecutive duplicates (the CRT client may retry a request after an invalid response).
+        async fn new_signing_keys(&self) -> Vec<String> {
+            signing_keys(&self.new_requests().await)
+        }
+    }
+
+    fn signing_keys(requests: &[SignedRequest]) -> Vec<String> {
+        let mut keys: Vec<String> = requests.iter().map(|r| r.access_key_id.clone()).collect();
+        keys.dedup();
+        keys
+    }
+
+    /// An SDK client authenticated with `sdk_auth` and a CRT client that signs with `credentials`,
+    /// both sending their requests to `server`.
+    fn clients(
+        server: &SigningServer,
+        region: &str,
+        credentials: &SharedCredentials,
+        sdk_auth: SdkClientAuth,
+    ) -> (aws_sdk_s3::Client, S3CrtClient) {
+        let endpoint_config = server.endpoint_config(region);
+        let sdk_client = build_sdk_client(&SdkClientConfig::new(endpoint_config.clone(), sdk_auth)).unwrap();
+        let crt_config = S3ClientConfig::new()
+            .endpoint_config(endpoint_config)
+            .auth_config(credentials.auth_config());
+        let crt_client = S3CrtClient::new(crt_config).unwrap();
+        (sdk_client, crt_client)
+    }
+
+    // The local server's responses are not valid S3 responses, so the requests below may fail:
+    // only the requests matter.
+
+    async fn sdk_head(client: &aws_sdk_s3::Client, bucket: &str) {
+        let _ = client.head_object().bucket(bucket).key(KEY).send().await;
+    }
+
+    async fn crt_head(client: &S3CrtClient, bucket: &str) {
+        let _ = client.head_object(bucket, KEY, &HeadObjectParams::new()).await;
+    }
+
+    /// Which client's requests find the credentials in the cache due for a refresh.
+    #[derive(Debug, Clone, Copy)]
+    enum Refresher {
+        Sdk,
+        Crt,
+        /// Concurrent requests from both clients.
+        Both,
+    }
+
+    /// Both clients sign with the credentials in the shared cache, which fetches them once per
+    /// refresh, and switch to new credentials together when the cache refreshes them, whichever
+    /// client's requests trigger the refresh.
+    #[test_case(Refresher::Sdk; "SDK client refreshes")]
+    #[test_case(Refresher::Crt; "CRT client refreshes")]
+    #[test_case(Refresher::Both; "both clients refresh")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_both_clients_sign_from_one_cache(refresher: Refresher) {
+        let source = CountingSource::default();
+        let credentials = source.shared_credentials();
+        let server = SigningServer::start().await;
+        let sdk_auth = SdkClientAuth::SharedCredentials(credentials.clone());
+        let (sdk_client, crt_client) = clients(&server, "us-east-1", &credentials, sdk_auth);
+
+        // Concurrent requests from both clients on an empty cache share one fetch.
+        futures::join!(
+            sdk_head(&sdk_client, BUCKET),
+            sdk_head(&sdk_client, BUCKET),
+            crt_head(&crt_client, BUCKET),
+            crt_head(&crt_client, BUCKET),
+        );
+        sdk_head(&sdk_client, BUCKET).await;
+        crt_head(&crt_client, BUCKET).await;
+        assert_eq!(server.new_signing_keys().await, [access_key_id(1)]);
+        assert_eq!(source.fetches(), 1);
+
+        // Once the cache is due for a refresh, the next requests fetch new credentials, once, and
+        // both clients sign with them from then on.
+        wait_for_refresh(source.first_expiration()).await;
+        match refresher {
+            Refresher::Sdk => {
+                sdk_head(&sdk_client, BUCKET).await;
+                crt_head(&crt_client, BUCKET).await;
+            }
+            Refresher::Crt => {
+                crt_head(&crt_client, BUCKET).await;
+                sdk_head(&sdk_client, BUCKET).await;
+            }
+            Refresher::Both => {
+                futures::join!(
+                    sdk_head(&sdk_client, BUCKET),
+                    sdk_head(&sdk_client, BUCKET),
+                    crt_head(&crt_client, BUCKET),
+                    crt_head(&crt_client, BUCKET),
+                );
+            }
+        }
+        futures::join!(sdk_head(&sdk_client, BUCKET), crt_head(&crt_client, BUCKET));
+        assert_eq!(server.new_signing_keys().await, [access_key_id(2)]);
+        assert_eq!(source.fetches(), 2);
+    }
+
+    /// On S3 Express One Zone, both clients create their sessions with the credentials in the
+    /// shared cache, and create new sessions with the new credentials after a refresh.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_express_sessions_follow_the_cache() {
+        let source = CountingSource::default();
+        let credentials = source.shared_credentials();
+        let server = SigningServer::start().await;
+        let sdk_auth = SdkClientAuth::SharedCredentials(credentials.clone());
+        let (sdk_client, crt_client) = clients(&server, "us-west-2", &credentials, sdk_auth);
+
+        let check_requests = |requests: Vec<SignedRequest>, base_key: String| {
+            let (sessions, others): (Vec<_>, Vec<_>) = requests.into_iter().partition(|r| r.create_session);
+            assert_eq!(sessions.len(), 2, "each client should create a session: {sessions:?}");
+            assert_eq!(signing_keys(&sessions), [base_key]);
+            assert_eq!(signing_keys(&others), [SESSION_ACCESS_KEY_ID]);
+        };
+
+        sdk_head(&sdk_client, EXPRESS_BUCKET).await;
+        crt_head(&crt_client, EXPRESS_BUCKET).await;
+        check_requests(server.new_requests().await, access_key_id(1));
+
+        wait_for_refresh(source.first_expiration()).await;
+        sdk_head(&sdk_client, EXPRESS_BUCKET).await;
+        crt_head(&crt_client, EXPRESS_BUCKET).await;
+        check_requests(server.new_requests().await, access_key_id(2));
+        assert_eq!(source.fetches(), 2);
+    }
+
+    /// Why the SDK client must not cache credentials itself: with the SDK's default identity cache
+    /// over the shared credentials, it keeps signing with credentials that the shared cache has
+    /// replaced.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_sdk_identity_cache_would_outlive_the_shared_cache() {
+        let source = CountingSource::default();
+        let credentials = source.shared_credentials();
+        let server = SigningServer::start().await;
+        let provider = SharedCredentialsProvider::new(credentials.clone());
+        let (sdk_client, crt_client) = clients(&server, "us-east-1", &credentials, SdkClientAuth::Provider(provider));
+
+        sdk_head(&sdk_client, BUCKET).await;
+        crt_head(&crt_client, BUCKET).await;
+        assert_eq!(server.new_signing_keys().await, [access_key_id(1)]);
+
+        wait_for_refresh(source.first_expiration()).await;
+        crt_head(&crt_client, BUCKET).await;
+        assert_eq!(server.new_signing_keys().await, [access_key_id(2)]);
+        sdk_head(&sdk_client, BUCKET).await;
+        assert_eq!(server.new_signing_keys().await, [access_key_id(1)]);
+    }
 }
