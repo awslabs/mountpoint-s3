@@ -53,7 +53,7 @@ async fn mkdir_remote_after_file_create_test_s3() {
 #[test_case("test_prefix/"; "prefixed")]
 #[tokio::test]
 async fn mkdir_remote_after_file_create_test_mock(prefix: &str) {
-    mkdir_remote_after_file_create_test(fuse::mock_session::new, prefix).await;
+    mkdir_remote_after_file_create_test(fuse::mock_server_session::new, prefix).await;
 }
 
 async fn mkdir_visible_locally_test(creator_fn: impl TestSessionCreator, prefix: &str) {
@@ -91,5 +91,5 @@ async fn mkdir_visible_locally_test_s3() {
 #[test_case("test_prefix/"; "prefixed")]
 #[tokio::test]
 async fn mkdir_visible_locally_test_mock(prefix: &str) {
-    mkdir_visible_locally_test(fuse::mock_session::new, prefix).await;
+    mkdir_visible_locally_test(fuse::mock_server_session::new, prefix).await;
 }

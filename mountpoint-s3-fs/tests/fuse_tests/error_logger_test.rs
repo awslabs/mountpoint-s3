@@ -39,7 +39,7 @@ async fn test_manifest_error_logged() {
     ];
 
     // create a fuse session with a manifest containing a corrupted entry (no etag)
-    let s3_path = S3Path::new("test_bucket".to_string().try_into().unwrap(), Prefix::empty());
+    let s3_path = S3Path::new("test-bucket".to_string().try_into().unwrap(), Prefix::empty());
     let (tmp_dir, manifest_db_path) =
         create_dummy_manifest::<&str>(&[], 0, "channel_0", &s3_path.bucket).expect("manifest must be created");
     insert_entries(
@@ -65,7 +65,7 @@ async fn test_manifest_error_logged() {
         ..Default::default()
     };
 
-    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), test_session_config).await;
+    let test_session = fuse::mock_server_session::new(s3_path.prefix.as_str(), test_session_config).await;
 
     // try to lookup and expect an EIO error
     let e = std::fs::metadata(test_session.mount_path().join("key")).expect_err("lookup must fail");
@@ -91,7 +91,7 @@ async fn test_not_found_error_not_logged() {
         ..Default::default()
     };
 
-    let test_session = fuse::mock_session::new("test_manifest_error_logged", test_session_config).await;
+    let test_session = fuse::mock_server_session::new("test_manifest_error_logged", test_session_config).await;
 
     // try to lookup and expect an ENOENT error
     let e = std::fs::metadata(test_session.mount_path().join("key")).expect_err("lookup must fail");

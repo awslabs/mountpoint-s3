@@ -143,7 +143,6 @@ pub struct TestSessionConfig {
     pub cache_block_size: usize,
     #[cfg(feature = "manifest")]
     pub manifest: Option<Manifest>,
-    pub fail_on_non_aligned_read_window: bool,
     pub mem_limit: usize,
 }
 
@@ -163,7 +162,6 @@ impl Default for TestSessionConfig {
             cache_block_size,
             #[cfg(feature = "manifest")]
             manifest: None,
-            fail_on_non_aligned_read_window: false,
             mem_limit: MINIMUM_MEM_LIMIT,
         }
     }
@@ -177,14 +175,6 @@ impl TestSessionConfig {
 
     pub fn with_pass_fuse_fd(mut self, pass_fuse_fd: bool) -> Self {
         self.pass_fuse_fd = pass_fuse_fd;
-        self
-    }
-
-    /// Enable a check to ensure all read window increments are aligned with part boundaries
-    ///
-    /// Warning: A failed check on one request will result in all other requests from the client to fail.
-    pub fn fail_on_non_aligned_read_window(mut self, enable: bool) -> Self {
-        self.fail_on_non_aligned_read_window = enable;
         self
     }
 
@@ -418,7 +408,6 @@ pub mod mock_session {
                 .enable_backpressure(true)
                 .initial_read_window_size(test_config.initial_read_window_size)
                 .enable_rename(test_config.filesystem_config.allow_rename)
-                .fail_on_non_aligned_read_window(test_config.fail_on_non_aligned_read_window)
                 .build(),
         );
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
@@ -585,8 +574,6 @@ pub mod mock_server_session {
     /// Create a FUSE mount backed by a CRT client that connects to a local mock server. The
     /// server's bucket follows the personality of the file system ([bucket_for]): a directory
     /// bucket for `ExpressOneZone`, a general purpose bucket otherwise.
-    ///
-    /// The session ignores `TestSessionConfig::fail_on_non_aligned_read_window`.
     pub async fn new(test_name: &str, test_config: TestSessionConfig) -> TestSession {
         let pool = PagedPool::config()
             .with_candidate_sizes([CandidateSize::new(test_config.part_size)])

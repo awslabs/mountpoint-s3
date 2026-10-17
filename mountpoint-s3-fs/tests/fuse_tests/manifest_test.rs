@@ -47,8 +47,8 @@ async fn test_readdir_manifest(
     expected_children: &[&str],
 ) {
     let (_tmp_dir, db_path) =
-        create_dummy_manifest(manifest_keys, 0, "channel_0", "test_bucket").expect("manifest must be created");
-    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path)).await;
+        create_dummy_manifest(manifest_keys, 0, "channel_0", "test-bucket").expect("manifest must be created");
+    let test_session = fuse::mock_server_session::new("", manifest_test_session_config(&db_path)).await;
     put_dummy_objects(test_session.client(), manifest_keys, excluded_keys).await;
 
     let channel_dir = test_session.mount_path().join("channel_0");
@@ -78,7 +78,7 @@ async fn test_readdir_manifest_multiple_buckets() {
         .map(|(i, files)| ChannelManifest {
             directory_name: format!("channel_{}", i + 1),
             s3_path: S3Path::new(
-                Bucket::new(format!("test_bucket_{}", i + 1)).unwrap(),
+                Bucket::new(format!("test-bucket-{}", i + 1)).unwrap(),
                 Default::default(),
             ),
             entries: Box::new(files.iter().map(create_entry)),
@@ -87,7 +87,7 @@ async fn test_readdir_manifest_multiple_buckets() {
 
     // Create manifest and mount
     let (_tmp_dir, db_path) = create_manifest(channel_manifests, 1000).expect("manifest must be created");
-    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path)).await;
+    let test_session = fuse::mock_server_session::new("", manifest_test_session_config(&db_path)).await;
 
     // Use WalkDir to validate the entire directory structure
     let mut all_files: Vec<_> = WalkDir::new(test_session.mount_path())
@@ -132,8 +132,8 @@ async fn test_readdir_manifest_20k_keys() {
     expected_children.sort(); // children are expected to be in the sorted order
 
     let (_tmp_dir, db_path) =
-        create_dummy_manifest(&manifest_keys, 0, "channel_0", "test_bucket").expect("manifest must be created");
-    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path)).await;
+        create_dummy_manifest(&manifest_keys, 0, "channel_0", "test-bucket").expect("manifest must be created");
+    let test_session = fuse::mock_server_session::new("", manifest_test_session_config(&db_path)).await;
     put_dummy_objects(test_session.client(), &manifest_keys, excluded_keys).await;
 
     let channel_dir = test_session.mount_path().join("channel_0");
@@ -147,10 +147,11 @@ async fn test_readdir_manifest_20k_keys() {
 #[tokio::test]
 async fn test_readdir_manifest_missing_metadata(etag: Option<&str>, size: Option<usize>) {
     let key = "key";
-    let s3_path = S3Path::new("test_bucket".to_string().try_into().unwrap(), Prefix::empty());
+    let s3_path = S3Path::new("test-bucket".to_string().try_into().unwrap(), Prefix::empty());
     let (_tmp_dir, db_path) =
         create_dummy_manifest::<&str>(&[], 0, "channel_0", &s3_path.bucket).expect("manifest must be created");
-    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), manifest_test_session_config(&db_path)).await;
+    let test_session =
+        fuse::mock_server_session::new(s3_path.prefix.as_str(), manifest_test_session_config(&db_path)).await;
     insert_entries(
         &db_path,
         &[DbEntry::new(
@@ -182,8 +183,8 @@ async fn test_lookup_unicode_keys_manifest() {
     let keys = &["مرحبًا", "🇦🇺", "🐈/🦀"];
     let excluded_keys = &["こんにちは"];
     let (_tmp_dir, db_path) =
-        create_dummy_manifest(keys, file_size, "channel_0", "test_bucket").expect("manifest must be created");
-    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path)).await;
+        create_dummy_manifest(keys, file_size, "channel_0", "test-bucket").expect("manifest must be created");
+    let test_session = fuse::mock_server_session::new("", manifest_test_session_config(&db_path)).await;
     put_dummy_objects(test_session.client(), keys, excluded_keys).await;
 
     let channel_dir = test_session.mount_path().join("channel_0");
@@ -205,10 +206,11 @@ async fn test_lookup_unicode_keys_manifest() {
 #[tokio::test]
 async fn test_lookup_manifest_missing_metadata(etag: Option<&str>, size: Option<usize>) {
     let key = "key";
-    let s3_path = S3Path::new("test_bucket".to_string().try_into().unwrap(), Prefix::empty());
+    let s3_path = S3Path::new("test-bucket".to_string().try_into().unwrap(), Prefix::empty());
     let (_tmp_dir, db_path) =
         create_dummy_manifest::<&str>(&[], 0, "channel_0", &s3_path.bucket).expect("manifest must be created");
-    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), manifest_test_session_config(&db_path)).await;
+    let test_session =
+        fuse::mock_server_session::new(s3_path.prefix.as_str(), manifest_test_session_config(&db_path)).await;
     insert_entries(
         &db_path,
         &[DbEntry::new(
@@ -234,10 +236,11 @@ async fn test_lookup_manifest_missing_metadata(etag: Option<&str>, size: Option<
 #[tokio::test]
 async fn test_manifest_wrong_checksum(test_readdir: bool) {
     let key = "key";
-    let s3_path = S3Path::new("test_bucket".to_string().try_into().unwrap(), Prefix::empty());
+    let s3_path = S3Path::new("test-bucket".to_string().try_into().unwrap(), Prefix::empty());
     let (_tmp_dir, db_path) =
         create_dummy_manifest::<&str>(&[], 0, "channel_0", &s3_path.bucket).expect("manifest must be created");
-    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), manifest_test_session_config(&db_path)).await;
+    let test_session =
+        fuse::mock_server_session::new(s3_path.prefix.as_str(), manifest_test_session_config(&db_path)).await;
 
     // Create a valid DbEntry
     let mut entry = DbEntry::new(
@@ -501,8 +504,8 @@ async fn test_unsorted_manifest(lookup: bool, sorted: bool) {
         manifest_keys.shuffle(&mut rng);
     }
     let (_tmp_dir, db_path) =
-        create_dummy_manifest(&manifest_keys, 0, "channel_0", "test_bucket").expect("manifest must be created");
-    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path)).await;
+        create_dummy_manifest(&manifest_keys, 0, "channel_0", "test-bucket").expect("manifest must be created");
+    let test_session = fuse::mock_server_session::new("", manifest_test_session_config(&db_path)).await;
     let channel_dir = &test_session.mount_path().join("channel_0");
     if lookup {
         for key in all_files_sorted {

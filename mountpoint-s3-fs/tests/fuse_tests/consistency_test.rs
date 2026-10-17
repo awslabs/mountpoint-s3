@@ -83,7 +83,7 @@ async fn page_cache_sharing_test_s3_with_cache() {
 #[test_case("page_cache_sharing_test"; "prefix")]
 #[tokio::test]
 async fn page_cache_sharing_test_mock(prefix: &str) {
-    page_cache_sharing_test(fuse::mock_session::new, prefix).await;
+    page_cache_sharing_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[test_case(""; "no prefix")]
@@ -91,7 +91,7 @@ async fn page_cache_sharing_test_mock(prefix: &str) {
 #[tokio::test]
 async fn page_cache_sharing_test_mock_with_cache(prefix: &str) {
     page_cache_sharing_test(
-        fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
+        fuse::mock_server_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         prefix,
     )
     .await;

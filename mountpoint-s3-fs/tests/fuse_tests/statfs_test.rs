@@ -35,7 +35,7 @@ async fn statfs_test_block_arithmetic(creator_fn: impl TestSessionCreator, prefi
 #[test_case("statfs_static_values_test"; "prefix")]
 #[tokio::test]
 async fn statfs_report_static_values_mock(prefix: &str) {
-    statfs_test_static_values(fuse::mock_session::new, prefix).await;
+    statfs_test_static_values(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3_tests")]
@@ -50,7 +50,7 @@ async fn statfs_report_static_values_s3(prefix: &str) {
 #[test_case("statfs_block_arithmetic_test"; "prefix")]
 #[tokio::test]
 async fn statfs_block_arithmetic_mock(prefix: &str) {
-    statfs_test_block_arithmetic(fuse::mock_session::new, prefix).await;
+    statfs_test_block_arithmetic(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3_tests")]
