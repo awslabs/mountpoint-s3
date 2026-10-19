@@ -112,6 +112,9 @@ impl RenameCache {
 #[derive(Debug)]
 struct SuperblockInner<OC: MetadataClient> {
     s3_path: Arc<S3Path>,
+    /// The inodes known to the kernel, with their lookup counts.
+    ///
+    /// No other lock is taken while holding this lock.
     inodes: RwLock<InodeMap>,
     open_handles: InodeHandleMap,
     negative_cache: NegativeCache,
@@ -262,12 +265,8 @@ impl<OC: MetadataClient> Superblock<OC> {
 
     #[cfg(test)]
     fn get_write_status(&self, ino: InodeNo) -> Option<WriteStatus> {
-        let inode_read = self.inner.inodes.read().unwrap();
-
-        inode_read
-            .get_inode(&ino)
-            .and_then(|inode| inode.get_inode_state().ok())
-            .map(|state| state.write_status)
+        let inode = self.inner.inodes.read().unwrap().get_inode(&ino).cloned()?;
+        inode.get_inode_state().ok().map(|state| state.write_status)
     }
 
     /// Lookup the inode by ino number and name, in the filesystem's local state or the remote state
@@ -1312,17 +1311,36 @@ impl<OC: MetadataClient + Clone> Metablock for Superblock<OC> {
     /// Reacts to the kernel notifying us that the lookup count of an Inode has decreased.
     /// If the lookup count reaches zero, it is safe for the [Superblock] to delete the [Inode].
     async fn forget(&self, ino: InodeNo, n: u64) {
-        let mut inodes = self.inner.inodes.write().unwrap();
+        // Remove the inode from the map, then unlink it from its parent.
+        let (removed_inode, parent) = {
+            let mut inodes = self.inner.inodes.write().unwrap();
+            match inodes.decrease_lookup_count(ino, n) {
+                Ok(Some(removed_inode)) => {
+                    let parent = inodes.get_inode(&removed_inode.parent()).cloned();
+                    (removed_inode, parent)
+                }
+                Ok(None) => return,
+                Err(_) => {
+                    debug_assert!(
+                        false,
+                        "forget should not be called on inode already removed from superblock"
+                    );
+                    error!("forget called on inode {ino} already removed from the superblock");
+                    return;
+                }
+            }
+        };
 
-        match inodes.decrease_lookup_count(ino, n) {
-            Ok(Some(removed_inode)) => {
-                trace!(ino, "removing inode from superblock");
-                let parent_ino = removed_inode.parent();
-
-                // Remove from the parent. Nothing to do if the parent has already been removed,
-                // e.g. when FORGETs are handled out-of-order.
-                if let Some((parent, _)) = inodes.get_mut(&parent_ino) {
-                    let mut parent_state = parent.get_mut_inode_state_no_check();
+        // Keep the inode if a lookup remembered it again in the meantime.
+        let is_remembered = || self.inner.inodes.read().unwrap().get_inode(&ino).is_some();
+        // Remove from the parent. Nothing to do if the parent has already been removed, e.g. when
+        // FORGETs are handled out-of-order.
+        let kept = match parent {
+            Some(parent) => {
+                let mut parent_state = parent.get_mut_inode_state_no_check();
+                // Lookups through the parent cannot find the inode while it is locked.
+                let kept = is_remembered();
+                if !kept {
                     let InodeKindData::Directory {
                         children,
                         writing_children,
@@ -1339,32 +1357,27 @@ impl<OC: MetadataClient + Clone> Metablock for Superblock<OC> {
                     }
                     writing_children.remove(&ino);
                 }
-
-                drop(inodes);
-
-                if let Ok(state) = removed_inode.get_inode_state() {
-                    metrics::counter!("metadata_cache.inode_forgotten_before_expiry")
-                        .increment(state.stat.is_valid().into());
-                };
-                if self.inner.open_handles.remove_inode(ino) {
-                    // This should never happen, but it is good to have this visibility to detect any
-                    // discrepancies in our inode handles' tracking logic or tests involving `forget`
-                    // TODO: Fix this condition, as it can lead to potential data loss
-                    // The Kernel should issue the `release` on the last open write handle before it
-                    // issues the `forget` on the inode, but due to potential out-of-order processing,
-                    // the `release` may not be able to complete upload to S3 before the inode is
-                    // forgotten from Mountpoint's internal state.
-                    debug!("Open file handle(s) found for forgotten inode {}", ino);
-                }
+                kept
             }
-            Ok(None) => {}
-            Err(_) => {
-                debug_assert!(
-                    false,
-                    "forget should not be called on inode already removed from superblock"
-                );
-                error!("forget called on inode {ino} already removed from the superblock");
-            }
+            None => is_remembered(),
+        };
+        if kept {
+            trace!(ino, "inode remembered again while being forgotten");
+            return;
+        }
+
+        if let Ok(state) = removed_inode.get_inode_state() {
+            metrics::counter!("metadata_cache.inode_forgotten_before_expiry").increment(state.stat.is_valid().into());
+        };
+        if self.inner.open_handles.remove_inode(ino) {
+            // This should never happen, but it is good to have this visibility to detect any
+            // discrepancies in our inode handles' tracking logic or tests involving `forget`
+            // TODO: Fix this condition, as it can lead to potential data loss
+            // The Kernel should issue the `release` on the last open write handle before it
+            // issues the `forget` on the inode, but due to potential out-of-order processing,
+            // the `release` may not be able to complete upload to S3 before the inode is
+            // forgotten from Mountpoint's internal state.
+            debug!("Open file handle(s) found for forgotten inode {}", ino);
         }
     }
 
@@ -1966,10 +1979,6 @@ struct InodeMap {
 impl InodeMap {
     fn get_inode(&self, ino: &InodeNo) -> Option<&Inode> {
         self.map.get(ino).map(|(node, _lookup_count)| node)
-    }
-
-    fn get_mut(&mut self, ino: &InodeNo) -> Option<&mut (Inode, u64)> {
-        self.map.get_mut(ino)
     }
 
     #[cfg(test)]
