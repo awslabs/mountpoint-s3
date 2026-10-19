@@ -1,72 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792404166370,
+  "lastUpdate": 1792410484045,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Latency Benchmark (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "49699333+dependabot[bot]@users.noreply.github.com",
-            "name": "dependabot[bot]",
-            "username": "dependabot[bot]"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "78ab8e71ec20d1999797b6e8ab7e269730241473",
-          "message": "Bump taiki-e/install-action from 2.87.2 to 2.87.8 (#1959)\n\nBumps\n[taiki-e/install-action](https://github.com/taiki-e/install-action) from\n2.87.2 to 2.87.8.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/taiki-e/install-action/releases\">taiki-e/install-action's\nreleases</a>.</em></p>\n<blockquote>\n<h2>2.87.8</h2>\n<ul>\n<li>\n<p>Update <code>shfmt@latest</code> to 3.14.1.</p>\n</li>\n<li>\n<p>Update <code>release-plz@latest</code> to 0.3.162.</p>\n</li>\n<li>\n<p>Update <code>protoc-gen-connect-openapi@latest</code> to 0.26.0.</p>\n</li>\n<li>\n<p>Update <code>dprint@latest</code> to 0.57.4.</p>\n</li>\n<li>\n<p>Update <code>cargo-llvm-cov@latest</code> to 0.9.1.</p>\n</li>\n<li>\n<p>Update <code>cargo-crap@latest</code> to 0.5.0.</p>\n</li>\n<li>\n<p>Update <code>cargo-binstall@latest</code> to 1.23.0.</p>\n</li>\n</ul>\n<h2>2.87.7</h2>\n<ul>\n<li>\n<p>Update <code>wasm-bindgen@latest</code> to 0.2.128.</p>\n</li>\n<li>\n<p>Update <code>uv@latest</code> to 0.12.10.</p>\n</li>\n<li>\n<p>Update <code>tombi@latest</code> to 1.5.2.</p>\n</li>\n<li>\n<p>Update <code>rclone@latest</code> to 1.75.1.</p>\n</li>\n</ul>\n<h2>2.87.6</h2>\n<ul>\n<li>\n<p>Update <code>rafn@latest</code> to 0.1.6.</p>\n</li>\n<li>\n<p>Update <code>editorconfig-checker@latest</code> to 3.11.3.</p>\n</li>\n<li>\n<p>Update <code>dprint@latest</code> to 0.57.1.</p>\n</li>\n<li>\n<p>Update <code>convco@latest</code> to 0.7.2.</p>\n</li>\n</ul>\n<h2>2.87.5</h2>\n<ul>\n<li>\n<p>Update <code>vacuum@latest</code> to 0.30.3.</p>\n</li>\n<li>\n<p>Update <code>uv@latest</code> to 0.12.9.</p>\n</li>\n<li>\n<p>Update <code>typos@latest</code> to 1.50.1.</p>\n</li>\n<li>\n<p>Update <code>tombi@latest</code> to 1.5.1.</p>\n</li>\n<li>\n<p>Update <code>release-plz@latest</code> to 0.3.161.</p>\n</li>\n<li>\n<p>Update <code>prek@latest</code> to 0.5.2.</p>\n</li>\n<li>\n<p>Update <code>oxfmt@latest</code> to 1.81.0.</p>\n</li>\n<li>\n<p>Update <code>mise@latest</code> to 2026.9.1.</p>\n</li>\n</ul>\n<!-- raw HTML omitted -->\n</blockquote>\n<p>... (truncated)</p>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/d438492cf8a250514fa2d34b30bc3c0dc37c65ff\"><code>d438492</code></a>\nRelease 2.87.8</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/cf1fadefa81706888511de4b6dda5534a9810ce9\"><code>cf1fade</code></a>\nUpdate <code>shfmt@latest</code> to 3.14.1</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/716144916a3915dc9bcab576a4b42f6a73a7916c\"><code>7161449</code></a>\nUpdate <code>release-plz@latest</code> to 0.3.162</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/58df4bb0bb13dd31dec0368d34a84838ee17cc3f\"><code>58df4bb</code></a>\nUpdate <code>protoc-gen-connect-openapi@latest</code> to 0.26.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/33e9ffe8c37b89671bb5af911d757e2c8f6edb06\"><code>33e9ffe</code></a>\nUpdate oxfmt manifest</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/60bf88260035dd852365b5be9ea4c5943f6f78b4\"><code>60bf882</code></a>\nUpdate kache manifest</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/667469ac9d4299c56a06cc1254ce49d5fbbce0d4\"><code>667469a</code></a>\nUpdate <code>dprint@latest</code> to 0.57.4</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/aa52fd60cfec9c5d7b51a839a6c959b637e2fff4\"><code>aa52fd6</code></a>\nUpdate <code>cargo-llvm-cov@latest</code> to 0.9.1</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/834d344d8d8be0d9a673636b899f33f177f880a5\"><code>834d344</code></a>\nUpdate <code>cargo-crap@latest</code> to 0.5.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/097f1f0064569e498b3b1f6085a6bc5ff24c91f5\"><code>097f1f0</code></a>\nUpdate <code>cargo-binstall@latest</code> to 1.23.0</li>\n<li>Additional commits viewable in <a\nhref=\"https://github.com/taiki-e/install-action/compare/v2.87.2...v2.87.8\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\n\n[![Dependabot compatibility\nscore](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=taiki-e/install-action&package-manager=github_actions&previous-version=2.87.2&new-version=2.87.8)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)\n\nDependabot will resolve any conflicts with this PR as long as you don't\nalter it yourself. You can also trigger a rebase manually by commenting\n`@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits\nthat have been made to it\n- `@dependabot show <dependency name> ignore conditions` will show all\nof the ignore conditions of the specified dependency\n- `@dependabot ignore this major version` will close this PR and stop\nDependabot creating any more for this major version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this minor version` will close this PR and stop\nDependabot creating any more for this minor version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this dependency` will close this PR and stop\nDependabot creating any more for this dependency (unless you reopen the\nPR or upgrade to it yourself)\n\n\n</details>\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
-          "timestamp": "2026-09-15T12:29:53Z",
-          "tree_id": "89fc9747c06f9c40688b3a6f9727726ce663f981",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/78ab8e71ec20d1999797b6e8ab7e269730241473"
-        },
-        "date": 1789477215614,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "One Byte File Creation - Average Total Latency",
-            "value": 224.59310824000005,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "readdir_100",
-            "value": 0.044,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.122,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.065,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.052,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_write_one_byte_file",
-            "value": 30.3348934,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 11.6694417,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 26.7781823,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1919,6 +1855,70 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 29.910888,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "498ab6c47f41a744feca5682bca8644107018cfe",
+          "message": "Bump taiki-e/install-action from 2.87.26 to 2.87.28 (#1993)\n\nBumps\n[taiki-e/install-action](https://github.com/taiki-e/install-action) from\n2.87.26 to 2.87.28.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/taiki-e/install-action/releases\">taiki-e/install-action's\nreleases</a>.</em></p>\n<blockquote>\n<h2>2.87.28</h2>\n<ul>\n<li>\n<p>Update <code>dprint@latest</code> to 0.62.0.</p>\n</li>\n<li>\n<p>Update <code>vacuum@latest</code> to 0.33.0.</p>\n</li>\n<li>\n<p>Update <code>uv@latest</code> to 0.13.0.</p>\n</li>\n<li>\n<p>Update <code>tombi@latest</code> to 1.8.1.</p>\n</li>\n<li>\n<p>Update <code>release-plz@latest</code> to 0.3.171.</p>\n</li>\n<li>\n<p>Update <code>rclone@latest</code> to 1.75.2.</p>\n</li>\n<li>\n<p>Update <code>mise@latest</code> to 2026.10.7.</p>\n</li>\n<li>\n<p>Update <code>cargo-binstall@latest</code> to 1.25.3.</p>\n</li>\n</ul>\n<h2>2.87.27</h2>\n<ul>\n<li>\n<p>Update <code>vacuum@latest</code> to 0.32.0.</p>\n</li>\n<li>\n<p>Update <code>uv@latest</code> to 0.12.24.</p>\n</li>\n<li>\n<p>Update <code>typos@latest</code> to 1.51.1.</p>\n</li>\n<li>\n<p>Update <code>tombi@latest</code> to 1.7.3.</p>\n</li>\n<li>\n<p>Update <code>syft@latest</code> to 1.54.1.</p>\n</li>\n<li>\n<p>Update <code>release-plz@latest</code> to 0.3.170.</p>\n</li>\n<li>\n<p>Update <code>mise@latest</code> to 2026.10.4.</p>\n</li>\n<li>\n<p>Update <code>kingfisher@latest</code> to 2.11.1.</p>\n</li>\n<li>\n<p>Update <code>hyperfine@latest</code> to 2.0.0.</p>\n</li>\n<li>\n<p>Update <code>dprint@latest</code> to 0.61.1.</p>\n</li>\n<li>\n<p>Update <code>cargo-nextest@latest</code> to 0.9.148.</p>\n</li>\n<li>\n<p>Update <code>cargo-neat@latest</code> to 0.6.0.</p>\n</li>\n<li>\n<p>Update <code>cargo-binstall@latest</code> to 1.25.2.</p>\n</li>\n</ul>\n</blockquote>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/1168f6810a3cb30a3514bf5756a3b7f0422c6df8\"><code>1168f68</code></a>\nRelease 2.87.28</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/db1b9097c912e3ea0e3e3365a6b0b2b5b8cdb5b5\"><code>db1b909</code></a>\nUpdate <code>tombi@latest</code> to 1.8.1</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/4fe7379362f9253601faa9a874184709db566a9e\"><code>4fe7379</code></a>\nUpdate tombi manifest</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/7443747ad21a8d8cfbf02ce264bd9ca0a8c08a6e\"><code>7443747</code></a>\nUpdate osv-scanner manifest</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/6ff1c9bf2d9b6301b7c5a384025b33eb79addc2b\"><code>6ff1c9b</code></a>\nUpdate kingfisher manifest</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/cb40720d9a6bd77ff3b42bd2dbf2a11439dd64ab\"><code>cb40720</code></a>\nUpdate kache manifest</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/4c1bf3400474f19d88f073ec38c34ddff9950f60\"><code>4c1bf34</code></a>\nUpdate <code>dprint@latest</code> to 0.62.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/3dfabf76a32e8b71d8ceaf749b0e53a8c9cc5f2c\"><code>3dfabf7</code></a>\nUpdate <code>vacuum@latest</code> to 0.33.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/a80e680a4cfbe929ef82b1402f4d57ce06b6d987\"><code>a80e680</code></a>\nUpdate <code>uv@latest</code> to 0.13.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/10f4ee9837c4e8479cd0cd010e2dc6397f5b1bcd\"><code>10f4ee9</code></a>\nUpdate <code>tombi@latest</code> to 1.8.0</li>\n<li>Additional commits viewable in <a\nhref=\"https://github.com/taiki-e/install-action/compare/v2.87.26...v2.87.28\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\n\n[![Dependabot compatibility\nscore](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=taiki-e/install-action&package-manager=github_actions&previous-version=2.87.26&new-version=2.87.28)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)\n\nDependabot will resolve any conflicts with this PR as long as you don't\nalter it yourself. You can also trigger a rebase manually by commenting\n`@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits\nthat have been made to it\n- `@dependabot show <dependency name> ignore conditions` will show all\nof the ignore conditions of the specified dependency\n- `@dependabot ignore this major version` will close this PR and stop\nDependabot creating any more for this major version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this minor version` will close this PR and stop\nDependabot creating any more for this minor version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this dependency` will close this PR and stop\nDependabot creating any more for this dependency (unless you reopen the\nPR or upgrade to it yourself)\n\n\n</details>\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-19T11:15:11Z",
+          "tree_id": "6a08a364a9df424ceb58b6036ec87f8580f40b96",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/498ab6c47f41a744feca5682bca8644107018cfe"
+        },
+        "date": 1792410482439,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "One Byte File Creation - Average Total Latency",
+            "value": 212.84327318999993,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "readdir_100",
+            "value": 0.049,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.125,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.069,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.205,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_write_one_byte_file",
+            "value": 30.746011199999998,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 14.363666199999999,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 27.432269899999998,
             "unit": "milliseconds"
           }
         ]
