@@ -1,6 +1,6 @@
 ## Unreleased (v0.16.3)
 
-* Add `RetryStrategy::no_retry`, a retry strategy that issues retry tokens but never retries. The CRT's standard and exponential backoff strategies treat zero retries as "use the default".
+* Add `RetryStrategy::no_retry`, a retry strategy that issues retry tokens but never retries. The CRT's standard and exponential backoff strategies treat zero retries as "use the default". ([#1996](https://github.com/awslabs/mountpoint-s3/pull/1996))
 
 ## v0.16.2 (October 6, 2026)
 
