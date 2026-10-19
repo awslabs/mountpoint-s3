@@ -113,9 +113,7 @@ impl RenameCache {
 struct SuperblockInner<OC: MetadataClient> {
     s3_path: Arc<S3Path>,
     /// The inodes known to the kernel, with their lookup counts.
-    ///
-    /// No other lock is taken while holding this lock.
-    inodes: RwLock<InodeMap>,
+    inodes: InodeMap,
     open_handles: InodeHandleMap,
     negative_cache: NegativeCache,
     cached_rename_support: RenameCache,
@@ -197,8 +195,7 @@ impl<'a> RenameLockGuard<'a> {
 
         let dst_parent_lock: Option<InodeLockedForWriting<'a>>;
         let src_parent_lock: InodeLockedForWriting<'a>;
-        // Take read lock
-        let ancestor_check = Self::dst_is_ancestor(&superblock_inner.inodes.read().unwrap(), source_parent, dst_ino);
+        let ancestor_check = superblock_inner.inodes.is_ancestor(source_parent, dst_ino);
         if ancestor_check || src_ino > dst_ino {
             dst_parent_lock = Some(dest_parent.get_mut_inode_state()?);
             src_parent_lock = source_parent.get_mut_inode_state()?;
@@ -210,12 +207,6 @@ impl<'a> RenameLockGuard<'a> {
             src_parent_lock,
             dst_parent_lock,
         })
-    }
-
-    fn dst_is_ancestor(inodes: &InodeMap, start: &Inode, dst: InodeNo) -> bool {
-        std::iter::successors(Some(start), |current| inodes.get_inode(&current.parent()))
-            .take_while(|&current| current.ino() != FUSE_ROOT_INODE)
-            .any(|current| current.ino() == dst)
     }
 
     fn source_parent_mut(&mut self) -> &mut InodeState {
@@ -233,7 +224,7 @@ impl<OC: MetadataClient> Superblock<OC> {
         let mount_time = OffsetDateTime::now_utc();
         let root = Inode::new_root(&s3_path.prefix, mount_time);
 
-        let mut inodes = InodeMap::default();
+        let inodes = InodeMap::default();
         inodes.insert(root.ino(), root, 1);
 
         let negative_cache = NegativeCache::new(
@@ -243,7 +234,7 @@ impl<OC: MetadataClient> Superblock<OC> {
 
         let inner = SuperblockInner {
             s3_path: Arc::new(s3_path),
-            inodes: RwLock::new(inodes),
+            inodes,
             open_handles: Default::default(),
             negative_cache,
             next_ino: AtomicU64::new(2),
@@ -259,13 +250,12 @@ impl<OC: MetadataClient> Superblock<OC> {
 
     #[cfg(test)]
     fn get_lookup_count(&self, ino: InodeNo) -> u64 {
-        let inode_read = self.inner.inodes.read().unwrap();
-        inode_read.get_count(&ino).unwrap_or(0)
+        self.inner.inodes.get_count(ino).unwrap_or(0)
     }
 
     #[cfg(test)]
     fn get_write_status(&self, ino: InodeNo) -> Option<WriteStatus> {
-        let inode = self.inner.inodes.read().unwrap().get_inode(&ino).cloned()?;
+        let inode = self.inner.inodes.get_inode(ino)?;
         inode.get_inode_state().ok().map(|state| state.write_status)
     }
 
@@ -602,8 +592,7 @@ impl<OC: MetadataClient + Clone> Metablock for Superblock<OC> {
                     }
 
                     children.insert(dst_name_as_str, new_inode.clone());
-                    let mut inodes_write = self.inner.inodes.write().unwrap();
-                    inodes_write.replace_or_insert(new_inode.ino(), &new_inode);
+                    self.inner.inodes.replace_or_insert(&new_inode);
                 }
             }
         }
@@ -1312,27 +1301,21 @@ impl<OC: MetadataClient + Clone> Metablock for Superblock<OC> {
     /// If the lookup count reaches zero, it is safe for the [Superblock] to delete the [Inode].
     async fn forget(&self, ino: InodeNo, n: u64) {
         // Remove the inode from the map, then unlink it from its parent.
-        let (removed_inode, parent) = {
-            let mut inodes = self.inner.inodes.write().unwrap();
-            match inodes.decrease_lookup_count(ino, n) {
-                Ok(Some(removed_inode)) => {
-                    let parent = inodes.get_inode(&removed_inode.parent()).cloned();
-                    (removed_inode, parent)
-                }
-                Ok(None) => return,
-                Err(_) => {
-                    debug_assert!(
-                        false,
-                        "forget should not be called on inode already removed from superblock"
-                    );
-                    error!("forget called on inode {ino} already removed from the superblock");
-                    return;
-                }
+        let (removed_inode, parent) = match self.inner.inodes.decrease_lookup_count(ino, n) {
+            Ok(Some(removed)) => removed,
+            Ok(None) => return,
+            Err(_) => {
+                debug_assert!(
+                    false,
+                    "forget should not be called on inode already removed from superblock"
+                );
+                error!("forget called on inode {ino} already removed from the superblock");
+                return;
             }
         };
 
         // Keep the inode if a lookup remembered it again in the meantime.
-        let is_remembered = || self.inner.inodes.read().unwrap().get_inode(&ino).is_some();
+        let is_remembered = || self.inner.inodes.contains(ino);
         // Remove from the parent. Nothing to do if the parent has already been removed, e.g. when
         // FORGETs are handled out-of-order.
         let kept = match parent {
@@ -1414,13 +1397,7 @@ impl<OC: MetadataClient> SuperblockInner<OC> {
     /// The expiry of its stat field is not checked.
     /// This may return error on no entry existing or if the Inode is corrupted.
     pub fn get(&self, ino: InodeNo) -> Result<Inode, InodeError> {
-        let inode = self
-            .inodes
-            .read()
-            .unwrap()
-            .get_inode(&ino)
-            .cloned()
-            .ok_or(InodeError::InodeDoesNotExist(ino))?;
+        let inode = self.inodes.get_inode(ino).ok_or(InodeError::InodeDoesNotExist(ino))?;
         inode.verify_inode(ino, &self.s3_path.prefix)?;
         Ok(inode)
     }
@@ -1434,8 +1411,7 @@ impl<OC: MetadataClient> SuperblockInner<OC> {
     ///
     /// This should be called whenever we pass a `fuse_reply_entry` or `fuse_reply_create` struct to the FUSE driver.
     pub fn remember(&self, inode: &Inode) {
-        let mut inodes_write = self.inodes.write().unwrap();
-        inodes_write.increase_lookup_count(inode);
+        self.inodes.increase_lookup_count(inode);
     }
 
     /// Lookup an inode in the parent directory with the given name.
@@ -1970,26 +1946,41 @@ impl From<LookedUpInode> for Lookup {
 /// Maps inode number to inode and lookup count.
 ///
 /// Additionally reports metrics when inodes are added or removed.
-/// It is implemented as a wrapper around `HashMap<InodeNo, (Inode, u64)>`.
+///
+/// The map's lock is internal: methods return clones, so callers never hold it.
 #[derive(Debug, Default)]
 struct InodeMap {
-    map: HashMap<InodeNo, (Inode, u64)>,
+    map: RwLock<HashMap<InodeNo, (Inode, u64)>>,
 }
 
 impl InodeMap {
-    fn get_inode(&self, ino: &InodeNo) -> Option<&Inode> {
-        self.map.get(ino).map(|(node, _lookup_count)| node)
+    fn get_inode(&self, ino: InodeNo) -> Option<Inode> {
+        self.map
+            .read()
+            .unwrap()
+            .get(&ino)
+            .map(|(node, _lookup_count)| node.clone())
+    }
+
+    fn contains(&self, ino: InodeNo) -> bool {
+        self.map.read().unwrap().contains_key(&ino)
     }
 
     #[cfg(test)]
-    fn get_count(&self, ino: &InodeNo) -> Option<u64> {
-        self.map.get(ino).map(|(_, lookup_count)| *lookup_count)
+    fn get_count(&self, ino: InodeNo) -> Option<u64> {
+        self.map
+            .read()
+            .unwrap()
+            .get(&ino)
+            .map(|(_, lookup_count)| *lookup_count)
     }
 
-    fn insert(&mut self, ino: InodeNo, inode: Inode, lookup_count: u64) -> Option<Inode> {
+    fn insert(&self, ino: InodeNo, inode: Inode, lookup_count: u64) -> Option<Inode> {
         Self::add_metrics(&inode);
         trace!(ino, lookup_count, "inserting inode");
         self.map
+            .write()
+            .unwrap()
             .insert(ino, (inode, lookup_count))
             .inspect(|(inode, _count)| {
                 Self::remove_metrics(inode);
@@ -1997,8 +1988,11 @@ impl InodeMap {
             .map(|(node, _lookup_count)| node)
     }
 
-    fn replace_or_insert(&mut self, ino: InodeNo, new_inode: &Inode) {
+    fn replace_or_insert(&self, new_inode: &Inode) {
+        let ino = new_inode.ino();
         self.map
+            .write()
+            .unwrap()
             .entry(ino)
             .and_modify(|(inode, count)| {
                 Self::remove_metrics(inode);
@@ -2014,8 +2008,10 @@ impl InodeMap {
     }
 
     /// Increases the lookup count of an inode
-    fn increase_lookup_count(&mut self, inode: &Inode) {
+    fn increase_lookup_count(&self, inode: &Inode) {
         self.map
+            .write()
+            .unwrap()
             .entry(inode.ino())
             .and_modify(|(_, count)| {
                 *count += 1;
@@ -2028,9 +2024,11 @@ impl InodeMap {
             });
     }
 
-    /// Decreases lookup count, removes if is reduced to 0 and returns inode if it has been removed
-    fn decrease_lookup_count(&mut self, ino: InodeNo, n: u64) -> Result<Option<Inode>, InodeMapError> {
-        match self.map.get_mut(&ino) {
+    /// Decreases lookup count and removes the inode if it is reduced to 0. If removed, returns the
+    /// inode and its parent, if the parent is still in the map.
+    fn decrease_lookup_count(&self, ino: InodeNo, n: u64) -> Result<Option<(Inode, Option<Inode>)>, InodeMapError> {
+        let mut map = self.map.write().unwrap();
+        match map.get_mut(&ino) {
             Some((_, count)) => {
                 // Decrease lookup count
                 *count = count.saturating_sub(n);
@@ -2038,14 +2036,23 @@ impl InodeMap {
 
                 if *count == 0 {
                     trace!(ino, "removing inode from superblock");
-                    let (inode, _) = self.map.remove(&ino).unwrap();
-                    Ok(Some(inode))
+                    let (inode, _) = map.remove(&ino).unwrap();
+                    let parent = map.get(&inode.parent()).map(|(parent, _)| parent.clone());
+                    Ok(Some((inode, parent)))
                 } else {
                     Ok(None)
                 }
             }
             None => Err(InodeMapError::InodeNotFound(ino)),
         }
+    }
+
+    /// Whether `ancestor` is `start` or one of its ancestors. The root is never considered one.
+    fn is_ancestor(&self, start: &Inode, ancestor: InodeNo) -> bool {
+        let map = self.map.read().unwrap();
+        std::iter::successors(Some(start), |current| map.get(&current.parent()).map(|(node, _)| node))
+            .take_while(|&current| current.ino() != FUSE_ROOT_INODE)
+            .any(|current| current.ino() == ancestor)
     }
 
     fn remove_metrics(inode: &Inode) {
