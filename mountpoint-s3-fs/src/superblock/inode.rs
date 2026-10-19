@@ -75,8 +75,6 @@ struct InodeInner {
     ///   Note that the kernel locks by the actual pointer address instead of [InodeNo].
     ///   For rename operations, the destination parent is locked first if it is an ancestor of
     ///   the source parent; otherwise the two parents are locked in ascending order.
-    ///
-    /// The superblock's inode map lock is taken after these locks, never before.
     sync: RwLock<InodeState>,
 }
 
@@ -351,7 +349,7 @@ mod tests {
                 pending_upload_hook: None,
             },
         );
-        superblock.inner.inodes.write().unwrap().insert(ino, inode.clone(), 5);
+        superblock.inner.inodes.insert(ino, inode.clone(), 5);
 
         superblock.forget(ino, 3).await;
         let lookup_count = superblock.get_lookup_count(ino);
@@ -365,7 +363,7 @@ mod tests {
         let lookup_count = superblock.get_lookup_count(ino);
         assert_eq!(lookup_count, 0, "lookup should have been reduced");
         assert!(
-            superblock.inner.inodes.read().unwrap().get_inode(&ino).is_none(),
+            !superblock.inner.inodes.contains(ino),
             "inode should not be present in superblock"
         );
 
@@ -504,12 +502,7 @@ mod tests {
                 InodeKindData::File {} => panic!("root is always a directory"),
                 InodeKindData::Directory { children, .. } => _ = children.insert(file_name.into(), inode.clone()),
             }
-            superblock
-                .inner
-                .inodes
-                .write()
-                .unwrap()
-                .insert(inode.ino(), inode.clone(), 1);
+            superblock.inner.inodes.insert(inode.ino(), inode.clone(), 1);
         }
 
         let err = superblock
@@ -557,7 +550,7 @@ mod tests {
                 }),
             }),
         };
-        superblock.inner.inodes.write().unwrap().insert(ino, inode.clone(), 5);
+        superblock.inner.inodes.insert(ino, inode.clone(), 5);
 
         // Verify that the stat is invalid
         let inode = superblock.inner.get(ino).unwrap();

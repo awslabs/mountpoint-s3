@@ -746,12 +746,7 @@ mod tests {
             .expect("Create kept failed");
 
         // Remove the inode from the map only, leaving it in the directory's local children.
-        let removed = superblock
-            .inner
-            .inodes
-            .write()
-            .unwrap()
-            .decrease_lookup_count(forgotten, 1);
+        let removed = superblock.inner.inodes.decrease_lookup_count(forgotten, 1);
         assert!(matches!(removed, Ok(Some(_))));
 
         let readdir_handle = superblock
