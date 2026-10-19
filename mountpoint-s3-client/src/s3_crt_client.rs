@@ -448,6 +448,22 @@ struct S3CrtClientInner {
     telemetry_callback: Option<Arc<dyn OnTelemetry>>,
 }
 
+/// The maximum number of attempts set by the `AWS_MAX_ATTEMPTS` environment variable, if it is set.
+///
+/// # Errors
+/// Values that are not positive integers are rejected, as in the AWS SDKs.
+fn max_attempts_from_env() -> Result<Option<NonZeroUsize>, NewClientError> {
+    let Some(value) = std::env::var_os("AWS_MAX_ATTEMPTS") else {
+        return Ok(None);
+    };
+    match value.to_str().and_then(|s| s.parse().ok()) {
+        Some(max_attempts) => Ok(Some(max_attempts)),
+        None => Err(NewClientError::InvalidConfiguration(format!(
+            "AWS_MAX_ATTEMPTS must be a positive integer, got {value:?}"
+        ))),
+    }
+}
+
 impl S3CrtClientInner {
     fn new(config: S3ClientConfig) -> Result<Self, NewClientError> {
         let allocator = Allocator::default();
@@ -471,18 +487,22 @@ impl S3CrtClientInner {
         let mut client_config = ClientConfig::new();
 
         let retry_strategy = {
-            let mut retry_strategy_options = StandardRetryOptions::default(&mut event_loop_group);
-            let max_attempts = std::env::var("AWS_MAX_ATTEMPTS")
-                .ok()
-                .and_then(|s| s.parse::<usize>().ok())
-                .or_else(|| config.max_attempts.map(|m| m.get()))
-                .unwrap_or(3);
-            // Max *attempts* includes the initial attempt, the CRT's max *retries* does not, so
-            // decrement by one
-            retry_strategy_options.backoff_retry_options.max_retries = max_attempts.saturating_sub(1);
-            retry_strategy_options.backoff_retry_options.backoff_scale_factor = Duration::from_millis(500);
-            retry_strategy_options.backoff_retry_options.jitter_mode = ExponentialBackoffJitterMode::Full;
-            RetryStrategy::standard(&allocator, &retry_strategy_options).unwrap()
+            let max_attempts = max_attempts_from_env()?
+                .or(config.max_attempts)
+                .map_or(3, NonZeroUsize::get);
+            if max_attempts == 1 {
+                // The CRT's standard strategy treats zero retries as "use the default", so a single
+                // attempt needs a strategy that never retries.
+                RetryStrategy::no_retry(&allocator, &event_loop_group)
+            } else {
+                let mut retry_strategy_options = StandardRetryOptions::default(&mut event_loop_group);
+                // Max *attempts* includes the initial attempt, the CRT's max *retries* does not, so
+                // decrement by one
+                retry_strategy_options.backoff_retry_options.max_retries = max_attempts - 1;
+                retry_strategy_options.backoff_retry_options.backoff_scale_factor = Duration::from_millis(500);
+                retry_strategy_options.backoff_retry_options.jitter_mode = ExponentialBackoffJitterMode::Full;
+                RetryStrategy::standard(&allocator, &retry_strategy_options).unwrap()
+            }
         };
 
         // Prepare a TLS context up front so it can be threaded into both the credentials chain

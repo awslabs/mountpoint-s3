@@ -2871,12 +2871,13 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "wiremock",
  "xmltree",
 ]
 
 [[package]]
 name = "mountpoint-s3-crt"
-version = "0.16.2"
+version = "0.16.3"
 dependencies = [
  "anyhow",
  "clap",
