@@ -11,5 +11,5 @@ path = "src/main.rs"
 
 [dependencies]
 clap = {  version = "4.5.53", features = ["derive"] }
-nix = {  version = "0.30.1", features = ["ioctl"]  }
+nix = {  version = "0.31.3", features = ["ioctl"]  }
 thiserror = "2.0.17"
