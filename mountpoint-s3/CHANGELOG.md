@@ -5,6 +5,7 @@
 * Fix S3 CRT client metrics (`s3.client.*`) not updating on every metrics publication cycle for requests lasting longer than five seconds. These gauges are now sampled when metrics are published, rather than only when a new S3 request starts. ([#1957](https://github.com/awslabs/mountpoint-s3/pull/1957))
 * Fix files and directories created through Mountpoint being reported as missing after an earlier lookup of the same name failed, when negative metadata caching is enabled (`--metadata-ttl` or `--negative-metadata-ttl`). Lookups could return `ENOENT` until the negative cache entry expired once the kernel had forgotten the new inode. ([#1985](https://github.com/awslabs/mountpoint-s3/pull/1985))
 * Fix memory allocator background threads not running when Mountpoint runs in background mode (the default, without `--foreground`). These threads return freed memory to the operating system, which otherwise happens on the threads serving file system requests. ([#1999](https://github.com/awslabs/mountpoint-s3/pull/1999))
+* Fix a deadlock that could make the file system hang when the kernel forgets a file or directory while another file in the same directory is renamed, or while the directory is opened for listing with files still being written in it.
 
 ## v1.24.0 (August 24, 2026)
 
