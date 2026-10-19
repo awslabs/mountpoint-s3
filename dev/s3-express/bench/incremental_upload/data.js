@@ -1,57 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792072976460,
+  "lastUpdate": 1792406369487,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark (S3 Express One Zone, Incremental Upload)": [
-      {
-        "commit": {
-          "author": {
-            "email": "49699333+dependabot[bot]@users.noreply.github.com",
-            "name": "dependabot[bot]",
-            "username": "dependabot[bot]"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "32779e2790b07cdf53df6efac5169e53c64d80bf",
-          "message": "Bump taiki-e/install-action from 2.86.2 to 2.87.2 (#1955)\n\nBumps\n[taiki-e/install-action](https://github.com/taiki-e/install-action) from\n2.86.2 to 2.87.2.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/taiki-e/install-action/releases\">taiki-e/install-action's\nreleases</a>.</em></p>\n<blockquote>\n<h2>2.87.2</h2>\n<ul>\n<li>\n<p>Update <code>typos@latest</code> to 1.50.0.</p>\n</li>\n<li>\n<p>Update <code>tombi@latest</code> to 1.5.0.</p>\n</li>\n<li>\n<p>Update <code>shfmt@latest</code> to 3.14.0.</p>\n</li>\n</ul>\n<h2>2.87.1</h2>\n<ul>\n<li>\n<p>Update <code>uv@latest</code> to 0.12.7.</p>\n</li>\n<li>\n<p>Update <code>typos@latest</code> to 1.49.1.</p>\n</li>\n<li>\n<p>Update <code>syft@latest</code> to 1.51.1.</p>\n</li>\n<li>\n<p>Update <code>prek@latest</code> to 0.5.0.</p>\n</li>\n<li>\n<p>Update <code>d2@latest</code> to 0.8.2.</p>\n</li>\n<li>\n<p>Update <code>cargo-zigbuild@latest</code> to 0.23.3.</p>\n</li>\n<li>\n<p>Update <code>cargo-rdme@latest</code> to 2.2.2.</p>\n</li>\n<li>\n<p>Update <code>biome@latest</code> to 2.5.11.</p>\n</li>\n</ul>\n<h2>2.87.0</h2>\n<ul>\n<li>\n<p>Support <code>kache</code>. (<a\nhref=\"https://redirect.github.com/taiki-e/install-action/pull/1980\">#1980</a>,\nthanks <a\nhref=\"https://github.com/ChrisJr404\"><code>@​ChrisJr404</code></a>)</p>\n</li>\n<li>\n<p>Update <code>vacuum@latest</code> to 0.30.1.</p>\n</li>\n<li>\n<p>Update <code>uv@latest</code> to 0.12.6.</p>\n</li>\n<li>\n<p>Update <code>mise@latest</code> to 2026.8.14.</p>\n</li>\n<li>\n<p>Update <code>editorconfig-checker@latest</code> to 3.11.2.</p>\n</li>\n</ul>\n<h2>2.86.8</h2>\n<ul>\n<li>\n<p>Update <code>wasmtime@latest</code> to 48.0.1.</p>\n</li>\n<li>\n<p>Update <code>wasm-tools@latest</code> to 1.258.0.</p>\n</li>\n<li>\n<p>Update <code>oxfmt@latest</code> to 1.80.0.</p>\n</li>\n<li>\n<p>Update <code>mise@latest</code> to 2026.8.12.</p>\n</li>\n<li>\n<p>Update <code>kingfisher@latest</code> to 2.0.0.</p>\n</li>\n<li>\n<p>Update <code>cargo-zigbuild@latest</code> to 0.23.2.</p>\n</li>\n</ul>\n<h2>2.86.7</h2>\n<ul>\n<li>Update <code>tombi@latest</code> to 1.4.1.</li>\n</ul>\n<!-- raw HTML omitted -->\n</blockquote>\n<p>... (truncated)</p>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/1ed6d7be6168f6c9046541087ff549b6bc581fdf\"><code>1ed6d7b</code></a>\nRelease 2.87.2</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/0fbfc5b541ba726278965a75a3fd222af703b279\"><code>0fbfc5b</code></a>\nUpdate <code>typos@latest</code> to 1.50.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/5f68cef2c452eb3fcb5dccbbcd5f6d192a13a892\"><code>5f68cef</code></a>\nUpdate <code>tombi@latest</code> to 1.5.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/d46a5ec40dd3eef68104c5b342f24e599519675f\"><code>d46a5ec</code></a>\nUpdate <code>shfmt@latest</code> to 3.14.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/742a3317eac7bd62f91cd888b4eead5e784ba833\"><code>742a331</code></a>\nRelease 2.87.1</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/c5b69cd73ba573d80324cdcd0b052ca509084b22\"><code>c5b69cd</code></a>\nUpdate <code>uv@latest</code> to 0.12.7</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/85e6400c85d74d612698536feafd9e20f40aa257\"><code>85e6400</code></a>\nUpdate <code>typos@latest</code> to 1.49.1</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/91f3a12371baac5722df4e5c6d42937d16656ffe\"><code>91f3a12</code></a>\nUpdate tombi manifest</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/160f8b13c099dc3c9067e0658c0da7ac925a00ff\"><code>160f8b1</code></a>\nUpdate <code>syft@latest</code> to 1.51.1</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/aa48d3e72e94215619c754df53a143cdaabefc8b\"><code>aa48d3e</code></a>\nUpdate shfmt manifest</li>\n<li>Additional commits viewable in <a\nhref=\"https://github.com/taiki-e/install-action/compare/v2.86.2...v2.87.2\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\n\n[![Dependabot compatibility\nscore](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=taiki-e/install-action&package-manager=github_actions&previous-version=2.86.2&new-version=2.87.2)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)\n\nDependabot will resolve any conflicts with this PR as long as you don't\nalter it yourself. You can also trigger a rebase manually by commenting\n`@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits\nthat have been made to it\n- `@dependabot show <dependency name> ignore conditions` will show all\nof the ignore conditions of the specified dependency\n- `@dependabot ignore this major version` will close this PR and stop\nDependabot creating any more for this major version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this minor version` will close this PR and stop\nDependabot creating any more for this minor version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this dependency` will close this PR and stop\nDependabot creating any more for this dependency (unless you reopen the\nPR or upgrade to it yourself)\n\n\n</details>\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
-          "timestamp": "2026-09-07T17:50:38Z",
-          "tree_id": "e4cb7d97babd524b9053de2a55a3bbb4c4c6d3ef",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/32779e2790b07cdf53df6efac5169e53c64d80bf"
-        },
-        "date": 1788808646883,
-        "tool": "customBiggerIsBetter",
-        "benches": [
-          {
-            "name": "sequential_read,sequential_write_four_threads",
-            "value": 1949.0352539062499,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_two_threads,sequential_write_two_threads",
-            "value": 3145.7087890625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads,sequential_write",
-            "value": 5288.00888671875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write_direct_io",
-            "value": 111.2904296875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write",
-            "value": 110.914453125,
-            "unit": "MiB/s"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1469,6 +1420,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_write",
             "value": 110.63984375,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "5cc3445f94edb508faf05f2b28ef5f99bcb768af",
+          "message": "Bump actions/download-artifact from 8.0.1 to 8.0.2 (#1992)\n\nBumps\n[actions/download-artifact](https://github.com/actions/download-artifact)\nfrom 8.0.1 to 8.0.2.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/actions/download-artifact/releases\">actions/download-artifact's\nreleases</a>.</em></p>\n<blockquote>\n<h2>v8.0.2</h2>\n<h2>What's Changed</h2>\n<ul>\n<li>Update the readme by <a\nhref=\"https://github.com/danwkennedy\"><code>@​danwkennedy</code></a> in\n<a\nhref=\"https://redirect.github.com/actions/download-artifact/pull/473\">actions/download-artifact#473</a></li>\n<li>Improves artifact download retries when the service returns HTTP 429\n(rate limiting), including honoring valid Retry-After headers.</li>\n<li>Update <code>@​actions/artifact</code> to 6.3.1 by <a\nhref=\"https://github.com/tunc-d\"><code>@​tunc-d</code></a> in <a\nhref=\"https://redirect.github.com/actions/download-artifact/pull/492\">actions/download-artifact#492</a></li>\n<li>Prepare download-artifact v8.0.2 by <a\nhref=\"https://github.com/tunc-d\"><code>@​tunc-d</code></a> in <a\nhref=\"https://redirect.github.com/actions/download-artifact/pull/493\">actions/download-artifact#493</a></li>\n</ul>\n<h2>New Contributors</h2>\n<ul>\n<li><a href=\"https://github.com/tunc-d\"><code>@​tunc-d</code></a> made\ntheir first contribution in <a\nhref=\"https://redirect.github.com/actions/download-artifact/pull/492\">actions/download-artifact#492</a></li>\n</ul>\n<p><strong>Full Changelog</strong>: <a\nhref=\"https://github.com/actions/download-artifact/compare/v8.0.1...v8.0.2\">https://github.com/actions/download-artifact/compare/v8.0.1...v8.0.2</a></p>\n</blockquote>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/actions/download-artifact/commit/9000827ccba6bdab643e8b6fd33ac0654aef8333\"><code>9000827</code></a>\nMerge pull request <a\nhref=\"https://redirect.github.com/actions/download-artifact/issues/493\">#493</a>\nfrom actions/tunc-d-prepare-download-v8-0-2</li>\n<li><a\nhref=\"https://github.com/actions/download-artifact/commit/e455989ae00f5bdd4054f05d3e972c6bf8a62dc5\"><code>e455989</code></a>\nPrepare download-artifact v8.0.2</li>\n<li><a\nhref=\"https://github.com/actions/download-artifact/commit/a00b90c4a2f01d73a8c89552caabca6ea3b43137\"><code>a00b90c</code></a>\nMerge pull request <a\nhref=\"https://redirect.github.com/actions/download-artifact/issues/492\">#492</a>\nfrom actions/tunc-d-download-artifact-package-bump</li>\n<li><a\nhref=\"https://github.com/actions/download-artifact/commit/29bb7ce6af5345aeab5bb4774ce7249ee3ccc27f\"><code>29bb7ce</code></a>\nUpdate <code>@​actions/artifact</code> to 6.3.1</li>\n<li><a\nhref=\"https://github.com/actions/download-artifact/commit/484a0b528fb4d7bd804637ccb632e47a0e638317\"><code>484a0b5</code></a>\nUpdate the readme (<a\nhref=\"https://redirect.github.com/actions/download-artifact/issues/473\">#473</a>)</li>\n<li>See full diff in <a\nhref=\"https://github.com/actions/download-artifact/compare/3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c...9000827ccba6bdab643e8b6fd33ac0654aef8333\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\n\n[![Dependabot compatibility\nscore](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=actions/download-artifact&package-manager=github_actions&previous-version=8.0.1&new-version=8.0.2)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)\n\nDependabot will resolve any conflicts with this PR as long as you don't\nalter it yourself. You can also trigger a rebase manually by commenting\n`@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits\nthat have been made to it\n- `@dependabot show <dependency name> ignore conditions` will show all\nof the ignore conditions of the specified dependency\n- `@dependabot ignore this major version` will close this PR and stop\nDependabot creating any more for this major version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this minor version` will close this PR and stop\nDependabot creating any more for this minor version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this dependency` will close this PR and stop\nDependabot creating any more for this dependency (unless you reopen the\nPR or upgrade to it yourself)\n\n\n</details>\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-19T09:12:34Z",
+          "tree_id": "e6120675afa7de292698398a8e829cee39d135c8",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/5cc3445f94edb508faf05f2b28ef5f99bcb768af"
+        },
+        "date": 1792406367977,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "sequential_read,sequential_write_four_threads",
+            "value": 1821.37294921875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_two_threads,sequential_write_two_threads",
+            "value": 3068.8323242187503,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads,sequential_write",
+            "value": 5331.28369140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write_direct_io",
+            "value": 111.4650390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write",
+            "value": 111.28876953125,
             "unit": "MiB/s"
           }
         ]
