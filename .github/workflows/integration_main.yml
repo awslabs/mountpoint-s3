@@ -2,7 +2,7 @@ name: Integration tests
 
 on:
   push:
-    branches: [ "main", "wf-changes/**" ]
+    branches: [ "main", "feature/**", "wf-changes/**" ]
   merge_group:
     types: [ "checks_requested" ]
   schedule:
