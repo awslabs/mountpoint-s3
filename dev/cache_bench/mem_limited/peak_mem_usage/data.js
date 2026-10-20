@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792419472397,
+  "lastUpdate": 1792512328994,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard, Memory-Limited)": [
-      {
-        "commit": {
-          "author": {
-            "email": "49699333+dependabot[bot]@users.noreply.github.com",
-            "name": "dependabot[bot]",
-            "username": "dependabot[bot]"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "78ab8e71ec20d1999797b6e8ab7e269730241473",
-          "message": "Bump taiki-e/install-action from 2.87.2 to 2.87.8 (#1959)\n\nBumps\n[taiki-e/install-action](https://github.com/taiki-e/install-action) from\n2.87.2 to 2.87.8.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/taiki-e/install-action/releases\">taiki-e/install-action's\nreleases</a>.</em></p>\n<blockquote>\n<h2>2.87.8</h2>\n<ul>\n<li>\n<p>Update <code>shfmt@latest</code> to 3.14.1.</p>\n</li>\n<li>\n<p>Update <code>release-plz@latest</code> to 0.3.162.</p>\n</li>\n<li>\n<p>Update <code>protoc-gen-connect-openapi@latest</code> to 0.26.0.</p>\n</li>\n<li>\n<p>Update <code>dprint@latest</code> to 0.57.4.</p>\n</li>\n<li>\n<p>Update <code>cargo-llvm-cov@latest</code> to 0.9.1.</p>\n</li>\n<li>\n<p>Update <code>cargo-crap@latest</code> to 0.5.0.</p>\n</li>\n<li>\n<p>Update <code>cargo-binstall@latest</code> to 1.23.0.</p>\n</li>\n</ul>\n<h2>2.87.7</h2>\n<ul>\n<li>\n<p>Update <code>wasm-bindgen@latest</code> to 0.2.128.</p>\n</li>\n<li>\n<p>Update <code>uv@latest</code> to 0.12.10.</p>\n</li>\n<li>\n<p>Update <code>tombi@latest</code> to 1.5.2.</p>\n</li>\n<li>\n<p>Update <code>rclone@latest</code> to 1.75.1.</p>\n</li>\n</ul>\n<h2>2.87.6</h2>\n<ul>\n<li>\n<p>Update <code>rafn@latest</code> to 0.1.6.</p>\n</li>\n<li>\n<p>Update <code>editorconfig-checker@latest</code> to 3.11.3.</p>\n</li>\n<li>\n<p>Update <code>dprint@latest</code> to 0.57.1.</p>\n</li>\n<li>\n<p>Update <code>convco@latest</code> to 0.7.2.</p>\n</li>\n</ul>\n<h2>2.87.5</h2>\n<ul>\n<li>\n<p>Update <code>vacuum@latest</code> to 0.30.3.</p>\n</li>\n<li>\n<p>Update <code>uv@latest</code> to 0.12.9.</p>\n</li>\n<li>\n<p>Update <code>typos@latest</code> to 1.50.1.</p>\n</li>\n<li>\n<p>Update <code>tombi@latest</code> to 1.5.1.</p>\n</li>\n<li>\n<p>Update <code>release-plz@latest</code> to 0.3.161.</p>\n</li>\n<li>\n<p>Update <code>prek@latest</code> to 0.5.2.</p>\n</li>\n<li>\n<p>Update <code>oxfmt@latest</code> to 1.81.0.</p>\n</li>\n<li>\n<p>Update <code>mise@latest</code> to 2026.9.1.</p>\n</li>\n</ul>\n<!-- raw HTML omitted -->\n</blockquote>\n<p>... (truncated)</p>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/d438492cf8a250514fa2d34b30bc3c0dc37c65ff\"><code>d438492</code></a>\nRelease 2.87.8</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/cf1fadefa81706888511de4b6dda5534a9810ce9\"><code>cf1fade</code></a>\nUpdate <code>shfmt@latest</code> to 3.14.1</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/716144916a3915dc9bcab576a4b42f6a73a7916c\"><code>7161449</code></a>\nUpdate <code>release-plz@latest</code> to 0.3.162</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/58df4bb0bb13dd31dec0368d34a84838ee17cc3f\"><code>58df4bb</code></a>\nUpdate <code>protoc-gen-connect-openapi@latest</code> to 0.26.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/33e9ffe8c37b89671bb5af911d757e2c8f6edb06\"><code>33e9ffe</code></a>\nUpdate oxfmt manifest</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/60bf88260035dd852365b5be9ea4c5943f6f78b4\"><code>60bf882</code></a>\nUpdate kache manifest</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/667469ac9d4299c56a06cc1254ce49d5fbbce0d4\"><code>667469a</code></a>\nUpdate <code>dprint@latest</code> to 0.57.4</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/aa52fd60cfec9c5d7b51a839a6c959b637e2fff4\"><code>aa52fd6</code></a>\nUpdate <code>cargo-llvm-cov@latest</code> to 0.9.1</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/834d344d8d8be0d9a673636b899f33f177f880a5\"><code>834d344</code></a>\nUpdate <code>cargo-crap@latest</code> to 0.5.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/097f1f0064569e498b3b1f6085a6bc5ff24c91f5\"><code>097f1f0</code></a>\nUpdate <code>cargo-binstall@latest</code> to 1.23.0</li>\n<li>Additional commits viewable in <a\nhref=\"https://github.com/taiki-e/install-action/compare/v2.87.2...v2.87.8\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\n\n[![Dependabot compatibility\nscore](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=taiki-e/install-action&package-manager=github_actions&previous-version=2.87.2&new-version=2.87.8)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)\n\nDependabot will resolve any conflicts with this PR as long as you don't\nalter it yourself. You can also trigger a rebase manually by commenting\n`@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits\nthat have been made to it\n- `@dependabot show <dependency name> ignore conditions` will show all\nof the ignore conditions of the specified dependency\n- `@dependabot ignore this major version` will close this PR and stop\nDependabot creating any more for this major version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this minor version` will close this PR and stop\nDependabot creating any more for this minor version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this dependency` will close this PR and stop\nDependabot creating any more for this dependency (unless you reopen the\nPR or upgrade to it yourself)\n\n\n</details>\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
-          "timestamp": "2026-09-15T12:29:53Z",
-          "tree_id": "89fc9747c06f9c40688b3a6f9727726ce663f981",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/78ab8e71ec20d1999797b6e8ab7e269730241473"
-        },
-        "date": 1789483828762,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 367.6953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 60.8046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 425.9375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 60.609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 364.109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 46.578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 359.46875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 46.23046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 376.9296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 55.58984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 352.890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 65.01171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 370.859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 42.328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 368.19921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 385.16796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 42.40625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3269,6 +3160,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 41.72265625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "982d5c0933c54c785087407f47bbbef7cbf5e6be",
+          "message": "mock-client: align checksum behaviour with S3 (#1988)\n\nAlign the mock client's checksum behaviour with S3:\n\n- Uploads without an additional checksum (PutObject, multipart upload\nwithout trailing checksums, and appends that create a new object) now\nstore S3's default full-object CRC64NVME checksum.\n- An append without a checksum is treated as CRC64NVME. It is accepted\non objects with a CRC64NVME checksum (or none) and rejected with\n`InvalidChecksumType` otherwise.\n- `MockGetObjectResponse::get_object_checksum` now returns\n`DidNotRequestChecksums` unless the request enabled checksum mode,\nmatching `S3CrtClient`. It returns an empty checksum for a ranged GET\nthat does not cover the whole object.\n\n`write_checksums_test` now asserts the default CRC64NVME checksum for\nuploads without checksums, on both the mock and S3, instead of ignoring\nit.\n\n### Does this change impact existing behavior?\n\nNo change to Mountpoint's file system behaviour. The `MockClient`\n(`mock` feature of `mountpoint-s3-client`) changes behaviour: callers of\n`get_object_checksum` must now enable checksum mode on the GET, and\nobjects uploaded without checksums now report a CRC64NVME checksum.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes, a `mountpoint-s3-client` changelog entry describing the mock client\nchanges. The crate is already at an unreleased patch version (0.22.2).\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
+          "timestamp": "2026-10-20T13:34:14Z",
+          "tree_id": "1e9aca50df41a802434807c0b686726724371ff7",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/982d5c0933c54c785087407f47bbbef7cbf5e6be"
+        },
+        "date": 1792512328916,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 369.51953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 60.72265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 367.55859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 58.80078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 369.6875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 46.203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 406.2734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 46.27734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 380.5625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 56.8203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 369.30859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 63.2578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 366.06640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 42.984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 382.89453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 378.6953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 42.65625,
             "unit": "MiB"
           }
         ]
