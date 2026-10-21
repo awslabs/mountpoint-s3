@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::os::fd::AsRawFd as _;
 
 use anyhow::anyhow;
-use fuser::MountOption;
+use fuser::{MountOption, SessionACL};
 use regex::Regex;
 
 /// Configuration for a FUSE background session.
@@ -13,6 +13,7 @@ use regex::Regex;
 pub struct FuseSessionConfig {
     pub(crate) mount_point: MountPoint,
     pub(crate) options: Vec<MountOption>,
+    pub(crate) acl: SessionACL,
     pub(crate) max_threads: usize,
     pub(crate) clone_fuse_fd: bool,
 }
@@ -46,12 +47,15 @@ impl FuseSessionConfig {
         if fuse_options.auto_unmount {
             options.push(MountOption::AutoUnmount);
         }
-        if fuse_options.allow_root {
-            options.push(MountOption::AllowRoot);
-        }
-        if fuse_options.allow_other {
-            options.push(MountOption::AllowOther);
-        }
+
+        // Determine SessionACL based on allow_root and allow_other
+        let acl = if fuse_options.allow_other {
+            SessionACL::All
+        } else if fuse_options.allow_root {
+            SessionACL::RootAndOwner
+        } else {
+            SessionACL::Owner
+        };
 
         #[cfg(target_os = "linux")]
         if matches!(mount_point, MountPoint::FileDescriptor(_)) && fuse_options.auto_unmount {
@@ -64,6 +68,7 @@ impl FuseSessionConfig {
         Ok(Self {
             mount_point,
             options,
+            acl,
             max_threads,
             clone_fuse_fd: fuse_options.clone_fd,
         })

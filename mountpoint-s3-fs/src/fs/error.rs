@@ -95,7 +95,7 @@ impl std::fmt::Display for Error {
 
 impl From<InodeError> for Error {
     fn from(err: InodeError) -> Self {
-        let errno = err.to_errno();
+        let errno = err.to_errno().into();
         let metadata = err.meta().clone();
         Error {
             errno,
@@ -110,7 +110,7 @@ impl From<InodeError> for Error {
 
 impl<E: std::error::Error + Send + Sync + 'static> From<UploadError<E>> for Error {
     fn from(err: UploadError<E>) -> Self {
-        let errno = err.to_errno();
+        let errno = err.to_errno().into();
         Error {
             errno,
             message: String::from("upload error"),
@@ -146,18 +146,18 @@ impl<E: std::error::Error + Send + Sync + 'static> From<PrefetchReadError<E>> fo
 
 /// Errors that can be converted to a raw OS error (errno)
 pub trait ToErrno {
-    fn to_errno(&self) -> libc::c_int;
+    fn to_errno(&self) -> fuser::Errno;
 }
 
 impl ToErrno for Error {
-    fn to_errno(&self) -> libc::c_int {
-        self.errno
+    fn to_errno(&self) -> fuser::Errno {
+        fuser::Errno::from_i32(self.errno)
     }
 }
 
 impl ToErrno for InodeError {
-    fn to_errno(&self) -> libc::c_int {
-        match self {
+    fn to_errno(&self) -> fuser::Errno {
+        let errno = match self {
             InodeError::ClientError { .. } => libc::EIO,
             InodeError::FileDoesNotExist(_, _) => libc::ENOENT,
             InodeError::InodeDoesNotExist(_) => libc::ENOENT,
@@ -191,13 +191,14 @@ impl ToErrno for InodeError {
             InodeError::NoSuchDirHandle { .. } => libc::EINVAL,
             InodeError::FlexibleRetrievalObjectNotAccessible(_) => libc::EACCES,
             InodeError::WriteHandleLimitExceeded(_) => libc::ENOMEM,
-        }
+        };
+        fuser::Errno::from_i32(errno)
     }
 }
 
 impl<E: std::error::Error> ToErrno for UploadError<E> {
-    fn to_errno(&self) -> libc::c_int {
-        match self {
+    fn to_errno(&self) -> fuser::Errno {
+        let errno = match self {
             UploadError::PutRequestFailed(_) => libc::EIO,
             UploadError::UploadAlreadyTerminated => libc::EIO,
             UploadError::SseCorruptedError(_) => libc::EIO,
@@ -205,7 +206,8 @@ impl<E: std::error::Error> ToErrno for UploadError<E> {
             UploadError::HeadObjectFailed(_) => libc::EIO,
             UploadError::OutOfOrderWrite { .. } => libc::EINVAL,
             UploadError::ObjectTooBig { .. } => libc::EFBIG,
-        }
+        };
+        fuser::Errno::from_i32(errno)
     }
 }
 
