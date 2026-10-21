@@ -89,7 +89,7 @@ async fn test_lookup_empty_list_pages(directory_exists: bool, file_exists: bool)
         assert_eq!(entry.attr.kind, expected_kind);
     } else {
         let err = result.expect_err("lookup should fail after exhausting the listing");
-        assert_eq!(err.to_errno(), libc::ENOENT);
+        assert_eq!(i32::from(err.to_errno()), libc::ENOENT);
     }
 }
 
@@ -154,7 +154,7 @@ async fn test_lookup_throttled_mock(head_object_throttled: bool, list_object_thr
         .lookup(FUSE_ROOT_INODE, key.as_ref())
         .await
         .expect_err("lookup must fail");
-    let actual_errno = nix::errno::Errno::from_raw(err.to_errno());
+    let actual_errno = nix::errno::Errno::from_raw(i32::from(err.to_errno()));
     let expected_errno = nix::errno::Errno::EIO;
     assert_eq!(
         actual_errno, expected_errno,
@@ -259,12 +259,12 @@ async fn test_read_unhandled_error_mock() {
         .await
         .expect("lookup must succeed");
     let fh = fs
-        .open(entry.attr.ino, OpenFlags::empty(), 0)
+        .open(entry.attr.ino.into(), OpenFlags::empty(), 0)
         .await
         .expect("open must succeed")
         .fh;
     let err = fs
-        .read(entry.attr.ino, fh, 0, 4096, 0, None)
+        .read(entry.attr.ino.into(), fh, 0, 4096, 0, None)
         .await
         .expect_err("read must fail");
     let metadata = err.meta();

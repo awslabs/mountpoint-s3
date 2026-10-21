@@ -188,7 +188,7 @@ where
             }
             Err(e) => {
                 // Abort the request.
-                match std::mem::replace(self, UploadState::Failed(e.to_errno())) {
+                match std::mem::replace(self, UploadState::Failed(e.to_errno().into())) {
                     UploadState::MPUInProgress { .. } | UploadState::AppendInProgress { .. } => {
                         Self::finish_on_error(fs.metablock.clone(), handle.ino, &handle.location, fh).await;
                     }
@@ -224,7 +224,7 @@ where
                 let current_offset = request.current_offset();
                 let etag = Self::commit_append(request, &handle.location)
                     .await
-                    .inspect_err(|e| *self = UploadState::Failed(e.to_errno()))?;
+                    .inspect_err(|e| *self = UploadState::Failed(e.to_errno().into()))?;
 
                 // Restart append request.
                 let initial_etag = etag.or(initial_etag);
@@ -243,7 +243,7 @@ where
             UploadState::MPUInProgress { request, .. } => {
                 Self::complete_upload(fs.metablock.clone(), handle.ino, &handle.location, request, fh)
                     .await
-                    .inspect_err(|e| *self = UploadState::Failed(e.to_errno()))?;
+                    .inspect_err(|e| *self = UploadState::Failed(e.to_errno().into()))?;
             }
             UploadState::Failed(_) | UploadState::Completed => unreachable!("checked above"),
         }
@@ -304,11 +304,11 @@ where
                 fh,
             )
             .await
-            .inspect_err(|e| *self = UploadState::Failed(e.to_errno()))?,
+            .inspect_err(|e| *self = UploadState::Failed(e.to_errno().into()))?,
             UploadState::MPUInProgress { request, .. } => {
                 Self::complete_upload(fs.metablock.clone(), handle.ino, &handle.location, request, fh)
                     .await
-                    .inspect_err(|e| *self = UploadState::Failed(e.to_errno()))?
+                    .inspect_err(|e| *self = UploadState::Failed(e.to_errno().into()))?
             }
             UploadState::Failed(_) | UploadState::Completed => unreachable!("checked above"),
         };

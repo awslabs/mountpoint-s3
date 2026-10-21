@@ -300,7 +300,7 @@ impl Harness {
                 .await
                 .expect("ancestor must exist in MP fs");
             assert_eq!(lookup.attr.kind, FileType::Directory);
-            let ino = lookup.attr.ino;
+            let ino = lookup.attr.ino.into();
             assert!(
                 seen_inos.insert(ino),
                 "should not have seen ancestor ino {ino} in MP fs before"
@@ -313,7 +313,7 @@ impl Harness {
             .lookup(parent, leaf.as_ref())
             .await
             .expect("directory entry at path should exist in MP fs");
-        let ino = lookup.attr.ino;
+        let ino = lookup.attr.ino.into();
         assert!(seen_inos.insert(ino), "should not have seen ino {ino} before");
         match node {
             Node::Directory { .. } => {
@@ -323,7 +323,7 @@ impl Harness {
                 assert_eq!(lookup.attr.kind, FileType::RegularFile);
                 match content {
                     File::Local => (),
-                    File::Remote(object) => self.compare_file(lookup.attr.ino, object).await,
+                    File::Remote(object) => self.compare_file(lookup.attr.ino.into(), object).await,
                 }
             }
         }
@@ -336,7 +336,14 @@ impl Harness {
         let mut inode = FUSE_ROOT_INODE;
         for component in components {
             if let Component::Normal(folder) = component {
-                inode = self.fs.lookup(inode, folder).await.map_err(|e| e.to_errno())?.attr.ino;
+                inode = self
+                    .fs
+                    .lookup(inode, folder)
+                    .await
+                    .map_err(|e| e.to_errno())?
+                    .attr
+                    .ino
+                    .into();
             } else {
                 panic!("unexpected path component {component:?}");
             }
@@ -375,7 +382,7 @@ impl Harness {
         let mknod = self.fs.mknod(dir_inode, name.as_ref(), libc::S_IFREG, 0, 0).await;
         if reference_lookup.is_some() {
             assert!(
-                matches!(mknod, Err(e) if e.to_errno() == libc::EEXIST),
+                matches!(mknod, Err(e) if i32::from(e.to_errno()) == libc::EEXIST),
                 "can't overwrite existing file/directory"
             );
             None
@@ -386,7 +393,7 @@ impl Harness {
 
             let index = self.inflight_writes.insert(InflightWrite {
                 path: full_path,
-                inode: mknod.attr.ino,
+                inode: mknod.attr.ino.into(),
                 file_handle: None,
                 object: contents.to_mock_object(),
                 written: 0,
@@ -405,7 +412,7 @@ impl Harness {
         let open = self.fs.open(inflight_write.inode, OpenFlags::O_WRONLY, 0).await;
         if inflight_write.file_handle.is_some() {
             assert!(
-                matches!(open, Err(e) if e.to_errno() == libc::EPERM),
+                matches!(open, Err(e) if i32::from(e.to_errno()) == libc::EPERM),
                 "should not be able to open a file that's already open for writing",
             );
         } else {
@@ -515,13 +522,13 @@ impl Harness {
         match node {
             Node::Directory { .. } => {
                 assert!(
-                    matches!(unlink, Err(e) if e.to_errno() == libc::EISDIR),
+                    matches!(unlink, Err(e) if i32::from(e.to_errno()) == libc::EISDIR),
                     "unlink of directory should fail"
                 );
             }
             Node::File(File::Local) => {
                 assert!(
-                    matches!(unlink, Err(e) if e.to_errno() == libc::EPERM),
+                    matches!(unlink, Err(e) if i32::from(e.to_errno()) == libc::EPERM),
                     "unlink of local files not supported"
                 );
             }
@@ -549,7 +556,7 @@ impl Harness {
         let mkdir = self.fs.mkdir(dir_inode, name.as_ref(), libc::S_IFDIR, 0).await;
         if reference_lookup.is_some() {
             assert!(
-                matches!(mkdir, Err(e) if e.to_errno() == libc::EEXIST),
+                matches!(mkdir, Err(e) if i32::from(e.to_errno()) == libc::EEXIST),
                 "can't overwrite existing file/directory"
             );
         } else {
@@ -707,9 +714,12 @@ impl Harness {
                                 "for readdir entry {name:?}, expecting {ref_kind:?} but found {fs_kind:?}",
                             );
                             assert_eq!(
-                                attr.ino, reply.ino,
+                                u64::from(attr.ino),
+                                reply.ino,
                                 "for file {:?} readdir ino {:?} lookup ino {:?}",
-                                name, reply.ino, attr.ino
+                                name,
+                                reply.ino,
+                                attr.ino
                             );
                             if let Node::File(ref_object) = node {
                                 assert_eq!(attr.kind, FileType::RegularFile);
@@ -773,7 +783,7 @@ impl Harness {
     async fn check_local_file(&self, inode: InodeNo) {
         let _stat = self.fs.getattr(inode).await.expect("stat should succeed");
         let open = self.fs.open(inode, OpenFlags::empty(), 0).await;
-        assert!(matches!(open, Err(e) if e.to_errno() == libc::EPERM));
+        assert!(matches!(open, Err(e) if i32::from(e.to_errno()) == libc::EPERM));
     }
 }
 

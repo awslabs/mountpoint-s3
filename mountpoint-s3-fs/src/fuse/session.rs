@@ -1,9 +1,7 @@
 use std::io;
 
 use anyhow::Context;
-#[cfg(target_os = "linux")]
-use fuser::MountOption;
-use fuser::{Filesystem, Session, SessionUnmounter};
+use fuser::{Config, Filesystem, Session, SessionUnmounter};
 use tracing::{debug, error, info, trace, warn};
 
 use super::config::{FuseSessionConfig, MountPoint};
@@ -31,7 +29,6 @@ where
     FS: Filesystem + Send + Sync + 'static,
 {
     session: Session<FS>,
-    clone_fuse_fd: bool,
 }
 
 impl FuseSession {
@@ -40,30 +37,26 @@ impl FuseSession {
         fuse_fs: FS,
         fuse_session_config: FuseSessionConfig,
     ) -> anyhow::Result<FuseSession> {
+        let mut config = Config::default();
+        config.mount_options = fuse_session_config.options.clone();
+        config.acl = fuse_session_config.acl;
+        config.clone_fd = fuse_session_config.clone_fuse_fd;
+
         let session = match fuse_session_config.mount_point {
             MountPoint::Directory(path) => {
-                Session::new(fuse_fs, path, &fuse_session_config.options).context("Failed to create FUSE session")?
+                Session::new(fuse_fs, path, &config).context("Failed to create FUSE session")?
             }
             #[cfg(target_os = "linux")]
-            MountPoint::FileDescriptor(fd) => Session::from_fd(
-                fuse_fs,
-                fd,
-                session_acl_from_mount_options(&fuse_session_config.options),
-            ),
+            MountPoint::FileDescriptor(fd) => Session::from_fd(fuse_fs, fd, fuse_session_config.acl, config)
+                .context("Failed to create FUSE session from fd")?,
         };
-        Self::from_session(
-            session,
-            fuse_session_config.max_threads,
-            fuse_session_config.clone_fuse_fd,
-        )
-        .context("Failed to start FUSE session")
+        Self::from_session(session, fuse_session_config.max_threads).context("Failed to start FUSE session")
     }
 
     /// Create worker threads to dispatch requests for a FUSE session.
     pub fn from_session<FS: Filesystem + Send + Sync + 'static>(
         mut session: Session<FS>,
         max_worker_threads: usize,
-        clone_fuse_fd: bool,
     ) -> anyhow::Result<Self> {
         assert!(max_worker_threads > 0);
 
@@ -114,7 +107,7 @@ impl FuseSession {
                 .context("failed to spawn waiter thread")?
         };
 
-        let session_and_config = SessionAndConfig { session, clone_fuse_fd };
+        let session_and_config = SessionAndConfig { session };
         WorkerPool::start(session_and_config, workers_tx, max_worker_threads)
             .context("failed to start worker thread pool")?;
 
@@ -158,19 +151,6 @@ impl FuseSession {
 
         info!("attempting unmount");
         self.unmounter.unmount().context("failed to unmount FUSE session")
-    }
-}
-
-#[cfg(target_os = "linux")]
-/// Determines "SessionACL" to use from given mount options.
-/// The logic is same as what fuser's "Mount" does.
-fn session_acl_from_mount_options(options: &[MountOption]) -> fuser::SessionACL {
-    if options.contains(&MountOption::AllowRoot) {
-        fuser::SessionACL::RootAndOwner
-    } else if options.contains(&MountOption::AllowOther) {
-        fuser::SessionACL::All
-    } else {
-        fuser::SessionACL::Owner
     }
 }
 
@@ -321,7 +301,6 @@ where
                 }
                 after();
             },
-            self.clone_fuse_fd,
         )
     }
 }
@@ -537,14 +516,5 @@ mod tests {
             check_random(test_helper, 10000);
             check_pct(test_helper, 10000, 3);
         }
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test_case(&[], fuser::SessionACL::Owner; "empty options")]
-    #[test_case(&[MountOption::AllowOther], fuser::SessionACL::All; "only allows other")]
-    #[test_case(&[MountOption::AllowRoot], fuser::SessionACL::RootAndOwner; "only allows root")]
-    #[test_case(&[MountOption::AllowOther, MountOption::AllowRoot], fuser::SessionACL::RootAndOwner; "allows root and other")]
-    fn test_creating_session_acl_from_mount_options(mount_options: &[MountOption], expected: fuser::SessionACL) {
-        assert_eq!(expected, session_acl_from_mount_options(mount_options));
     }
 }
