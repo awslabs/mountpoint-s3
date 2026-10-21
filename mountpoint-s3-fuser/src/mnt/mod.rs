@@ -89,14 +89,16 @@ impl MountImpl {
     }
 }
 
+/// A mounted FUSE filesystem.
 #[derive(Debug)]
-pub(crate) struct Mount {
+pub struct Mount {
     mount_impl: Option<MountImpl>,
     mount_point: PathBuf,
 }
 
 impl Mount {
-    pub(crate) fn new(
+    /// Create a new FUSE mount at the given path.
+    pub fn new(
         mountpoint: &Path,
         options: &[MountOption],
         acl: SessionACL,
@@ -143,7 +145,8 @@ impl Mount {
         }
     }
 
-    pub(crate) fn umount(mut self) -> io::Result<()> {
+    /// Unmount the filesystem.
+    pub fn umount(mut self) -> io::Result<()> {
         match self.mount_impl.take() {
             Some(mut mount) => {
                 info!("Unmounting {}", self.mount_point.display());
