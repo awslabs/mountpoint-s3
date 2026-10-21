@@ -4,7 +4,7 @@
 
 #[cfg(fuser_mount_impl = "libfuse2")]
 mod fuse2;
-#[cfg(any(feature = "libfuse", test))]
+#[cfg(any(test, fuser_mount_impl = "libfuse2", fuser_mount_impl = "libfuse3"))]
 mod fuse2_sys;
 #[cfg(fuser_mount_impl = "libfuse3")]
 mod fuse3;
@@ -13,23 +13,29 @@ mod fuse3_sys;
 
 #[cfg(fuser_mount_impl = "pure-rust")]
 mod fuse_pure;
-pub mod mount_options;
+pub(crate) mod mount_options;
 
-#[cfg(any(test, feature = "libfuse"))]
-use fuse2_sys::fuse_args;
-#[cfg(any(test, not(feature = "libfuse")))]
-use std::fs::File;
 use std::io;
 
-#[cfg(any(feature = "libfuse", test))]
+#[cfg(any(test, fuser_mount_impl = "libfuse2", fuser_mount_impl = "libfuse3"))]
+use fuse2_sys::fuse_args;
+use log::info;
+use log::warn;
 use mount_options::MountOption;
 
-/// Helper function to provide options as a fuse_args struct
+use crate::dev_fuse::DevFuse;
+
+/// Helper function to provide options as a `fuse_args` struct
 /// (which contains an argc count and an argv pointer)
-#[cfg(any(feature = "libfuse", test))]
-fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T>(options: &[MountOption], f: F) -> T {
-    use mount_options::option_to_string;
+#[cfg(any(test, fuser_mount_impl = "libfuse2", fuser_mount_impl = "libfuse3"))]
+fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T>(
+    options: &[MountOption],
+    acl: SessionACL,
+    f: F,
+) -> T {
     use std::ffi::CString;
+
+    use mount_options::option_to_string;
 
     let mut args = vec![CString::new("rust-fuse").unwrap()];
     for x in options {
@@ -37,6 +43,10 @@ fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T>(options: &[MountOption], f: F) 
             CString::new("-o").unwrap(),
             CString::new(option_to_string(x)).unwrap(),
         ]);
+    }
+    if let Some(acl) = acl.to_mount_option() {
+        args.push(CString::new("-o").unwrap());
+        args.push(CString::new(acl).unwrap());
     }
     let argptrs: Vec<_> = args.iter().map(|s| s.as_ptr()).collect();
     f(&fuse_args {
@@ -46,16 +56,117 @@ fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T>(options: &[MountOption], f: F) 
     })
 }
 
-#[cfg(fuser_mount_impl = "pure-rust")]
-pub use fuse_pure::Mount;
-#[cfg(fuser_mount_impl = "libfuse2")]
-pub use fuse2::Mount;
-#[cfg(fuser_mount_impl = "libfuse3")]
-pub use fuse3::Mount;
 use std::ffi::CStr;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
 
-#[inline]
-fn libc_umount(mnt: &CStr) -> io::Result<()> {
+use crate::SessionACL;
+
+#[derive(Debug)]
+enum MountImpl {
+    #[cfg(fuser_mount_impl = "pure-rust")]
+    Pure(fuse_pure::MountImpl),
+    #[cfg(fuser_mount_impl = "libfuse2")]
+    Fuse2(fuse2::MountImpl),
+    #[cfg(fuser_mount_impl = "libfuse3")]
+    Fuse3(fuse3::MountImpl),
+}
+
+impl MountImpl {
+    fn umount_impl(&mut self) -> io::Result<()> {
+        match self {
+            #[cfg(fuser_mount_impl = "pure-rust")]
+            MountImpl::Pure(mount) => mount.umount_impl(),
+            #[cfg(fuser_mount_impl = "libfuse2")]
+            MountImpl::Fuse2(mount) => mount.umount_impl(),
+            #[cfg(fuser_mount_impl = "libfuse3")]
+            MountImpl::Fuse3(mount) => mount.umount_impl(),
+            // This branch is needed because Rust does not consider & empty enum non-empty.
+            #[cfg(fuser_mount_impl = "macos-no-mount")]
+            _ => Ok(()),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct Mount {
+    mount_impl: Option<MountImpl>,
+    mount_point: PathBuf,
+}
+
+impl Mount {
+    pub(crate) fn new(
+        mountpoint: &Path,
+        options: &[MountOption],
+        acl: SessionACL,
+    ) -> io::Result<(Arc<DevFuse>, Mount)> {
+        #[cfg(fuser_mount_impl = "pure-rust")]
+        {
+            let (dev_fuse, mount) = fuse_pure::MountImpl::new(mountpoint, options, acl)?;
+            Ok((
+                dev_fuse,
+                Mount {
+                    mount_impl: Some(MountImpl::Pure(mount)),
+                    mount_point: mountpoint.to_path_buf(),
+                },
+            ))
+        }
+        #[cfg(fuser_mount_impl = "libfuse2")]
+        {
+            let (dev_fuse, mount) = fuse2::MountImpl::new(mountpoint, options, acl)?;
+            Ok((
+                dev_fuse,
+                Mount {
+                    mount_impl: Some(MountImpl::Fuse2(mount)),
+                    mount_point: mountpoint.to_path_buf(),
+                },
+            ))
+        }
+        #[cfg(fuser_mount_impl = "libfuse3")]
+        {
+            let (dev_fuse, mount) = fuse3::MountImpl::new(mountpoint, options, acl)?;
+            Ok((
+                dev_fuse,
+                Mount {
+                    mount_impl: Some(MountImpl::Fuse3(mount)),
+                    mount_point: mountpoint.to_path_buf(),
+                },
+            ))
+        }
+        #[cfg(fuser_mount_impl = "macos-no-mount")]
+        {
+            let _ = (mountpoint, options, acl);
+            Err(io::Error::other(
+                "Mount is not enabled; this is test-only configuration",
+            ))
+        }
+    }
+
+    pub(crate) fn umount(mut self) -> io::Result<()> {
+        match self.mount_impl.take() {
+            Some(mut mount) => {
+                info!("Unmounting {}", self.mount_point.display());
+                mount.umount_impl()
+            }
+            None => Ok(()),
+        }
+    }
+}
+
+impl Drop for Mount {
+    fn drop(&mut self) {
+        if let Some(mut mount) = self.mount_impl.take() {
+            if let Err(err) = mount.umount_impl() {
+                // This is not necessarily an error: may happen if a user called 'umount'.
+                warn!("Unmount failed: {}", err);
+            }
+        }
+    }
+}
+
+#[cfg_attr(fuser_mount_impl = "macos-no-mount", expect(dead_code))]
+fn libc_umount(mnt: &CStr) -> nix::Result<()> {
     #[cfg(any(
         target_os = "macos",
         target_os = "freebsd",
@@ -63,7 +174,9 @@ fn libc_umount(mnt: &CStr) -> io::Result<()> {
         target_os = "openbsd",
         target_os = "netbsd"
     ))]
-    let r = unsafe { libc::unmount(mnt.as_ptr(), 0) };
+    {
+        nix::mount::unmount(mnt, nix::mount::MntFlags::empty())
+    }
 
     #[cfg(not(any(
         target_os = "macos",
@@ -72,51 +185,48 @@ fn libc_umount(mnt: &CStr) -> io::Result<()> {
         target_os = "openbsd",
         target_os = "netbsd"
     )))]
-    let r = unsafe { libc::umount(mnt.as_ptr()) };
-    if r < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
+    {
+        nix::mount::umount(mnt)
     }
 }
 
 /// Warning: This will return true if the filesystem has been detached (lazy unmounted), but not
 /// yet destroyed by the kernel.
-#[cfg(any(test, fuser_mount_impl = "pure-rust"))]
-fn is_mounted(fuse_device: &File) -> bool {
-    use libc::{poll, pollfd};
-    use std::os::unix::prelude::AsRawFd;
+#[cfg(any(all(not(target_os = "macos"), test), fuser_mount_impl = "pure-rust"))]
+fn is_mounted(fuse_device: &DevFuse) -> bool {
+    use std::os::unix::io::AsFd;
+    use std::slice;
 
-    let mut poll_result = pollfd {
-        fd: fuse_device.as_raw_fd(),
-        events: 0,
-        revents: 0,
-    };
+    use nix::poll::PollFd;
+    use nix::poll::PollFlags;
+    use nix::poll::PollTimeout;
+    use nix::poll::poll;
+
     loop {
-        let res = unsafe { poll(&mut poll_result, 1, 0) };
+        let mut poll_fd = PollFd::new(fuse_device.as_fd(), PollFlags::empty());
+        let res = poll(slice::from_mut(&mut poll_fd), PollTimeout::ZERO);
         break match res {
-            0 => true,
-            1 => (poll_result.revents & libc::POLLERR) != 0,
-            -1 => {
-                let err = io::Error::last_os_error();
-                if err.kind() == io::ErrorKind::Interrupted {
-                    continue;
-                } else {
-                    // This should never happen. The fd is guaranteed good as `File` owns it.
-                    // According to man poll ENOMEM is the only error code unhandled, so we panic
-                    // consistent with rust's usual ENOMEM behaviour.
-                    panic!("Poll failed with error {err}")
-                }
+            Ok(0) => true,
+            Ok(1) => poll_fd
+                .revents()
+                .is_some_and(|r| r.contains(PollFlags::POLLERR)),
+            Ok(_) => unreachable!(),
+            Err(nix::errno::Errno::EINTR) => continue,
+            Err(err) => {
+                // This should never happen. The fd is guaranteed good as `File` owns it.
+                // According to man poll ENOMEM is the only error code unhandled, so we panic
+                // consistent with rust's usual ENOMEM behaviour.
+                panic!("Poll failed with error {err}")
             }
-            _ => unreachable!(),
         };
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use std::{ffi::CStr, mem::ManuallyDrop};
+    use std::ffi::CStr;
+
+    use crate::mnt::*;
 
     #[test]
     fn fuse_args() {
@@ -125,6 +235,7 @@ mod test {
                 MountOption::CUSTOM("foo".into()),
                 MountOption::CUSTOM("bar".into()),
             ],
+            SessionACL::RootAndOwner,
             |args| {
                 let v: Vec<_> = (0..args.argc)
                     .map(|n| unsafe {
@@ -133,10 +244,15 @@ mod test {
                             .unwrap()
                     })
                     .collect();
-                assert_eq!(*v, ["rust-fuse", "-o", "foo", "-o", "bar"]);
+                assert_eq!(
+                    *v,
+                    ["rust-fuse", "-o", "foo", "-o", "bar", "-o", "allow_other"]
+                );
             },
         );
     }
+
+    #[cfg(not(target_os = "macos"))]
     fn cmd_mount() -> String {
         std::str::from_utf8(
             std::process::Command::new("sh")
@@ -152,12 +268,15 @@ mod test {
     }
 
     #[test]
+    #[cfg(not(target_os = "macos"))]
     fn mount_unmount() {
+        use std::mem::ManuallyDrop;
+
         // We use ManuallyDrop here to leak the directory on test failure.  We don't
         // want to try and clean up the directory if it's a mountpoint otherwise we'll
         // deadlock.
         let tmp = ManuallyDrop::new(tempfile::tempdir().unwrap());
-        let (file, mount) = Mount::new(tmp.path(), &[]).unwrap();
+        let (file, mount) = Mount::new(tmp.path(), &[], SessionACL::default()).unwrap();
         let mnt = cmd_mount();
         eprintln!("Our mountpoint: {:?}\nfuse mounts:\n{}", tmp.path(), mnt,);
         assert!(mnt.contains(&*tmp.path().to_string_lossy()));

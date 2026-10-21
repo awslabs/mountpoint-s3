@@ -1,6 +1,24 @@
+use std::collections::HashSet;
 use std::io;
 use std::io::ErrorKind;
-use std::{collections::HashSet, ffi::OsStr};
+
+use crate::SessionACL;
+
+/// Fuser session configuration, including mount options.
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct Config {
+    /// Mount options.
+    pub mount_options: Vec<MountOption>,
+    /// Who can access the filesystem.
+    pub acl: SessionACL,
+    /// Number of event loop threads. If unspecified, one thread is used.
+    pub n_threads: Option<usize>,
+    /// Use `FUSE_DEV_IOC_CLONE` to give each worker thread its own fd.
+    /// This enables more efficient request processing
+    /// when multiple threads are used. Requires Linux 4.5+.
+    pub clone_fd: bool,
+}
 
 /// Mount options accepted by the FUSE filesystem type
 /// See 'man mount.fuse' for details
@@ -16,11 +34,6 @@ pub enum MountOption {
     CUSTOM(String),
 
     /* Parameterless options */
-    /// Allow all users to access files on this filesystem. By default access is restricted to the
-    /// user who mounted it
-    AllowOther,
-    /// Allow the root user to access this filesystem, in addition to the user who mounted it
-    AllowRoot,
     /// Automatically unmount when the mounting process exits
     ///
     /// `AutoUnmount` requires `AllowOther` or `AllowRoot`. If `AutoUnmount` is set and neither `Allow...` is set, the FUSE configuration must permit `allow_other`, otherwise mounting will fail.
@@ -60,11 +73,10 @@ pub enum MountOption {
 }
 
 impl MountOption {
-    pub(crate) fn from_str(s: &str) -> MountOption {
+    #[cfg(test)]
+    fn from_str(s: &str) -> MountOption {
         match s {
             "auto_unmount" => MountOption::AutoUnmount,
-            "allow_other" => MountOption::AllowOther,
-            "allow_root" => MountOption::AllowRoot,
             "default_permissions" => MountOption::DefaultPermissions,
             "dev" => MountOption::Dev,
             "nodev" => MountOption::NoDev,
@@ -86,30 +98,33 @@ impl MountOption {
     }
 }
 
-pub fn check_option_conflicts(options: &[MountOption]) -> Result<(), io::Error> {
+pub(crate) fn check_option_conflicts(options: &Config) -> Result<(), io::Error> {
     let mut options_set = HashSet::new();
-    options_set.extend(options.iter().cloned());
-    let conflicting: HashSet<MountOption> = options.iter().flat_map(conflicts_with).collect();
+    options_set.extend(options.mount_options.iter().cloned());
+    let conflicting: HashSet<MountOption> = options
+        .mount_options
+        .iter()
+        .flat_map(conflicts_with)
+        .collect();
     let intersection: Vec<MountOption> = conflicting.intersection(&options_set).cloned().collect();
-    if !intersection.is_empty() {
+    if intersection.is_empty() {
+        Ok(())
+    } else {
         Err(io::Error::new(
             ErrorKind::InvalidInput,
             format!("Conflicting mount options found: {intersection:?}"),
         ))
-    } else {
-        Ok(())
     }
 }
 
 fn conflicts_with(option: &MountOption) -> Vec<MountOption> {
     match option {
-        MountOption::FSName(_) => vec![],
-        MountOption::Subtype(_) => vec![],
-        MountOption::CUSTOM(_) => vec![],
-        MountOption::AllowOther => vec![MountOption::AllowRoot],
-        MountOption::AllowRoot => vec![MountOption::AllowOther],
-        MountOption::AutoUnmount => vec![],
-        MountOption::DefaultPermissions => vec![],
+        MountOption::FSName(_)
+        | MountOption::Subtype(_)
+        | MountOption::CUSTOM(_)
+        | MountOption::DirSync
+        | MountOption::AutoUnmount
+        | MountOption::DefaultPermissions => vec![],
         MountOption::Dev => vec![MountOption::NoDev],
         MountOption::NoDev => vec![MountOption::Dev],
         MountOption::Suid => vec![MountOption::NoSuid],
@@ -120,23 +135,19 @@ fn conflicts_with(option: &MountOption) -> Vec<MountOption> {
         MountOption::NoExec => vec![MountOption::Exec],
         MountOption::Atime => vec![MountOption::NoAtime],
         MountOption::NoAtime => vec![MountOption::Atime],
-        MountOption::DirSync => vec![],
         MountOption::Sync => vec![MountOption::Async],
         MountOption::Async => vec![MountOption::Sync],
     }
 }
 
 // Format option to be passed to libfuse or kernel
-pub fn option_to_string(option: &MountOption) -> String {
+#[allow(dead_code)]
+pub(crate) fn option_to_string(option: &MountOption) -> String {
     match option {
         MountOption::FSName(name) => format!("fsname={name}"),
         MountOption::Subtype(subtype) => format!("subtype={subtype}"),
         MountOption::CUSTOM(value) => value.to_string(),
         MountOption::AutoUnmount => "auto_unmount".to_string(),
-        MountOption::AllowOther => "allow_other".to_string(),
-        // AllowRoot is implemented by allowing everyone access and then restricting to
-        // root + owner within fuser
-        MountOption::AllowRoot => "allow_other".to_string(),
         MountOption::DefaultPermissions => "default_permissions".to_string(),
         MountOption::Dev => "dev".to_string(),
         MountOption::NoDev => "nodev".to_string(),
@@ -154,51 +165,34 @@ pub fn option_to_string(option: &MountOption) -> String {
     }
 }
 
-/// Parses mount command args.
-///
-/// Input: ["-o", "suid", "-o", "ro,nodev,noexec", "-osync"]
-/// Output Ok([Suid, RO, NoDev, NoExec, Sync])
-pub(crate) fn parse_options_from_args(args: &[&OsStr]) -> io::Result<Vec<MountOption>> {
-    let err = |x| io::Error::new(ErrorKind::InvalidInput, x);
-    let args: Option<Vec<_>> = args.iter().map(|x| x.to_str()).collect();
-    let args = args.ok_or_else(|| err("Error parsing args: Invalid UTF-8".to_owned()))?;
-    let mut it = args.iter();
-    let mut out = vec![];
-    loop {
-        let opt = match it.next() {
-            None => break,
-            Some(&"-o") => *it.next().ok_or_else(|| {
-                err("Error parsing args: Expected option, reached end of args".to_owned())
-            })?,
-            Some(x) if x.starts_with("-o") => &x[2..],
-            Some(x) => return Err(err(format!("Error parsing args: expected -o, got {x}"))),
-        };
-        for x in opt.split(',') {
-            out.push(MountOption::from_str(x))
-        }
-    }
-    Ok(out)
-}
-
 #[cfg(test)]
 mod test {
-    use std::os::unix::prelude::OsStrExt;
-
-    use super::*;
+    use crate::mnt::mount_options::*;
 
     #[test]
     fn option_checking() {
-        assert!(check_option_conflicts(&[MountOption::Suid, MountOption::NoSuid]).is_err());
-        assert!(check_option_conflicts(&[MountOption::Suid, MountOption::NoExec]).is_ok());
+        assert!(
+            check_option_conflicts(&Config {
+                mount_options: vec![MountOption::Suid, MountOption::NoSuid],
+                ..Config::default()
+            })
+            .is_err()
+        );
+        assert!(
+            check_option_conflicts(&Config {
+                mount_options: vec![MountOption::Suid, MountOption::NoExec],
+                ..Config::default()
+            })
+            .is_ok()
+        );
     }
     #[test]
     fn option_round_trip() {
-        use super::MountOption::*;
-        for x in [
+        use crate::mnt::mount_options::MountOption::*;
+        for x in &[
             FSName("Blah".to_owned()),
             Subtype("Bloo".to_owned()),
             CUSTOM("bongos".to_owned()),
-            AllowOther,
             AutoUnmount,
             DefaultPermissions,
             Dev,
@@ -214,28 +208,8 @@ mod test {
             DirSync,
             Sync,
             Async,
-        ]
-        .iter()
-        {
-            assert_eq!(*x, MountOption::from_str(option_to_string(x).as_ref()))
+        ] {
+            assert_eq!(*x, MountOption::from_str(option_to_string(x).as_ref()));
         }
-    }
-
-    #[test]
-    fn test_parse_options() {
-        use super::MountOption::*;
-
-        assert_eq!(parse_options_from_args(&[]).unwrap(), &[]);
-
-        let o: Vec<_> = "-o suid -o ro,nodev,noexec -osync"
-            .split(' ')
-            .map(OsStr::new)
-            .collect();
-        let out = parse_options_from_args(o.as_ref()).unwrap();
-        assert_eq!(out, [Suid, RO, NoDev, NoExec, Sync]);
-
-        assert!(parse_options_from_args(&[OsStr::new("-o")]).is_err());
-        assert!(parse_options_from_args(&[OsStr::new("not o")]).is_err());
-        assert!(parse_options_from_args(&[OsStr::from_bytes(b"-o\xc3\x28")]).is_err());
     }
 }

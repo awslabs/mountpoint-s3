@@ -1,9 +1,40 @@
 # FUSE for Rust - Changelog
 
+## 0.17.0 - 2026-02-14
+
+Major changes:
+* Change many integer-based public API parameters to strongly-typed newtypes and bitflags. 
+  This breaking changes affects many of the methods on `Filesystem`
+* Change `Filesystem` trait methods to use `&self`, and require mounted filesystems to be `Send + Sync + 'static`
+* Improve typed error handling across request/reply APIs
+* Replace `Vec<MountOption>` mount APIs with a structured `Config` API, including ACL option handling
+* Feature flags `abi-7-xx` are now ignored and will be removed in 0.18, with compatibility checks moved to runtime behavior
+* Remove the old ABI-specific feature-flag surface (`abi-7-9` through `abi-7-19`, plus tooling/docs/examples references)
+* Add support for multiple event loops per session, which can be enabled via `Config::n_threads`
+* Add experimental async API (`AsyncFilesystem`)
+
+Minor changes:
+* Rename `BackgroundSession::join` to `umount_and_join`, returning `io::Result<()>` instead of panicking
+* Add `FUSE_DEV_IOC_CLONE` support and improve passthrough descriptor handling (`ReplyCreate`, `ReplyOpen`, `BackingId`)
+* Improve passthrough descriptor handling (`ReplyCreate`, `ReplyOpen`, `BackingId`)
+* Add `FileType` conversion from std `FileType`
+* Add option to explicitly choose `libfuse2` or `libfuse3`, prefer `libfuse3` by default
+* Support building without libfuse on BSD
+* Remove remaining `osxfuse` support and improve `macfuse` compatibility
+* The path to the `fusermount` binary can be specified with the `FUSERMOUNT_PATH` environment variable
+* `allow_root` or `allow_other` must be enabled when using `auto_unmount`
+* Remove deprecated `mount` and `spawn_mount` -- use `mount2` and `spawn_mount2` instead
+* Update and expand documentation
+
+Internal changes:
+* Improve Linux/BSD/macOS test coverage by migrating mount tests to `fuser-tests` and expanding CI
+* Rework session lifecycle internals (handshake/session startup, destroy ordering, and unmount error propagation)
+
 ## 0.16.0 - 2025-09-12
 * Add support for passthrough file descriptors
 * Change `KernelConfig` capabilities flags parameters to `u64`
 * Remove feature flags `abi-7-9` through `abi-7-18`
+* Remove `libfuse` feature flag from defaults. Linking with libfuse can be enabled with the `libfuse` feature flag
 * Improve macfuse compatibility (note that macfuse remains untested)
 * Fix unsound behavior when linking with libfuse3
 * Performance optimizations

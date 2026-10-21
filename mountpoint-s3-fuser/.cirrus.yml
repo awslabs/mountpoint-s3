@@ -1,16 +1,28 @@
 freebsd_instance:
-  image_family: freebsd-14-2
+  image_family: freebsd-14-3
 
 task:
   name: FreeBSD
   setup_script:
     - kldload fusefs
-    - pkg install -y pkgconf fusefs-libs fusefs-libs3 rust bash
+    - pkg install -y rust bash
+    - # PJDFS setup
+    - # /etc/fuse.conf isn't used on FreeBSD, but simple.rs uses it
+    - echo user_allow_other | sudo tee /etc/fuse.conf
+    - pkg install -y automake autoconf git
+    - cd /tmp
+    - git clone https://github.com/fleetfs/pjdfstest
+    - cd pjdfstest
+    - git checkout d3beed6f5f15c204a8af3df2f518241931a42e94
+    - autoreconf -ifs
+    - ./configure
+    - make pjdfstest
   build_script:
-    - cargo build --all --all-targets --features=libfuse
+    - cargo build --all --all-targets
   doc_script:
-    - cargo doc --all --no-deps --features=libfuse,abi-7-21
+    - cargo doc --all --no-deps
   test_script:
-    - cargo test --all --all-targets --features=libfuse -- --skip=mnt::test::mount_unmount
-    - cargo test --all --all-targets --features=libfuse,abi-7-21 -- --skip=mnt::test::mount_unmount
-    - ./bsd_mount_tests.sh
+    - cargo test --all --all-targets -- --skip=mnt::test::mount_unmount
+    - cargo test --all --all-targets -- --skip=mnt::test::mount_unmount
+    - cargo run -p fuser-tests -- bsd-mount
+    - ./tests/bsd_pjdfs.sh
