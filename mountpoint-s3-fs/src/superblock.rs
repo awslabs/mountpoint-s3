@@ -3105,7 +3105,8 @@ mod tests {
             .lookup(parent_ino, file_name.as_ref())
             .await
             .expect_err("lookup should no longer find deleted file")
-            .to_errno();
+            .to_errno()
+            .into();
         assert_eq!(libc::ENOENT, err, "lookup should return no existing entry error");
     }
 

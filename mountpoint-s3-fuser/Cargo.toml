@@ -1,21 +1,11 @@
-[workspace]
-members = [".", "fuser-tests"]
-
-[workspace.package]
-edition = "2024"
-rust-version = "1.85"
-authors = ["Christopher Berner <me@cberner.com>"]
-license = "MIT"
-repository = "https://github.com/cberner/fuser"
-
 [package]
 name = "mountpoint-s3-fuser"
 description = "A fork of fuser - Filesystem in Userspace (FUSE) for Rust - only for use in Mountpoint for Amazon S3"
-license.workspace = true
+license = "MIT"
 homepage = "https://github.com/awslabs/mountpoint-s3/tree/fuser/fork"
 version = "0.2.0"
-edition.workspace = true
-rust-version.workspace = true
+edition = "2024"
+rust-version = "1.85"
 readme = "README.md"
 keywords = ["fuse", "filesystem", "system", "bindings"]
 categories = ["external-ffi-bindings", "api-bindings", "filesystem", "os::unix-apis"]
