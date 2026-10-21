@@ -132,6 +132,7 @@ mod tests {
             options: if read_only { vec![MountOption::RO] } else { vec![] },
             max_threads: 1,
             clone_fuse_fd: false,
+            acl: fuser::SessionACL::Owner,
         }
     }
 

@@ -9,6 +9,11 @@ members = [
 ]
 resolver = "2"
 
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+
 [workspace.dependencies]
 mountpoint-s3-fs = { version = "0.11.1", path = "./mountpoint-s3-fs" }
 mountpoint-s3-client = { version = "0.22.2", path = "./mountpoint-s3-client" }
