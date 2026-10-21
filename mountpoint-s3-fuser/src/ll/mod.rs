@@ -1,15 +1,30 @@
 //! Low-level kernel communication.
 
 mod argument;
-pub mod fuse_abi;
+pub(crate) mod flags;
+pub(crate) mod fuse_abi;
+pub(crate) mod ioctl;
+pub(crate) mod ioslice_concat;
 pub(crate) mod notify;
 pub(crate) mod reply;
-mod request;
+pub(crate) mod request;
 
-use std::{convert::TryInto, num::NonZeroI32, time::SystemTime};
+use std::num::NonZeroI32;
+use std::time::SystemTime;
 
-pub use reply::Response;
-pub use request::{AnyRequest, FileHandle, INodeNo, Lock, Operation, Request, RequestId, Version};
+pub(crate) use reply::ResponseData;
+pub(crate) use reply::ResponseEmpty;
+pub(crate) use reply::ResponseErrno;
+pub(crate) use reply::ResponseIoctl;
+pub(crate) use reply::ResponseSlice;
+pub(crate) use reply::ResponseStruct;
+pub(crate) use request::AnyRequest;
+pub(crate) use request::FileHandle;
+pub(crate) use request::INodeNo;
+pub(crate) use request::Lock;
+pub(crate) use request::Operation;
+pub use request::RequestId;
+pub(crate) use request::Version;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 /// Possible input arguments for atime & mtime, which can either be set to a specified time,
@@ -22,22 +37,24 @@ pub enum TimeOrNow {
 }
 
 macro_rules! errno {
-    ($x: expr_2021) => {
-        Errno(unsafe {
-            // This is a static assertion that the constant $x is > 0
-            const _X: [(); 0 - !{
-                const ASSERT: bool = ($x > 0);
-                ASSERT
-            } as usize] = [];
-            // Which makes this safe
-            NonZeroI32::new_unchecked($x)
+    ($x:expr) => {
+        Errno(match NonZeroI32::new($x) {
+            Some(x) => x,
+            None => panic!(),
         })
     };
 }
 
+macro_rules! no_xattr_doc {
+    () => {"Use this as an error return from getxattr/removexattr to indicate that the xattr doesn't exist.  This resolves to the appropriate platform-specific error code."}
+}
+
 /// Represents an error code to be returned to the caller
-#[derive(Debug)]
-pub struct Errno(pub NonZeroI32);
+#[derive(Debug, Copy, Clone)]
+pub struct Errno(
+    /// Positive value.
+    NonZeroI32,
+);
 impl Errno {
     /// Operation not permitted
     pub const EPERM: Errno = errno!(libc::EPERM);
@@ -209,38 +226,41 @@ impl Errno {
     pub const ENOTRECOVERABLE: Errno = errno!(libc::ENOTRECOVERABLE);
     /// Operation not supported
     pub const ENOTSUP: Errno = errno!(libc::ENOTSUP);
+    /// Wrong file type.
+    #[cfg(any(target_os = "freebsd", target_os = "macos"))]
+    pub const EFTYPE: Errno = errno!(libc::EFTYPE);
 
     /// No data available
     #[cfg(target_os = "linux")]
     pub const ENODATA: Errno = errno!(libc::ENODATA);
+    #[doc = no_xattr_doc!()]
+    #[cfg(target_os = "linux")]
+    pub const NO_XATTR: Errno = Self::ENODATA;
+
     /// Attribute not found
     #[cfg(not(target_os = "linux"))]
     pub const ENOATTR: Errno = errno!(libc::ENOATTR);
-
-    /// Use this as an error return from getxattr/removexattr to indicate that the xattr doesn't
-    /// exist.  This resolves to the appropriate platform specific error code.
-    #[cfg(target_os = "linux")]
-    pub const NO_XATTR: Errno = Self::ENODATA;
+    #[doc = no_xattr_doc!()]
     #[cfg(not(target_os = "linux"))]
     pub const NO_XATTR: Errno = Self::ENOATTR;
 
+    /// Make errno from `i32`, defaulting to `EIO` if it is not positive.
     pub fn from_i32(err: i32) -> Errno {
-        err.try_into().ok().map(Errno).unwrap_or(Errno::EIO)
+        NonZeroI32::new(err)
+            .filter(|err| err.get() > 0)
+            .map(Errno)
+            .unwrap_or(Errno::EIO)
+    }
+
+    /// Errno value.
+    pub fn code(self) -> i32 {
+        self.0.get()
     }
 }
 impl From<std::io::Error> for Errno {
     fn from(err: std::io::Error) -> Self {
         let errno = err.raw_os_error().unwrap_or(0);
-        match errno.try_into() {
-            Ok(i) => Errno(i),
-            Err(_) => Errno::EIO,
-        }
-    }
-}
-impl From<nix::errno::Errno> for Errno {
-    fn from(x: nix::errno::Errno) -> Self {
-        let err: std::io::Error = x.into();
-        err.into()
+        Errno::from_i32(errno)
     }
 }
 impl From<std::io::ErrorKind> for Errno {
@@ -251,7 +271,7 @@ impl From<std::io::ErrorKind> for Errno {
 }
 impl From<Errno> for i32 {
     fn from(x: Errno) -> Self {
-        x.0.into()
+        x.0.get()
     }
 }
 
@@ -273,7 +293,8 @@ impl From<Generation> for u64 {
 #[cfg(test)]
 mod test {
     use std::io::IoSlice;
-    use std::ops::{Deref, DerefMut};
+    use std::ops::Deref;
+    use std::ops::DerefMut;
     /// If we want to be able to cast bytes to our fuse C struct types we need it
     /// to be aligned.  This struct helps getting &[u8]s which are 8 byte aligned.
     #[cfg(test)]
@@ -292,7 +313,7 @@ mod test {
         }
     }
 
-    pub fn ioslice_to_vec(s: &[IoSlice<'_>]) -> Vec<u8> {
+    pub(crate) fn ioslice_to_vec(s: &[IoSlice<'_>]) -> Vec<u8> {
         let mut v = Vec::with_capacity(s.iter().map(|x| x.len()).sum());
         for x in s {
             v.extend_from_slice(x);

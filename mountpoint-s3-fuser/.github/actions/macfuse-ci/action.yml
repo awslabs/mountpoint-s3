@@ -1,0 +1,29 @@
+name: "macfuse-ci"
+description: "Shared MacFUSE CI steps"
+runs:
+  using: "composite"
+  steps:
+    - name: Add Homebrew to PATH
+      shell: bash
+      run: |
+        set -euxo pipefail
+        if [ -x /opt/homebrew/bin/brew ]; then
+          eval "$(/opt/homebrew/bin/brew shellenv)"
+        elif [ -x /usr/local/bin/brew ]; then
+          eval "$(/usr/local/bin/brew shellenv)"
+        else
+          echo "brew not found in /opt/homebrew or /usr/local" >&2
+          exit 1
+        fi
+        echo "$HOMEBREW_PREFIX/bin" >> "$GITHUB_PATH"
+        echo "$HOMEBREW_PREFIX/sbin" >> "$GITHUB_PATH"
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Run tests
+      shell: bash
+      run: |
+        cargo test --all --all-targets --features=libfuse -- --skip=mnt::test::mount_unmount
+        cargo run -p fuser-tests -- macos-mount
+        ./tests/macos_pjdfs.sh
