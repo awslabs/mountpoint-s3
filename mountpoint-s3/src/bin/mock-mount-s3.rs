@@ -23,6 +23,7 @@ use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::s3::config::{ClientConfig, TargetThroughputSetting};
 use mountpoint_s3_fs::s3::{S3Path, S3Personality};
 use tikv_jemallocator::Jemalloc;
+use tokio::runtime::Handle;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
@@ -41,6 +42,7 @@ pub fn create_mock_client(
     _pool: PagedPool,
     s3_path: &S3Path,
     personality: Option<S3Personality>,
+    _tokio_handle: Handle,
 ) -> anyhow::Result<(Arc<ThroughputMockClient>, Runtime, S3Personality)> {
     // An extra little safety thing to make sure we can distinguish the real mount-s3 binary and
     // this one. Buckets starting with "sthree-" are always invalid against real S3:

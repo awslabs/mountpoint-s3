@@ -2,6 +2,7 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use std::{env, fs};
 
@@ -17,6 +18,7 @@ use mountpoint_s3_fs::s3::{S3Path, S3Personality};
 use mountpoint_s3_fs::{MountpointConfig, Runtime, Superblock, SuperblockConfig, metrics};
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
+use tokio::runtime::Handle;
 
 use crate::cli::CliArgs;
 use crate::{build_info, parse_cli_args};
@@ -51,13 +53,16 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
 
     if args.foreground {
         let _logging = init_logging(args.make_logging_config()).context("failed to initialize logging")?;
+        // Started before the metrics sink and the FUSE session, which hold the client, so that it is
+        // dropped after them.
+        let tokio_runtime = start_tokio_runtime()?;
         let otlp_endpoint = args.otlp_endpoint.clone();
         let metrics = init_metrics(&otlp_endpoint, args.otlp_export_interval)?;
 
         create_pid_file()?;
 
         // mount file system as a foreground process
-        let session = mount(args, client_builder, &metrics)?;
+        let session = mount(args, client_builder, &metrics, tokio_runtime.handle().clone())?;
 
         println!("{successful_mount_msg}");
 
@@ -83,12 +88,15 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
             ForkResult::Child => {
                 let args = parse_cli_args(false);
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
+                // Started after the fork, as threads don't survive `fork()`, and before the metrics
+                // sink and the FUSE session, which hold the client, so that it is dropped after them.
+                let tokio_runtime = start_tokio_runtime()?;
                 let otlp_endpoint = args.otlp_endpoint.clone();
                 let metrics = init_metrics(&otlp_endpoint, args.otlp_export_interval)?;
 
                 create_pid_file()?;
 
-                let session = mount(args, client_builder, &metrics);
+                let session = mount(args, client_builder, &metrics, tokio_runtime.handle().clone());
 
                 // close unused file descriptor, we only write from this end.
                 drop(read_fd);
@@ -187,10 +195,33 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
     Ok(())
 }
 
+/// Number of worker threads of the Tokio runtime. Its work is short, I/O-bound requests whose
+/// concurrency is bounded by their callers (the FUSE worker threads), so a small pool is enough.
+const TOKIO_WORKER_THREADS: usize = 2;
+
+/// Start the multi-thread Tokio runtime that the client's Tokio-based components, such as those
+/// built on the AWS SDK for Rust, spawn their tasks on. Its threads are named `mp-tokio-<n>`, so they
+/// can be told apart in `top -H` and stack dumps.
+fn start_tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
+    let thread_index = AtomicUsize::new(0);
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(TOKIO_WORKER_THREADS)
+        .thread_name_fn(move || {
+            let index = thread_index.fetch_add(1, Ordering::Relaxed);
+            format!("mp-tokio-{index}")
+        })
+        .enable_all()
+        .build()
+        .context("failed to start the Tokio runtime")
+}
+
+/// Mount the file system. The client's Tokio-based components spawn their tasks through
+/// `tokio_handle`.
 fn mount(
     args: CliArgs,
     client_builder: impl ClientBuilder,
     metrics: &MetricsSinkHandle,
+    tokio_handle: Handle,
 ) -> anyhow::Result<FuseSession> {
     tracing::info!("mount-s3 {}", build_info::FULL_VERSION);
     tracing::debug!("{:?}", args);
@@ -214,7 +245,7 @@ fn mount(
 
     let s3_path = args.s3_path()?;
     let (client, runtime, s3_personality) =
-        client_builder.build(client_config, pool.clone(), &s3_path, args.personality())?;
+        client_builder.build(client_config, pool.clone(), &s3_path, args.personality(), tokio_handle)?;
 
     {
         let client = client.clone();
@@ -258,18 +289,28 @@ pub trait ClientBuilder {
     type Client: ObjectClient + Clone + Send + Sync + 'static;
 
     /// Build a new client instance.
+    ///
+    /// Components of the client that need Tokio spawn their tasks through `tokio_handle`, on a
+    /// multi-thread runtime that is shut down only after the client has been dropped.
     fn build(
         self,
         client_config: ClientConfig,
         pool: PagedPool,
         s3_path: &S3Path,
         personality: Option<S3Personality>,
+        tokio_handle: Handle,
     ) -> anyhow::Result<(Self::Client, Runtime, S3Personality)>;
 }
 
 impl<F, C> ClientBuilder for F
 where
-    F: FnOnce(ClientConfig, PagedPool, &S3Path, Option<S3Personality>) -> anyhow::Result<(C, Runtime, S3Personality)>,
+    F: FnOnce(
+        ClientConfig,
+        PagedPool,
+        &S3Path,
+        Option<S3Personality>,
+        Handle,
+    ) -> anyhow::Result<(C, Runtime, S3Personality)>,
     C: ObjectClient + Clone + Send + Sync + 'static,
 {
     type Client = C;
@@ -280,17 +321,21 @@ where
         pool: PagedPool,
         s3_path: &S3Path,
         personality: Option<S3Personality>,
+        tokio_handle: Handle,
     ) -> anyhow::Result<(Self::Client, Runtime, S3Personality)> {
-        self(client_config, pool, s3_path, personality)
+        self(client_config, pool, s3_path, personality, tokio_handle)
     }
 }
 
-// Create a real S3 client
+/// Create a real S3 client.
+///
+/// The CRT client runs on its own event loop group and does not use the Tokio runtime.
 pub fn create_s3_client(
     client_config: ClientConfig,
     pool: PagedPool,
     s3_path: &S3Path,
     personality: Option<S3Personality>,
+    _tokio_handle: Handle,
 ) -> anyhow::Result<(S3CrtClient, Runtime, S3Personality)> {
     let client = client_config
         .create_client(pool, Some(s3_path))
@@ -350,4 +395,21 @@ fn create_pid_file() -> anyhow::Result<()> {
         tracing::trace!("PID ({pid}) written to file {val:?}");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tokio_runtime_threads_are_named() {
+        let runtime = start_tokio_runtime().unwrap();
+        let name = runtime
+            .block_on(runtime.spawn(async { std::thread::current().name().map(str::to_owned) }))
+            .unwrap();
+        assert!(
+            name.as_deref().is_some_and(|name| name.starts_with("mp-tokio-")),
+            "unexpected thread name {name:?}"
+        );
+    }
 }
