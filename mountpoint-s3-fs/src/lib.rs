@@ -26,7 +26,12 @@ mod util;
 pub use async_util::Runtime;
 pub use config::MountpointConfig;
 pub use fs::{S3Filesystem, S3FilesystemConfig, ServerSideEncryption};
-pub use superblock::{Superblock, SuperblockConfig};
+#[cfg(any(test, feature = "mock"))]
+pub use superblock::InMemoryMetadata;
+pub use superblock::{
+    HeadInfo, ListPage, ListedObject, MetadataClient, MetadataError, MetadataErrorKind, MetadataErrorSource,
+    Superblock, SuperblockConfig,
+};
 
 /// Enable tracing and CRT logging when running unit tests.
 #[cfg(test)]

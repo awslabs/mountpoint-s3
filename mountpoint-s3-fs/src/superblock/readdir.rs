@@ -44,12 +44,11 @@
 use std::collections::VecDeque;
 use std::ffi::OsString;
 
-use super::{InodeKindData, LookedUpInode, RemoteLookup, SuperblockInner};
+use super::{InodeKindData, LookedUpInode, MetadataClient, RemoteLookup, SuperblockInner};
 use crate::metablock::{InodeError, InodeKind, InodeNo, InodeStat};
 use crate::superblock::ValidName;
 use crate::sync::atomic::{AtomicI64, Ordering};
 use crate::sync::{AsyncMutex, Mutex};
-use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::types::RestoreStatus;
 use time::OffsetDateTime;
 use tracing::{error, trace, warn};
@@ -64,7 +63,7 @@ pub struct ReaddirHandle {
 }
 
 impl ReaddirHandle {
-    pub(super) fn new<OC: ObjectClient + Send + Sync>(
+    pub(super) fn new<OC: MetadataClient>(
         inner: &SuperblockInner<OC>,
         dir_ino: InodeNo,
         parent_ino: InodeNo,
@@ -122,7 +121,7 @@ impl ReaddirHandle {
     /// Return the next inode for the directory stream. If the stream is finished, returns
     /// `Ok(None)`. Does not increment the lookup count of the returned inodes: the caller
     /// is responsible for calling [`remember()`] if required.
-    pub(super) async fn next<OC: ObjectClient + Send + Sync>(
+    pub(super) async fn next<OC: MetadataClient>(
         &self,
         inner: &SuperblockInner<OC>,
     ) -> Result<Option<LookedUpInode>, InodeError> {
@@ -165,7 +164,7 @@ impl ReaddirHandle {
     }
 
     /// Process a ReaddirEntry and return the final LookedUpInode result.
-    fn lookup_from_entry<OC: ObjectClient + Send + Sync>(
+    fn lookup_from_entry<OC: MetadataClient>(
         &self,
         inner: &SuperblockInner<OC>,
         entry: &ReaddirEntry,
@@ -329,7 +328,7 @@ impl ReaddirIter {
         Self::Unordered(unordered::ReaddirIter::new(bucket, full_path, page_size, local_entries))
     }
 
-    async fn next(&mut self, client: &impl ObjectClient) -> Result<Option<ReaddirEntry>, InodeError> {
+    async fn next(&mut self, client: &impl MetadataClient) -> Result<Option<ReaddirEntry>, InodeError> {
         match self {
             Self::Ordered(iter) => iter.next(client).await,
             Self::Unordered(iter) => iter.next(client).await,
@@ -376,7 +375,7 @@ impl RemoteIter {
         }
     }
 
-    async fn next(&mut self, client: &impl ObjectClient) -> Result<Option<ReaddirEntry>, InodeError> {
+    async fn next(&mut self, client: &impl MetadataClient) -> Result<Option<ReaddirEntry>, InodeError> {
         if self.entries.is_empty() {
             let continuation_token = match &mut self.state {
                 RemoteIterState::Finished => {
@@ -478,7 +477,7 @@ mod ordered {
 
         /// Return the next [ReaddirEntry] for the directory stream. If the stream is finished, returns
         /// `Ok(None)`.
-        pub(super) async fn next(&mut self, client: &impl ObjectClient) -> Result<Option<ReaddirEntry>, InodeError> {
+        pub(super) async fn next(&mut self, client: &impl MetadataClient) -> Result<Option<ReaddirEntry>, InodeError> {
             // The only reason to go around this loop more than once is if the next entry to return is
             // a duplicate, in which case it's skipped.
             loop {
@@ -593,7 +592,7 @@ mod unordered {
 
         /// Return the next [ReaddirEntry] for the directory stream. If the stream is finished, returns
         /// `Ok(None)`.
-        pub(super) async fn next(&mut self, client: &impl ObjectClient) -> Result<Option<ReaddirEntry>, InodeError> {
+        pub(super) async fn next(&mut self, client: &impl MetadataClient) -> Result<Option<ReaddirEntry>, InodeError> {
             if let Some(remote) = self.remote.next(client).await? {
                 self.local.remove(remote.name());
                 return Ok(Some(remote));

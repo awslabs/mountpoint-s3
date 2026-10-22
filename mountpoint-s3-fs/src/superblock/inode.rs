@@ -572,24 +572,31 @@ mod tests {
     mod shuttle_tests {
         use super::*;
         use crate::fs::FUSE_ROOT_INODE;
-        use mountpoint_s3_client::mock_client::MockClient;
+        use crate::superblock::InMemoryMetadata;
+        use mountpoint_s3_client::mock_client::MockBucket;
         use shuttle::{check_dfs, check_pct, check_random, thread};
         use shuttle::{future::block_on, sync::Arc};
+
+        /// An in-memory metadata backend for `bucket`. Operations complete on first poll, so shuttle
+        /// only schedules at the superblock's own synchronization points.
+        fn in_memory_metadata(bucket: &Bucket, enable_rename: bool) -> InMemoryMetadata {
+            InMemoryMetadata::new(std::sync::Arc::new(
+                MockBucket::config()
+                    .name(bucket.to_string())
+                    .enable_rename(enable_rename)
+                    .build(),
+            ))
+        }
 
         #[test]
         fn test_create_and_forget_race_condition() {
             let bucket = Bucket::new("test_bucket").unwrap();
 
             async fn test_helper(bucket: &Bucket) {
-                let client = Arc::new(
-                    MockClient::config()
-                        .bucket(bucket.to_string())
-                        .part_size(1024 * 1024)
-                        .build(),
-                );
+                let client = in_memory_metadata(bucket, false);
 
                 let name = "foo";
-                client.add_object(name, b"foo".into());
+                client.bucket().add_object(name, b"foo".into());
 
                 let superblock = Arc::new(Superblock::new(
                     client.clone(),
@@ -629,13 +636,7 @@ mod tests {
             let bucket = Bucket::new("test_bucket").unwrap();
 
             async fn test_helper(bucket: &Bucket) {
-                let client = Arc::new(
-                    MockClient::config()
-                        .bucket(bucket.to_string())
-                        .part_size(1024 * 1024)
-                        .enable_rename(true)
-                        .build(),
-                );
+                let client = in_memory_metadata(bucket, true);
 
                 // Create directories first
                 let superblock = Arc::new(Superblock::new(
@@ -651,8 +652,8 @@ mod tests {
                 let dest_name = "dest";
 
                 // Create directories and files
-                client.add_object("dir/source", b"content".into());
-                client.add_object("dirtwo/source", b"content".into());
+                client.bucket().add_object("dir/source", b"content".into());
+                client.bucket().add_object("dirtwo/source", b"content".into());
 
                 // Lookup directories to get inodes
                 let dir_lookup = superblock.lookup(ROOT_INODE_NO, dir.as_ref()).await.unwrap();
@@ -729,17 +730,13 @@ mod tests {
             let bucket = Bucket::new("test_bucket").unwrap();
 
             async fn test_helper(bucket: &Bucket) {
-                let client = MockClient::config()
-                    .bucket(bucket.to_string())
-                    .part_size(1024 * 1024)
-                    .enable_rename(true)
-                    .build();
+                let client = in_memory_metadata(bucket, true);
 
                 let source_name = "source";
-                client.add_object(source_name, b"foo".into());
+                client.bucket().add_object(source_name, b"foo".into());
 
                 let dest_name = "dest";
-                client.add_object(dest_name, b"dest".into());
+                client.bucket().add_object(dest_name, b"dest".into());
 
                 let superblock = Arc::new(Superblock::new(
                     client,

@@ -30,7 +30,9 @@ use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::metrics::metrics_tracing_span_layer;
 use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
-use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
+use mountpoint_s3_fs::{
+    InMemoryMetadata, MetadataClient, Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig,
+};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::Arc;
@@ -38,11 +40,9 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-pub fn make_test_filesystem(
-    bucket: &str,
-    prefix: &Prefix,
-    config: S3FilesystemConfig,
-) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>>) {
+/// The [MockClient] and memory pool used by [make_test_filesystem] and
+/// [make_test_filesystem_with_in_memory_metadata].
+fn make_test_client_and_pool(bucket: &str) -> (Arc<MockClient>, PagedPool) {
     let part_size = 1024 * 1024;
     let client = Arc::new(
         MockClient::config()
@@ -56,6 +56,15 @@ pub fn make_test_filesystem(
         .with_candidate_sizes([CandidateSize::new(part_size)])
         .with_minimum_memory_limit()
         .build();
+    (client, pool)
+}
+
+pub fn make_test_filesystem(
+    bucket: &str,
+    prefix: &Prefix,
+    config: S3FilesystemConfig,
+) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>>) {
+    let (client, pool) = make_test_client_and_pool(bucket);
     let fs = make_test_filesystem_with_client(client.clone(), pool, bucket, prefix, config);
     (client, fs)
 }
@@ -70,10 +79,40 @@ pub fn make_test_filesystem_with_client<Client>(
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
+    make_test_filesystem_with_metadata(client.clone(), client, pool, bucket, prefix, config)
+}
+
+/// Like [make_test_filesystem], but the superblock uses an [InMemoryMetadata] backend over the
+/// same bucket as the returned [MockClient], which serves the data path. Metadata operations then
+/// complete synchronously, without going through [ObjectClient].
+pub fn make_test_filesystem_with_in_memory_metadata(
+    bucket: &str,
+    prefix: &Prefix,
+    config: S3FilesystemConfig,
+) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>>) {
+    let (client, pool) = make_test_client_and_pool(bucket);
+    let metadata = InMemoryMetadata::new(client.mock_bucket().clone());
+    let fs = make_test_filesystem_with_metadata(client.clone(), metadata, pool, bucket, prefix, config);
+    (client, fs)
+}
+
+/// A file system with separate data (`client`) and metadata (`metadata`) backends.
+pub fn make_test_filesystem_with_metadata<Client, Metadata>(
+    client: Client,
+    metadata: Metadata,
+    pool: PagedPool,
+    bucket: &str,
+    prefix: &Prefix,
+    config: S3FilesystemConfig,
+) -> S3Filesystem<Client>
+where
+    Client: ObjectClient + Clone + Send + Sync + 'static,
+    Metadata: MetadataClient + Clone + 'static,
+{
     let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
     let prefetcher_builder = Prefetcher::default_builder(client.clone());
     let superblock = Superblock::new(
-        client.clone(),
+        metadata,
         S3Path::new(Bucket::new(bucket).unwrap(), prefix.clone()),
         SuperblockConfig {
             cache_config: config.cache_config.clone(),

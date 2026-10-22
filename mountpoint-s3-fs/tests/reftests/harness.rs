@@ -24,7 +24,7 @@ use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use tracing::{debug, debug_span, trace};
 
-use crate::common::{DirectoryReply, make_test_filesystem};
+use crate::common::{DirectoryReply, make_test_filesystem_with_in_memory_metadata};
 use crate::reftests::generators::{FileContent, FileSize, Name, TreeNode, ValidName, flatten_tree, gen_tree};
 use crate::reftests::reference::{File, Node, Reference};
 
@@ -801,7 +801,7 @@ mod read_only {
             readdir_size: 5,
             ..Default::default()
         };
-        let (client, fs) = make_test_filesystem(BUCKET_NAME, &test_prefix, config);
+        let (client, fs) = make_test_filesystem_with_in_memory_metadata(BUCKET_NAME, &test_prefix, config);
 
         let namespace = flatten_tree(tree);
         for (key, object) in namespace.iter() {
@@ -954,7 +954,7 @@ mod mutations {
             },
             ..Default::default()
         };
-        let (client, fs) = make_test_filesystem(BUCKET_NAME, &test_prefix, config);
+        let (client, fs) = make_test_filesystem_with_in_memory_metadata(BUCKET_NAME, &test_prefix, config);
 
         let namespace = flatten_tree(initial_tree);
         for (key, object) in namespace.iter() {
