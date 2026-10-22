@@ -1,7 +1,8 @@
-use std::ffi::OsString;
+use std::ffi::{CStr, OsString, c_int};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
+use std::ptr;
 use std::time::Duration;
 use std::{env, fs};
 
@@ -76,13 +77,28 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
         // copy-on-write, but just in case we ever add something more fancy to the struct.
         drop(args);
 
+        // jemalloc turns its background threads off in a forked child, so note whether they are on
+        // here and turn them back on in the child, which then runs with the same allocator setup as
+        // a foreground mount.
+        let jemalloc_background_threads = jemalloc_background_threads_enabled();
+
         // SAFETY: Child process has full ownership of its resources.
         // There is no shared data between parent and child processes other than logging configuration.
         let pid = unsafe { nix::unistd::fork() };
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
+                // Before anything else, so the whole mount process runs with them. Errors are only
+                // logged: the threads move page purging off the threads that free memory, and the
+                // mount works without them.
+                let jemalloc_restored = jemalloc_background_threads.then(enable_jemalloc_background_threads);
+
                 let args = parse_cli_args(false);
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
+                if let Some(Err(e)) = jemalloc_restored {
+                    tracing::warn!(
+                        "failed to re-enable jemalloc background threads after fork: mallctl error code {e}"
+                    );
+                }
                 let otlp_endpoint = args.otlp_endpoint.clone();
                 let metrics = init_metrics(&otlp_endpoint, args.otlp_export_interval)?;
 
@@ -251,6 +267,51 @@ fn mount(
         }));
     }
     Ok(fuse_session)
+}
+
+/// jemalloc's `background_thread` control: a read-write `bool` (see `man jemalloc`).
+const JEMALLOC_BACKGROUND_THREAD: &CStr = c"background_thread";
+
+/// Whether jemalloc's background threads are enabled in this process: `false` if they are disabled
+/// or jemalloc doesn't support them on this platform.
+fn jemalloc_background_threads_enabled() -> bool {
+    let mut enabled = false;
+    let mut len = size_of::<bool>();
+    // SAFETY: the control is a `bool`, and `enabled` and `len` describe a `bool` buffer that
+    // outlives the call.
+    let ret = unsafe {
+        tikv_jemalloc_sys::mallctl(
+            JEMALLOC_BACKGROUND_THREAD.as_ptr(),
+            (&raw mut enabled).cast(),
+            &raw mut len,
+            ptr::null_mut(),
+            0,
+        )
+    };
+    ret == 0 && enabled
+}
+
+/// Enable jemalloc's background threads. jemalloc starts them on demand, up to its configured
+/// maximum (`max_background_threads`), which a fork preserves.
+///
+/// Returns `mallctl`'s error code on failure. The codes are jemalloc's own, which reuse errno
+/// values with different meanings (e.g. `EFAULT` if it can't start a thread).
+fn enable_jemalloc_background_threads() -> Result<(), c_int> {
+    let mut enabled = true;
+    // SAFETY: the control is a `bool`, and `enabled` is a `bool` that outlives the call.
+    let ret = unsafe {
+        tikv_jemalloc_sys::mallctl(
+            JEMALLOC_BACKGROUND_THREAD.as_ptr(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            (&raw mut enabled).cast(),
+            size_of::<bool>(),
+        )
+    };
+    match ret {
+        0 => Ok(()),
+        code => Err(code),
+    }
 }
 
 /// Builder for [ObjectClient] implementations.
