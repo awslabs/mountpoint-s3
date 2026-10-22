@@ -73,8 +73,8 @@ struct InodeInner {
     ///   This reflects similar behavior in the Kernel's VFS named 'inode pointer order',
     ///   described in https://www.kernel.org/doc/html/next/filesystems/directory-locking.html
     ///   Note that the kernel locks by the actual pointer address instead of [InodeNo].
-    ///   For rename operations we respect ancestor relationship,
-    ///   but otherwise just lock the source first.
+    ///   For rename operations, the destination parent is locked first if it is an ancestor of
+    ///   the source parent; otherwise the two parents are locked in ascending order.
     sync: RwLock<InodeState>,
 }
 
@@ -266,6 +266,9 @@ pub enum InodeKindData {
         ///
         /// The existence of a child or lack thereof does not imply the object does not exist,
         /// nor that it currently exists in S3 in that state.
+        ///
+        /// Children are not necessarily in the superblock's inode map, e.g. if the kernel has not
+        /// looked them up or has forgotten them.
         children: HashMap<Box<str>, Inode>,
 
         /// A set of inode numbers that have been opened for write but not completed yet.
@@ -346,7 +349,7 @@ mod tests {
                 pending_upload_hook: None,
             },
         );
-        superblock.inner.inodes.write().unwrap().insert(ino, inode.clone(), 5);
+        superblock.inner.inodes.insert(ino, inode.clone(), 5);
 
         superblock.forget(ino, 3).await;
         let lookup_count = superblock.get_lookup_count(ino);
@@ -360,7 +363,7 @@ mod tests {
         let lookup_count = superblock.get_lookup_count(ino);
         assert_eq!(lookup_count, 0, "lookup should have been reduced");
         assert!(
-            superblock.inner.inodes.read().unwrap().get_inode(&ino).is_none(),
+            !superblock.inner.inodes.contains(ino),
             "inode should not be present in superblock"
         );
 
@@ -493,14 +496,13 @@ mod tests {
 
         // Manually add the corrupted inode to the superblock and root directory.
         {
-            let mut inodes = superblock.inner.inodes.write().unwrap();
-            inodes.insert(inode.ino(), inode.clone(), 1);
-            let parent = inodes.get_inode(&parent_ino).unwrap();
+            let parent = superblock.inner.get(parent_ino).unwrap();
             let mut parent_state = parent.get_mut_inode_state().unwrap();
             match &mut parent_state.kind_data {
                 InodeKindData::File {} => panic!("root is always a directory"),
                 InodeKindData::Directory { children, .. } => _ = children.insert(file_name.into(), inode.clone()),
             }
+            superblock.inner.inodes.insert(inode.ino(), inode.clone(), 1);
         }
 
         let err = superblock
@@ -548,7 +550,7 @@ mod tests {
                 }),
             }),
         };
-        superblock.inner.inodes.write().unwrap().insert(ino, inode.clone(), 5);
+        superblock.inner.inodes.insert(ino, inode.clone(), 5);
 
         // Verify that the stat is invalid
         let inode = superblock.inner.get(ino).unwrap();
@@ -586,6 +588,152 @@ mod tests {
                     .enable_rename(enable_rename)
                     .build(),
             ))
+        }
+
+        /// A rename races with the forget of a sibling inode in the same directory.
+        ///
+        /// `rename` takes the inode map lock while holding the parent's state lock, and `forget`
+        /// unlinks the sibling from the same parent: `forget` must not hold the map lock while
+        /// waiting for the parent's lock.
+        #[test]
+        fn test_rename_and_forget_race_condition() {
+            async fn test_helper(bucket: &Bucket) {
+                let client = in_memory_metadata(bucket, true);
+                client.bucket().add_object("dir/a", b"a".into());
+                client.bucket().add_object("dir/c", b"c".into());
+                let superblock = Arc::new(Superblock::new(
+                    client,
+                    S3Path::new(bucket.clone(), Default::default()),
+                    Default::default(),
+                ));
+                let dir = superblock.lookup(ROOT_INODE_NO, "dir".as_ref()).await.unwrap().ino();
+                superblock.lookup(dir, "a".as_ref()).await.unwrap();
+                let c = superblock.lookup(dir, "c".as_ref()).await.unwrap().ino();
+
+                let superblock_clone = superblock.clone();
+                let forget_task = thread::spawn(move || block_on(superblock_clone.forget(c, 1)));
+                superblock
+                    .rename(dir, "a".as_ref(), dir, "b".as_ref(), true)
+                    .await
+                    .expect("rename should succeed");
+                forget_task.join().unwrap();
+                assert_eq!(superblock.get_lookup_count(c), 0);
+            }
+
+            let bucket = Bucket::new("test_bucket").unwrap();
+            check_dfs(move || block_on(test_helper(&bucket)), Some(100000));
+        }
+
+        /// Opening a directory races with the forget of a child in it.
+        ///
+        /// Opening the directory looks up its local children in the inode map while holding the
+        /// directory's state lock, and `forget` unlinks the local child from the same directory.
+        /// Opening the directory skips the child if it is no longer in the inode map.
+        #[test]
+        fn test_opendir_and_forget_race_condition() {
+            async fn test_helper(bucket: &Bucket) {
+                let client = Arc::new(
+                    MockClient::config()
+                        .bucket(bucket.to_string())
+                        .part_size(1024 * 1024)
+                        .build(),
+                );
+                client.add_object("dir/c", b"c".into());
+                let superblock = Arc::new(Superblock::new(
+                    client,
+                    S3Path::new(bucket.clone(), Default::default()),
+                    Default::default(),
+                ));
+                let dir = superblock.lookup(ROOT_INODE_NO, "dir".as_ref()).await.unwrap().ino();
+                let local = superblock
+                    .create(dir, "local".as_ref(), InodeKind::File)
+                    .await
+                    .unwrap()
+                    .ino();
+
+                let superblock_clone = superblock.clone();
+                let forget_task = thread::spawn(move || block_on(superblock_clone.forget(local, 1)));
+                superblock
+                    .new_readdir_handle(dir)
+                    .await
+                    .expect("opening the directory should succeed");
+                forget_task.join().unwrap();
+                assert_eq!(superblock.get_lookup_count(local), 0);
+            }
+
+            let bucket = Bucket::new("test_bucket").unwrap();
+            check_dfs(move || block_on(test_helper(&bucket)), Some(100000));
+        }
+
+        /// A lookup races with the forget of the inode it finds.
+        ///
+        /// The lookup may remember the inode while `forget` waits for the parent's lock, in which
+        /// case `forget` keeps the inode in the map.
+        #[test]
+        fn test_lookup_and_forget_race_condition() {
+            async fn test_helper(bucket: &Bucket) {
+                let client = Arc::new(
+                    MockClient::config()
+                        .bucket(bucket.to_string())
+                        .part_size(1024 * 1024)
+                        .build(),
+                );
+                client.add_object("dir/c", b"c".into());
+                let superblock = Arc::new(Superblock::new(
+                    client,
+                    S3Path::new(bucket.clone(), Default::default()),
+                    Default::default(),
+                ));
+                let dir = superblock.lookup(ROOT_INODE_NO, "dir".as_ref()).await.unwrap().ino();
+                let c = superblock.lookup(dir, "c".as_ref()).await.unwrap().ino();
+
+                let superblock_clone = superblock.clone();
+                let forget_task = thread::spawn(move || block_on(superblock_clone.forget(c, 1)));
+                let looked_up = superblock.lookup(dir, "c".as_ref()).await.unwrap().ino();
+                forget_task.join().unwrap();
+
+                assert_eq!(superblock.get_lookup_count(looked_up), 1);
+                if looked_up != c {
+                    assert_eq!(superblock.get_lookup_count(c), 0);
+                }
+            }
+
+            let bucket = Bucket::new("test_bucket").unwrap();
+            check_dfs(move || block_on(test_helper(&bucket)), Some(100000));
+        }
+
+        /// The forgets of a directory and of its child race, as when the kernel's forgets are
+        /// handled out of order.
+        ///
+        /// Forgetting the child locks the directory, which may be forgotten in the meantime.
+        #[test]
+        fn test_forget_child_and_parent_race_condition() {
+            async fn test_helper(bucket: &Bucket) {
+                let client = Arc::new(
+                    MockClient::config()
+                        .bucket(bucket.to_string())
+                        .part_size(1024 * 1024)
+                        .build(),
+                );
+                client.add_object("dir/c", b"c".into());
+                let superblock = Arc::new(Superblock::new(
+                    client,
+                    S3Path::new(bucket.clone(), Default::default()),
+                    Default::default(),
+                ));
+                let dir = superblock.lookup(ROOT_INODE_NO, "dir".as_ref()).await.unwrap().ino();
+                let c = superblock.lookup(dir, "c".as_ref()).await.unwrap().ino();
+
+                let superblock_clone = superblock.clone();
+                let forget_task = thread::spawn(move || block_on(superblock_clone.forget(c, 1)));
+                superblock.forget(dir, 1).await;
+                forget_task.join().unwrap();
+                assert_eq!(superblock.get_lookup_count(c), 0);
+                assert_eq!(superblock.get_lookup_count(dir), 0);
+            }
+
+            let bucket = Bucket::new("test_bucket").unwrap();
+            check_dfs(move || block_on(test_helper(&bucket)), Some(100000));
         }
 
         #[test]
