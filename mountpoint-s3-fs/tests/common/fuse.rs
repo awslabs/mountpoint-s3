@@ -257,14 +257,17 @@ pub fn create_fuse_session<Client>(
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
+    // Only the user running the tests can access the mount, as with `mount-s3` without
+    // `--allow-other`/`--allow-root`. Tests expect to be the only clients of the file system:
+    // other processes, such as file scanners, could otherwise open files the tests have just
+    // written, and Mountpoint would then reject the tests' next open for writing with EPERM.
     let options = vec![
         MountOption::DefaultPermissions,
         MountOption::FSName("mountpoint-s3".to_string()),
         MountOption::NoAtime,
-        MountOption::AllowOther,
     ];
-    // `MountOption::AllowOther` corresponds to `SessionACL::All`;
-    let session_acl = fuser::SessionACL::All;
+    // Without `MountOption::AllowOther` or `MountOption::AllowRoot`, `Session::new` uses `SessionACL::Owner`.
+    let session_acl = fuser::SessionACL::Owner;
 
     let fs = create_filesystem(
         client.clone(),
