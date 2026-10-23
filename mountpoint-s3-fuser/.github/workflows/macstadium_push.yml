@@ -1,0 +1,19 @@
+name: MacStadium CI
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  macfuse:
+    runs-on: macstadium
+    env:
+      PKG_CONFIG_PATH: /usr/local/lib/pkgconfig:/opt/homebrew/lib/pkgconfig:$PKG_CONFIG_PATH
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/macfuse-ci

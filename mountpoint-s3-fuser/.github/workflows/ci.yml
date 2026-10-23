@@ -9,13 +9,15 @@ on:
 jobs:
   compile:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     strategy:
       matrix:
         libfuse: [libfuse-dev, libfuse3-dev]
-        features: [ '', 'abi-7-19' ]
+        features: [ '' ]
 
     env:
       RUSTFLAGS: --deny warnings
+      RUSTDOCFLAGS: --deny warnings
 
     steps:
       - uses: actions/checkout@v4
@@ -55,8 +57,10 @@ jobs:
 
   ci:
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     env:
       RUSTFLAGS: --deny warnings
+      RUSTDOCFLAGS: --deny warnings
     steps:
       - uses: actions/checkout@v4
 
@@ -79,26 +83,90 @@ jobs:
           sudo apt install -y libfuse-dev libfuse3-dev build-essential
 
       - name: Install Rust
-        if: steps.rust-cache.outputs.cache-hit != 'true'
         run: |
-          rustup toolchain install 1.81
-          rustup component add rustfmt
+          rustup component add --toolchain nightly rustfmt
           rustup component add clippy
+          rustc --version
+          cargo --version
 
       - name: Install cargo-deny
         if: steps.rust-cache.outputs.cache-hit != 'true'
-        run: cargo +1.81 install --force --version 0.16.2 cargo-deny --locked
+        run: cargo install --force --version 0.16.2 cargo-deny --locked
 
       - name: Run tests
         run: INTERACTIVE="" make pre
 
+  mac-ci:
+    runs-on: macos-26
+    env:
+      RUSTFLAGS: --deny warnings
+      RUSTDOCFLAGS: --deny warnings
+      PKG_CONFIG_PATH: /usr/local/lib/pkgconfig:$PKG_CONFIG_PATH
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache
+        id: rust-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.rustup/toolchains/
+            target/
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-compile-v1-${{ hashFiles('**/Cargo.toml', '.github/workflows/*.yml') }}
+
+      - name: Install packages
+        run: |
+          brew update > /dev/null && brew install autoconf automake
+          brew install --cask macfuse
+
+      - name: Install Rust
+        run: |
+          rustup component add --toolchain nightly rustfmt
+          rustup component add clippy
+          rustc --version
+          cargo --version
+
+      - name: Install cargo-deny
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        run: cargo install --force --version 0.16.2 cargo-deny --locked
+
+      - name: Build
+        run: |
+          cargo check --features=macos-no-mount
+          cargo build --all --all-targets
+          cargo build --all --all-targets --all-features
+
+      - name: Docs
+        run: cargo doc --all --no-deps --all-features
+
+      - name: Lint
+        run: INTERACTIVE="" make pre
+
   test:
     runs-on: ubuntu-22.04
+    timeout-minutes: 120
     strategy:
       matrix:
         test_group: [mount_tests, pjdfs_tests, xfstests]
 
     steps:
+      # https://github.com/marketplace/actions/maximize-build-disk-space-only-remove-unwanted-software
+      - name: Maximize build space
+        uses: AdityaGarg8/remove-unwanted-software@v5
+        with:
+          remove-android: 'true'
+          remove-dotnet: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          # remove-docker-images: 'true'
+          remove-large-packages: 'true'
+          remove-cached-tools: 'true'
+          # verbose: 'true'
+
       - uses: actions/checkout@v4
 
       - name: Run tests

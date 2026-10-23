@@ -5,46 +5,47 @@
 
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
-use zerocopy::{FromBytes, Immutable, KnownLayout};
+
+use zerocopy::FromBytes;
+use zerocopy::Immutable;
+use zerocopy::KnownLayout;
+use zerocopy::error::ConvertError;
 
 /// An iterator that can be used to fetch typed arguments from a byte slice.
-pub struct ArgumentIterator<'a> {
+pub(crate) struct ArgumentIterator<'a> {
     data: &'a [u8],
 }
 
 impl<'a> ArgumentIterator<'a> {
     /// Create a new argument iterator for the given byte slice.
-    pub fn new(data: &'a [u8]) -> ArgumentIterator<'a> {
+    pub(crate) fn new(data: &'a [u8]) -> ArgumentIterator<'a> {
         ArgumentIterator { data }
     }
 
     /// Returns the size of the remaining data.
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.data.len()
     }
 
     /// Fetch a slice of all remaining bytes.
-    pub fn fetch_all(&mut self) -> &'a [u8] {
+    pub(crate) fn fetch_all(&mut self) -> &'a [u8] {
         let bytes = self.data;
         self.data = &[];
         bytes
     }
 
     /// Fetch a typed argument. Returns `None` if there's not enough data left.
-    pub fn fetch<T: FromBytes + KnownLayout + Immutable>(&mut self) -> Option<&'a T> {
+    pub(crate) fn fetch<T: FromBytes + KnownLayout + Immutable>(&mut self) -> Option<&'a T> {
         match zerocopy::Ref::<_, T>::from_prefix(self.data) {
-            Err(_err) => {
-                // TODO: do something with _err
-                if self.data.as_ptr() as usize % core::mem::align_of::<T>() != 0 {
-                    // Panic on alignment errors as this is under the control
-                    // of the programmer, we can still return None for size
-                    // failures as this may be caused by insufficient external
-                    // data.
-                    panic!("Data unaligned");
-                } else {
-                    None
-                }
+            Err(ConvertError::Alignment(_)) => {
+                // Panic on alignment errors as this is under the control
+                // of the programmer, we can still return None for size
+                // failures as this may be caused by insufficient external
+                // data.
+                panic!("Data unaligned");
             }
+            Err(ConvertError::Size(_)) => None,
+            Err(ConvertError::Validity(infallible)) => match infallible {},
             Ok((x, rest)) => {
                 self.data = rest;
                 Some(zerocopy::Ref::<&[u8], T>::into_ref(x))
@@ -53,20 +54,20 @@ impl<'a> ArgumentIterator<'a> {
     }
 
     /// Fetch a slice of typed of arguments. Returns `None` if there's not enough data left.
-    pub fn fetch_slice<T: FromBytes + Immutable>(&mut self, count: usize) -> Option<&'a [T]> {
+    pub(crate) fn fetch_slice<T: FromBytes + Immutable>(
+        &mut self,
+        count: usize,
+    ) -> Option<&'a [T]> {
         match zerocopy::Ref::<_, [T]>::from_prefix_with_elems(self.data, count) {
-            Err(_err) => {
-                // TODO: do something with _err
-                if self.data.as_ptr() as usize % core::mem::align_of::<T>() != 0 {
-                    // Panic on alignment errors as this is under the control
-                    // of the programmer, we can still return None for size
-                    // failures as this may be caused by insufficient external
-                    // data.
-                    panic!("Data unaligned");
-                } else {
-                    None
-                }
+            Err(ConvertError::Alignment(_)) => {
+                // Panic on alignment errors as this is under the control
+                // of the programmer, we can still return None for size
+                // failures as this may be caused by insufficient external
+                // data.
+                panic!("Data unaligned");
             }
+            Err(ConvertError::Size(_)) => None,
+            Err(ConvertError::Validity(infallible)) => match infallible {},
             Ok((x, rest)) => {
                 self.data = rest;
                 Some(zerocopy::Ref::<&[u8], [T]>::into_ref(x))
@@ -76,7 +77,7 @@ impl<'a> ArgumentIterator<'a> {
 
     /// Fetch a (zero-terminated) string (can be non-utf8). Returns `None` if there's not enough
     /// data left or no zero-termination could be found.
-    pub fn fetch_str(&mut self) -> Option<&'a OsStr> {
+    pub(crate) fn fetch_str(&mut self) -> Option<&'a OsStr> {
         let len = memchr::memchr(0, self.data)?;
         let (out, rest) = self.data.split_at(len);
         self.data = &rest[1..];
@@ -85,12 +86,12 @@ impl<'a> ArgumentIterator<'a> {
 }
 
 #[cfg(test)]
-pub mod tests {
-    use std::ops::Deref;
+pub(crate) mod tests {
 
-    use super::super::test::AlignedData;
-    use super::*;
     use zerocopy::FromBytes;
+
+    use crate::ll::argument::*;
+    use crate::ll::test::AlignedData;
 
     const TEST_DATA: AlignedData<[u8; 10]> =
         AlignedData([0x66, 0x6f, 0x6f, 0x00, 0x62, 0x61, 0x72, 0x00, 0x62, 0x61]);
@@ -105,7 +106,7 @@ pub mod tests {
 
     #[test]
     fn all_data() {
-        let mut it = ArgumentIterator::new(TEST_DATA.deref());
+        let mut it = ArgumentIterator::new(&*TEST_DATA);
         it.fetch_str().unwrap();
         let arg = it.fetch_all();
         assert_eq!(arg, [0x62, 0x61, 0x72, 0x00, 0x62, 0x61]);
@@ -113,7 +114,7 @@ pub mod tests {
 
     #[test]
     fn generic_argument() {
-        let mut it = ArgumentIterator::new(TEST_DATA.deref());
+        let mut it = ArgumentIterator::new(&*TEST_DATA);
         let arg: &TestArgument = it.fetch().unwrap();
         assert_eq!(arg.p1, 0x66);
         assert_eq!(arg.p2, 0x6f);
@@ -127,7 +128,7 @@ pub mod tests {
 
     #[test]
     fn string_argument() {
-        let mut it = ArgumentIterator::new(TEST_DATA.deref());
+        let mut it = ArgumentIterator::new(&*TEST_DATA);
         let arg = it.fetch_str().unwrap();
         assert_eq!(arg, "foo");
         let arg = it.fetch_str().unwrap();
@@ -137,7 +138,7 @@ pub mod tests {
 
     #[test]
     fn mixed_arguments() {
-        let mut it = ArgumentIterator::new(TEST_DATA.deref());
+        let mut it = ArgumentIterator::new(&*TEST_DATA);
         let arg: &TestArgument = it.fetch().unwrap();
         assert_eq!(arg.p1, 0x66);
         assert_eq!(arg.p2, 0x6f);
@@ -150,7 +151,7 @@ pub mod tests {
 
     #[test]
     fn out_of_data() {
-        let mut it = ArgumentIterator::new(TEST_DATA.deref());
+        let mut it = ArgumentIterator::new(&*TEST_DATA);
         it.fetch::<u64>().unwrap();
         let arg: Option<&TestArgument> = it.fetch();
         assert!(arg.is_none());
