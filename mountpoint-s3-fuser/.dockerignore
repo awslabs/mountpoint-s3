@@ -1,10 +1,10 @@
 *
 !src/
 !examples/
+!tests/
+!fuser-tests/
 !./Cargo.*
 !./rust-toolchain
 !./build.rs
 !./pjdfs.sh
 !./xfstests.sh
-!./mount_tests.sh
-!./simplefs_tests.sh

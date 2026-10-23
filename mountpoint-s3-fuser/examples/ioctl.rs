@@ -1,19 +1,45 @@
 // This example requires fuse 7.11 or later. Run with:
 //
-//   cargo run --example ioctl --features abi-7-11 /tmp/foobar
+//   cargo run --example ioctl /tmp/foobar
 
-use clap::{Arg, ArgAction, Command, crate_version};
-use fuser::{
-    FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry,
-    Request,
-};
-use libc::{EINVAL, ENOENT};
-use log::debug;
+mod common;
+
 use std::ffi::OsStr;
-use std::sync::Mutex;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::Duration;
+use std::time::UNIX_EPOCH;
+
+use clap::Parser;
+use fuser::Errno;
+use fuser::FileAttr;
+use fuser::FileHandle;
+use fuser::FileType;
+use fuser::Filesystem;
+use fuser::INodeNo;
+use fuser::IoctlFlags;
+use fuser::LockOwner;
+use fuser::OpenFlags;
+use fuser::ReplyAttr;
+use fuser::ReplyData;
+use fuser::ReplyDirectory;
+use fuser::ReplyEntry;
+use fuser::ReplyIoctl;
+use fuser::Request;
+use log::debug;
+use parking_lot::Mutex;
+
+use crate::common::args::CommonArgs;
+
+#[derive(Parser)]
+#[command(version, author = "Colin Marc")]
+struct Args {
+    #[clap(flatten)]
+    common_args: CommonArgs,
+}
 
 const TTL: Duration = Duration::from_secs(1); // 1 second
+
+const FIOC_GET_SIZE: u64 = nix::request_code_read!('E', 0, size_of::<usize>());
+const FIOC_SET_SIZE: u64 = nix::request_code_write!('E', 1, size_of::<usize>());
 
 struct FiocFS {
     content: Mutex<Vec<u8>>,
@@ -23,11 +49,11 @@ struct FiocFS {
 
 impl FiocFS {
     fn new() -> Self {
-        let uid = unsafe { libc::getuid() };
-        let gid = unsafe { libc::getgid() };
+        let uid = nix::unistd::getuid().into();
+        let gid = nix::unistd::getgid().into();
 
         let root_attr = FileAttr {
-            ino: 1,
+            ino: INodeNo::ROOT,
             size: 0,
             blocks: 0,
             atime: UNIX_EPOCH, // 1970-01-01 00:00:00
@@ -45,7 +71,7 @@ impl FiocFS {
         };
 
         let fioc_file_attr = FileAttr {
-            ino: 2,
+            ino: INodeNo(2),
             size: 0,
             blocks: 1,
             atime: UNIX_EPOCH, // 1970-01-01 00:00:00
@@ -63,7 +89,7 @@ impl FiocFS {
         };
 
         Self {
-            content: vec![].into(),
+            content: Mutex::new(vec![]),
             root_attr,
             fioc_file_attr,
         }
@@ -71,44 +97,51 @@ impl FiocFS {
 }
 
 impl Filesystem for FiocFS {
-    fn lookup(&self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        if parent == 1 && name.to_str() == Some("fioc") {
-            reply.entry(&TTL, &self.fioc_file_attr, 0);
+    fn lookup(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
+        if parent == INodeNo::ROOT && name.to_str() == Some("fioc") {
+            reply.entry(&TTL, &self.fioc_file_attr, fuser::Generation(0));
         } else {
-            reply.error(ENOENT);
+            reply.error(Errno::ENOENT);
         }
     }
 
-    fn getattr(&self, _req: &Request, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
-        match ino {
+    fn getattr(&self, _req: &Request, ino: INodeNo, _fh: Option<FileHandle>, reply: ReplyAttr) {
+        match ino.0 {
             1 => reply.attr(&TTL, &self.root_attr),
             2 => reply.attr(&TTL, &self.fioc_file_attr),
-            _ => reply.error(ENOENT),
+            _ => reply.error(Errno::ENOENT),
         }
     }
 
     fn read(
         &self,
         _req: &Request,
-        ino: u64,
-        _fh: u64,
-        offset: i64,
+        ino: INodeNo,
+        _fh: FileHandle,
+        offset: u64,
         _size: u32,
-        _flags: i32,
-        _lock: Option<u64>,
+        _flags: OpenFlags,
+        _lock_owner: Option<LockOwner>,
         reply: ReplyData,
     ) {
-        if ino == 2 {
-            let content = self.content.lock().unwrap();
-            reply.data(&content[offset as usize..])
+        if ino == INodeNo(2) {
+            let content = self.content.lock();
+            reply.data(&content[offset as usize..]);
         } else {
-            reply.error(ENOENT);
+            reply.error(Errno::ENOENT);
         }
     }
 
-    fn readdir(&self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
-        if ino != 1 {
-            reply.error(ENOENT);
+    fn readdir(
+        &self,
+        _req: &Request,
+        ino: INodeNo,
+        _fh: FileHandle,
+        offset: u64,
+        mut reply: ReplyDirectory,
+    ) {
+        if ino != INodeNo::ROOT {
+            reply.error(Errno::ENOENT);
             return;
         }
 
@@ -120,7 +153,7 @@ impl Filesystem for FiocFS {
 
         for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
             // i + 1 means the index of the next entry
-            if reply.add(entry.0, (i + 1) as i64, entry.1, entry.2) {
+            if reply.add(INodeNo(entry.0), (i + 1) as u64, entry.1, entry.2) {
                 break;
             }
         }
@@ -129,76 +162,44 @@ impl Filesystem for FiocFS {
 
     fn ioctl(
         &self,
-        _req: &Request<'_>,
-        ino: u64,
-        _fh: u64,
-        _flags: u32,
+        _req: &Request,
+        ino: INodeNo,
+        _fh: FileHandle,
+        _flags: IoctlFlags,
         cmd: u32,
         in_data: &[u8],
         _out_size: u32,
-        reply: fuser::ReplyIoctl,
+        reply: ReplyIoctl,
     ) {
-        if ino != 2 {
-            reply.error(EINVAL);
+        if ino != INodeNo(2) {
+            reply.error(Errno::EINVAL);
             return;
         }
 
-        const FIOC_GET_SIZE: u64 = nix::request_code_read!('E', 0, std::mem::size_of::<usize>());
-        const FIOC_SET_SIZE: u64 = nix::request_code_write!('E', 1, std::mem::size_of::<usize>());
-
         match cmd.into() {
             FIOC_GET_SIZE => {
-                let size_bytes = self.content.lock().unwrap().len().to_ne_bytes();
+                let content = self.content.lock();
+                let size_bytes = content.len().to_ne_bytes();
                 reply.ioctl(0, &size_bytes);
             }
             FIOC_SET_SIZE => {
                 let new_size = usize::from_ne_bytes(in_data.try_into().unwrap());
-                *self.content.lock().unwrap() = vec![0_u8; new_size];
+                *self.content.lock() = vec![0_u8; new_size];
                 reply.ioctl(0, &[]);
             }
             _ => {
                 debug!("unknown ioctl: {cmd}");
-                reply.error(EINVAL);
+                reply.error(Errno::EINVAL);
             }
         }
     }
 }
 
 fn main() {
-    let matches = Command::new("hello")
-        .version(crate_version!())
-        .author("Colin Marc")
-        .arg(
-            Arg::new("MOUNT_POINT")
-                .required(true)
-                .index(1)
-                .help("Act as a client, and mount FUSE at given path"),
-        )
-        .arg(
-            Arg::new("auto_unmount")
-                .long("auto_unmount")
-                .action(ArgAction::SetTrue)
-                .help("Automatically unmount on process exit"),
-        )
-        .arg(
-            Arg::new("allow-root")
-                .long("allow-root")
-                .action(ArgAction::SetTrue)
-                .help("Allow root user to access filesystem"),
-        )
-        .get_matches();
-
+    let args = Args::parse();
     env_logger::init();
 
-    let mountpoint = matches.get_one::<String>("MOUNT_POINT").unwrap();
-    let mut options = vec![MountOption::FSName("fioc".to_string())];
-    if matches.get_flag("auto_unmount") {
-        options.push(MountOption::AutoUnmount);
-    }
-    if matches.get_flag("allow-root") {
-        options.push(MountOption::AllowRoot);
-    }
-
+    let cfg = args.common_args.config();
     let fs = FiocFS::new();
-    fuser::mount2(fs, mountpoint, &options).unwrap();
+    fuser::mount2(fs, &args.common_args.mount_point, &cfg).unwrap();
 }

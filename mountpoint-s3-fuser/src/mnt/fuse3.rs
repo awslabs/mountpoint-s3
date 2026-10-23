@@ -1,18 +1,23 @@
-use super::fuse3_sys::{
-    fuse_lowlevel_ops, fuse_session_destroy, fuse_session_fd, fuse_session_mount, fuse_session_new,
-    fuse_session_unmount,
-};
-use super::{MountOption, with_fuse_args};
-use log::warn;
-use std::{
-    ffi::{CString, c_void},
-    fs::File,
-    io,
-    os::unix::{ffi::OsStrExt, io::FromRawFd},
-    path::Path,
-    ptr,
-    sync::Arc,
-};
+use std::ffi::CString;
+use std::ffi::c_void;
+use std::fs::File;
+use std::io;
+use std::os::fd::BorrowedFd;
+use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
+use std::ptr;
+use std::sync::Arc;
+
+use crate::SessionACL;
+use crate::dev_fuse::DevFuse;
+use crate::mnt::MountOption;
+use crate::mnt::fuse3_sys::fuse_lowlevel_ops;
+use crate::mnt::fuse3_sys::fuse_session_destroy;
+use crate::mnt::fuse3_sys::fuse_session_fd;
+use crate::mnt::fuse3_sys::fuse_session_mount;
+use crate::mnt::fuse3_sys::fuse_session_new;
+use crate::mnt::fuse3_sys::fuse_session_unmount;
+use crate::mnt::with_fuse_args;
 
 /// Ensures that an os error is never 0/Success
 fn ensure_last_os_error() -> io::Error {
@@ -23,35 +28,33 @@ fn ensure_last_os_error() -> io::Error {
     }
 }
 
-/// An active FUSE mount.
-///
-/// This struct manages the lifecycle of the mount, unmounting and destroying the session when dropped.
 #[derive(Debug)]
-pub struct Mount {
+pub(crate) struct MountImpl {
     fuse_session: *mut c_void,
     mountpoint: CString,
 }
-impl Mount {
-    /// Mounts the filesystem at the given path, with the given options.
-    ///
-    /// Returns the mounted FUSE file descriptor along with a [Mount] for handling the mount lifecycle.
-    pub fn new(mnt: &Path, options: &[MountOption]) -> io::Result<(Arc<File>, Mount)> {
+impl MountImpl {
+    pub(crate) fn new(
+        mnt: &Path,
+        options: &[MountOption],
+        acl: SessionACL,
+    ) -> io::Result<(Arc<DevFuse>, MountImpl)> {
         let mnt = CString::new(mnt.as_os_str().as_bytes()).unwrap();
-        with_fuse_args(options, |args| {
+        with_fuse_args(options, acl, |args| {
             let ops = fuse_lowlevel_ops::default();
 
             let fuse_session = unsafe {
                 fuse_session_new(
                     args,
                     &ops as *const _,
-                    std::mem::size_of::<fuse_lowlevel_ops>(),
+                    size_of::<fuse_lowlevel_ops>(),
                     ptr::null_mut(),
                 )
             };
             if fuse_session.is_null() {
                 return Err(io::Error::last_os_error());
             }
-            let mount = Mount {
+            let mount = MountImpl {
                 fuse_session,
                 mountpoint: mnt.clone(),
             };
@@ -63,31 +66,30 @@ impl Mount {
             if fd < 0 {
                 return Err(io::Error::last_os_error());
             }
+            let fd = unsafe { BorrowedFd::borrow_raw(fd) };
             // We dup the fd here as the existing fd is owned by the fuse_session, and we
             // don't want it being closed out from under us:
-            let fd = nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_DUPFD_CLOEXEC(0))?;
-            let file = unsafe { File::from_raw_fd(fd) };
-            Ok((Arc::new(file), mount))
+            let fd = fd.try_clone_to_owned()?;
+            let file = File::from(fd);
+            Ok((Arc::new(DevFuse(file)), mount))
         })
     }
-}
-impl Drop for Mount {
-    fn drop(&mut self) {
-        use std::io::ErrorKind::PermissionDenied;
 
-        if let Err(err) = super::libc_umount(&self.mountpoint) {
+    pub(crate) fn umount_impl(&mut self) -> io::Result<()> {
+        if let Err(err) = crate::mnt::libc_umount(&self.mountpoint) {
             // Linux always returns EPERM for non-root users.  We have to let the
             // library go through the setuid-root "fusermount -u" to unmount.
-            if err.kind() == PermissionDenied {
+            if err == nix::errno::Errno::EPERM {
                 #[cfg(target_os = "linux")]
                 unsafe {
                     fuse_session_unmount(self.fuse_session);
                     fuse_session_destroy(self.fuse_session);
-                    return;
+                    return Ok(());
                 }
             }
-            warn!("umount failed with {err:?}");
+            return Err(err.into());
         }
+        Ok(())
     }
 }
-unsafe impl Send for Mount {}
+unsafe impl Send for MountImpl {}

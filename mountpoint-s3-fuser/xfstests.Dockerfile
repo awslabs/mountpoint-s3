@@ -20,4 +20,4 @@ RUN mkdir -p /code && cd /code && git clone https://github.com/fleetfs/fuse-xfst
 
 ADD . /code/fuser/
 
-RUN cd /code/fuser && cargo build --release --examples --features=abi-7-31 && cp target/release/examples/simple /bin/fuser
+RUN cd /code/fuser && cargo build --release --examples && cp target/release/examples/simple /bin/fuser
