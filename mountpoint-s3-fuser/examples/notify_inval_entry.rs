@@ -7,42 +7,50 @@
 // Due to the above provenance, unlike the rest of fuser this file is
 // licensed under the terms of the GNU GPLv2.
 
-use std::{
-    ffi::OsStr,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicU64, Ordering::SeqCst},
-    },
-    thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+mod common;
 
-use libc::{ENOBUFS, ENOENT, ENOTDIR};
+use std::ffi::OsStr;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering::SeqCst;
+use std::thread;
+use std::time::Duration;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use clap::Parser;
+use fuser::Errno;
+use fuser::FileAttr;
+use fuser::FileHandle;
+use fuser::FileType;
+use fuser::Filesystem;
+use fuser::INodeNo;
+use fuser::MountOption;
+use fuser::ReplyAttr;
+use fuser::ReplyDirectory;
+use fuser::ReplyEntry;
+use fuser::Request;
+use parking_lot::Mutex;
 
-use fuser::{
-    FUSE_ROOT_ID, FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyDirectory,
-    ReplyEntry, Request,
-};
+use crate::common::args::CommonArgs;
 
-struct ClockFS<'a> {
+struct ClockFS {
     file_name: Arc<Mutex<String>>,
-    lookup_cnt: &'a AtomicU64,
+    lookup_cnt: &'static AtomicU64,
     timeout: Duration,
 }
 
-impl ClockFS<'_> {
+impl ClockFS {
     const FILE_INO: u64 = 2;
 
     fn get_filename(&self) -> String {
-        let n = self.file_name.lock().unwrap();
+        let n = self.file_name.lock();
         n.clone()
     }
 
-    fn stat(ino: u64) -> Option<FileAttr> {
-        let (kind, perm) = match ino {
-            FUSE_ROOT_ID => (FileType::Directory, 0o755),
+    fn stat(ino: INodeNo) -> Option<FileAttr> {
+        let (kind, perm) = match ino.0 {
+            1 => (FileType::Directory, 0o755),
             Self::FILE_INO => (FileType::RegularFile, 0o000),
             _ => return None,
         };
@@ -67,48 +75,59 @@ impl ClockFS<'_> {
     }
 }
 
-impl Filesystem for ClockFS<'_> {
-    fn lookup(&self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        if parent != FUSE_ROOT_ID || name != AsRef::<OsStr>::as_ref(&self.get_filename()) {
-            reply.error(ENOENT);
+impl Filesystem for ClockFS {
+    fn lookup(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
+        if parent != INodeNo::ROOT || name != AsRef::<OsStr>::as_ref(&self.get_filename()) {
+            reply.error(Errno::ENOENT);
             return;
         }
 
         self.lookup_cnt.fetch_add(1, SeqCst);
-        reply.entry(&self.timeout, &ClockFS::stat(ClockFS::FILE_INO).unwrap(), 0);
+        reply.entry(
+            &self.timeout,
+            &ClockFS::stat(INodeNo(ClockFS::FILE_INO)).unwrap(),
+            fuser::Generation(0),
+        );
     }
 
-    fn forget(&self, _req: &Request, ino: u64, nlookup: u64) {
-        if ino == ClockFS::FILE_INO {
-            let prev = self.lookup_cnt.fetch_sub(nlookup, SeqCst);
-            assert!(prev >= nlookup);
+    fn forget(&self, _req: &Request, ino: INodeNo, _nlookup: u64) {
+        if ino.0 == ClockFS::FILE_INO {
+            let prev = self.lookup_cnt.fetch_sub(_nlookup, SeqCst);
+            assert!(prev >= _nlookup);
         } else {
-            assert!(ino == FUSE_ROOT_ID);
+            assert!(ino == INodeNo::ROOT);
         }
     }
 
-    fn getattr(&self, _req: &Request, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
+    fn getattr(&self, _req: &Request, ino: INodeNo, _fh: Option<FileHandle>, reply: ReplyAttr) {
         match ClockFS::stat(ino) {
             Some(a) => reply.attr(&self.timeout, &a),
-            None => reply.error(ENOENT),
+            None => reply.error(Errno::ENOENT),
         }
     }
 
-    fn readdir(&self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
-        if ino != FUSE_ROOT_ID {
-            reply.error(ENOTDIR);
+    fn readdir(
+        &self,
+        _req: &Request,
+        ino: INodeNo,
+        _fh: FileHandle,
+        offset: u64,
+        mut reply: ReplyDirectory,
+    ) {
+        if ino != INodeNo::ROOT {
+            reply.error(Errno::ENOTDIR);
             return;
         }
 
         if offset == 0
             && reply.add(
-                ClockFS::FILE_INO,
+                INodeNo(ClockFS::FILE_INO),
                 offset + 1,
                 FileType::RegularFile,
                 self.get_filename(),
             )
         {
-            reply.error(ENOBUFS);
+            reply.error(Errno::ENOBUFS);
         } else {
             reply.ok();
         }
@@ -124,8 +143,8 @@ fn now_filename() -> String {
 
 #[derive(Parser)]
 struct Options {
-    /// Mount demo filesystem at given path
-    mount_point: String,
+    #[clap(flatten)]
+    common_args: CommonArgs,
 
     /// Timeout for kernel caches
     #[clap(short, long, default_value_t = 5.0)]
@@ -146,7 +165,9 @@ struct Options {
 
 fn main() {
     let opts = Options::parse();
-    let options = vec![MountOption::RO, MountOption::FSName("clock".to_string())];
+    let mut cfg = opts.common_args.config();
+    cfg.mount_options
+        .extend([MountOption::RO, MountOption::FSName("clock".to_string())]);
     let fname = Arc::new(Mutex::new(now_filename()));
     let lookup_cnt = Box::leak(Box::new(AtomicU64::new(0)));
     let fs = ClockFS {
@@ -155,18 +176,18 @@ fn main() {
         timeout: Duration::from_secs_f32(opts.timeout),
     };
 
-    let session = fuser::Session::new(fs, opts.mount_point, &options).unwrap();
+    let session = fuser::Session::new(fs, opts.common_args.mount_point, &cfg).unwrap();
     let notifier = session.notifier();
     let _bg = session.spawn().unwrap();
 
     loop {
-        let mut fname = fname.lock().unwrap();
+        let mut fname = fname.lock();
         let oldname = std::mem::replace(&mut *fname, now_filename());
         drop(fname);
         if !opts.no_notify && lookup_cnt.load(SeqCst) != 0 {
             if opts.only_expire {
-                // fuser::notify_expire_entry(_SOME_HANDLE_, FUSE_ROOT_ID, &oldname);
-            } else if let Err(e) = notifier.inval_entry(FUSE_ROOT_ID, oldname.as_ref()) {
+                // fuser::notify_expire_entry(_SOME_HANDLE_, INodeNo::ROOT, &oldname);
+            } else if let Err(e) = notifier.inval_entry(INodeNo::ROOT, oldname.as_ref()) {
                 eprintln!("Warning: failed to invalidate entry '{oldname}': {e}");
             }
         }

@@ -5,55 +5,65 @@
 #![warn(missing_debug_implementations)]
 #![allow(missing_docs)]
 #![allow(non_camel_case_types)]
-use super::fuse2_sys::fuse_args;
-use libc::{c_char, c_int, c_uint, c_void, dev_t, mode_t, off_t, size_t};
+use libc::c_char;
+use libc::c_int;
+use libc::c_uint;
+use libc::c_void;
+use libc::dev_t;
+use libc::mode_t;
+use libc::off_t;
+use libc::size_t;
+
+use crate::mnt::fuse2_sys::fuse_args;
 // Opaque types for FUSE-specific pointers
 type fuse_req_t = *mut c_void;
 type fuse_pollhandle = *mut c_void;
 type fuse_bufvec = *mut c_void;
 type fuse_forget_data = *mut c_void;
-pub type fuse_ino_t = u64;
+pub(crate) type fuse_ino_t = u64;
 // Struct to represent fuse_file_info
 #[repr(C)]
-pub struct fuse_file_info {
+pub(crate) struct fuse_file_info {
     // Simplified; actual fields depend on FUSE version
-    pub flags: c_int,
-    pub fh: u64,
+    pub(crate) flags: c_int,
+    pub(crate) fh: u64,
     // Add other fields as needed
 }
 // Struct to represent stat
 #[repr(C)]
-pub struct stat {
-    pub st_ino: u64,
-    pub st_mode: mode_t,
+pub(crate) struct stat {
+    pub(crate) st_ino: u64,
+    pub(crate) st_mode: mode_t,
     // Add other fields as needed
 }
 // Struct to represent flock
 #[repr(C)]
-pub struct flock {
-    pub l_type: c_int,
-    pub l_start: off_t,
-    pub l_len: off_t,
-    pub l_pid: c_int,
+pub(crate) struct flock {
+    pub(crate) l_type: c_int,
+    pub(crate) l_start: off_t,
+    pub(crate) l_len: off_t,
+    pub(crate) l_pid: c_int,
     // Add other fields as needed
 }
 // Struct to represent fuse_conn_info
 #[repr(C)]
-pub struct fuse_conn_info {
-    pub proto_major: c_uint,
-    pub proto_minor: c_uint,
+pub(crate) struct fuse_conn_info {
+    pub(crate) proto_major: c_uint,
+    pub(crate) proto_minor: c_uint,
     // Add other fields as needed
 }
 // Rust binding for fuse_lowlevel_ops
 #[repr(C)]
 #[derive(Default)]
-pub struct fuse_lowlevel_ops {
-    pub init: Option<extern "C" fn(userdata: *mut c_void, conn: *mut fuse_conn_info)>,
-    pub destroy: Option<extern "C" fn(userdata: *mut c_void)>,
-    pub lookup: Option<extern "C" fn(req: fuse_req_t, parent: fuse_ino_t, name: *const c_char)>,
-    pub forget: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, nlookup: u64)>,
-    pub getattr: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, fi: *mut fuse_file_info)>,
-    pub setattr: Option<
+pub(crate) struct fuse_lowlevel_ops {
+    pub(crate) init: Option<extern "C" fn(userdata: *mut c_void, conn: *mut fuse_conn_info)>,
+    pub(crate) destroy: Option<extern "C" fn(userdata: *mut c_void)>,
+    pub(crate) lookup:
+        Option<extern "C" fn(req: fuse_req_t, parent: fuse_ino_t, name: *const c_char)>,
+    pub(crate) forget: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, nlookup: u64)>,
+    pub(crate) getattr:
+        Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, fi: *mut fuse_file_info)>,
+    pub(crate) setattr: Option<
         extern "C" fn(
             req: fuse_req_t,
             ino: fuse_ino_t,
@@ -62,8 +72,8 @@ pub struct fuse_lowlevel_ops {
             fi: *mut fuse_file_info,
         ),
     >,
-    pub readlink: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t)>,
-    pub mknod: Option<
+    pub(crate) readlink: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t)>,
+    pub(crate) mknod: Option<
         extern "C" fn(
             req: fuse_req_t,
             parent: fuse_ino_t,
@@ -72,12 +82,14 @@ pub struct fuse_lowlevel_ops {
             rdev: dev_t,
         ),
     >,
-    pub mkdir: Option<
+    pub(crate) mkdir: Option<
         extern "C" fn(req: fuse_req_t, parent: fuse_ino_t, name: *const c_char, mode: mode_t),
     >,
-    pub unlink: Option<extern "C" fn(req: fuse_req_t, parent: fuse_ino_t, name: *const c_char)>,
-    pub rmdir: Option<extern "C" fn(req: fuse_req_t, parent: fuse_ino_t, name: *const c_char)>,
-    pub symlink: Option<
+    pub(crate) unlink:
+        Option<extern "C" fn(req: fuse_req_t, parent: fuse_ino_t, name: *const c_char)>,
+    pub(crate) rmdir:
+        Option<extern "C" fn(req: fuse_req_t, parent: fuse_ino_t, name: *const c_char)>,
+    pub(crate) symlink: Option<
         extern "C" fn(
             req: fuse_req_t,
             link: *const c_char,
@@ -85,7 +97,7 @@ pub struct fuse_lowlevel_ops {
             name: *const c_char,
         ),
     >,
-    pub rename: Option<
+    pub(crate) rename: Option<
         extern "C" fn(
             req: fuse_req_t,
             parent: fuse_ino_t,
@@ -95,7 +107,7 @@ pub struct fuse_lowlevel_ops {
             flags: c_uint,
         ),
     >,
-    pub link: Option<
+    pub(crate) link: Option<
         extern "C" fn(
             req: fuse_req_t,
             ino: fuse_ino_t,
@@ -103,8 +115,9 @@ pub struct fuse_lowlevel_ops {
             newname: *const c_char,
         ),
     >,
-    pub open: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, fi: *mut fuse_file_info)>,
-    pub read: Option<
+    pub(crate) open:
+        Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, fi: *mut fuse_file_info)>,
+    pub(crate) read: Option<
         extern "C" fn(
             req: fuse_req_t,
             ino: fuse_ino_t,
@@ -113,7 +126,7 @@ pub struct fuse_lowlevel_ops {
             fi: *mut fuse_file_info,
         ),
     >,
-    pub write: Option<
+    pub(crate) write: Option<
         extern "C" fn(
             req: fuse_req_t,
             ino: fuse_ino_t,
@@ -123,13 +136,16 @@ pub struct fuse_lowlevel_ops {
             fi: *mut fuse_file_info,
         ),
     >,
-    pub flush: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, fi: *mut fuse_file_info)>,
-    pub release: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, fi: *mut fuse_file_info)>,
-    pub fsync: Option<
+    pub(crate) flush:
+        Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, fi: *mut fuse_file_info)>,
+    pub(crate) release:
+        Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, fi: *mut fuse_file_info)>,
+    pub(crate) fsync: Option<
         extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, datasync: c_int, fi: *mut fuse_file_info),
     >,
-    pub opendir: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, fi: *mut fuse_file_info)>,
-    pub readdir: Option<
+    pub(crate) opendir:
+        Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, fi: *mut fuse_file_info)>,
+    pub(crate) readdir: Option<
         extern "C" fn(
             req: fuse_req_t,
             ino: fuse_ino_t,
@@ -138,13 +154,13 @@ pub struct fuse_lowlevel_ops {
             fi: *mut fuse_file_info,
         ),
     >,
-    pub releasedir:
+    pub(crate) releasedir:
         Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, fi: *mut fuse_file_info)>,
-    pub fsyncdir: Option<
+    pub(crate) fsyncdir: Option<
         extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, datasync: c_int, fi: *mut fuse_file_info),
     >,
-    pub statfs: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t)>,
-    pub setxattr: Option<
+    pub(crate) statfs: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t)>,
+    pub(crate) setxattr: Option<
         extern "C" fn(
             req: fuse_req_t,
             ino: fuse_ino_t,
@@ -154,12 +170,13 @@ pub struct fuse_lowlevel_ops {
             flags: c_int,
         ),
     >,
-    pub getxattr:
+    pub(crate) getxattr:
         Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, name: *const c_char, size: size_t)>,
-    pub listxattr: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, size: size_t)>,
-    pub removexattr: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, name: *const c_char)>,
-    pub access: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, mask: c_int)>,
-    pub create: Option<
+    pub(crate) listxattr: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, size: size_t)>,
+    pub(crate) removexattr:
+        Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, name: *const c_char)>,
+    pub(crate) access: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, mask: c_int)>,
+    pub(crate) create: Option<
         extern "C" fn(
             req: fuse_req_t,
             parent: fuse_ino_t,
@@ -168,10 +185,10 @@ pub struct fuse_lowlevel_ops {
             fi: *mut fuse_file_info,
         ),
     >,
-    pub getlk: Option<
+    pub(crate) getlk: Option<
         extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, fi: *mut fuse_file_info, lock: *mut flock),
     >,
-    pub setlk: Option<
+    pub(crate) setlk: Option<
         extern "C" fn(
             req: fuse_req_t,
             ino: fuse_ino_t,
@@ -180,8 +197,9 @@ pub struct fuse_lowlevel_ops {
             sleep: c_int,
         ),
     >,
-    pub bmap: Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, blocksize: size_t, idx: u64)>,
-    pub ioctl: Option<
+    pub(crate) bmap:
+        Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, blocksize: size_t, idx: u64)>,
+    pub(crate) ioctl: Option<
         extern "C" fn(
             req: fuse_req_t,
             ino: fuse_ino_t,
@@ -194,7 +212,7 @@ pub struct fuse_lowlevel_ops {
             out_bufsz: size_t,
         ),
     >,
-    pub poll: Option<
+    pub(crate) poll: Option<
         extern "C" fn(
             req: fuse_req_t,
             ino: fuse_ino_t,
@@ -202,7 +220,7 @@ pub struct fuse_lowlevel_ops {
             ph: *mut fuse_pollhandle,
         ),
     >,
-    pub write_buf: Option<
+    pub(crate) write_buf: Option<
         extern "C" fn(
             req: fuse_req_t,
             ino: fuse_ino_t,
@@ -211,7 +229,7 @@ pub struct fuse_lowlevel_ops {
             fi: *mut fuse_file_info,
         ),
     >,
-    pub retrieve_reply: Option<
+    pub(crate) retrieve_reply: Option<
         extern "C" fn(
             req: fuse_req_t,
             cookie: *mut c_void,
@@ -220,11 +238,11 @@ pub struct fuse_lowlevel_ops {
             bufv: *mut fuse_bufvec,
         ),
     >,
-    pub forget_multi:
+    pub(crate) forget_multi:
         Option<extern "C" fn(req: fuse_req_t, count: size_t, forgets: *mut fuse_forget_data)>,
-    pub flock:
+    pub(crate) flock:
         Option<extern "C" fn(req: fuse_req_t, ino: fuse_ino_t, fi: *mut fuse_file_info, op: c_int)>,
-    pub fallocate: Option<
+    pub(crate) fallocate: Option<
         extern "C" fn(
             req: fuse_req_t,
             ino: fuse_ino_t,
@@ -234,7 +252,7 @@ pub struct fuse_lowlevel_ops {
             fi: *mut fuse_file_info,
         ),
     >,
-    pub readdirplus: Option<
+    pub(crate) readdirplus: Option<
         extern "C" fn(
             req: fuse_req_t,
             ino: fuse_ino_t,
@@ -243,7 +261,7 @@ pub struct fuse_lowlevel_ops {
             fi: *mut fuse_file_info,
         ),
     >,
-    pub copy_file_range: Option<
+    pub(crate) copy_file_range: Option<
         extern "C" fn(
             req: fuse_req_t,
             ino_in: fuse_ino_t,
@@ -256,7 +274,7 @@ pub struct fuse_lowlevel_ops {
             flags: c_int,
         ),
     >,
-    pub lseek: Option<
+    pub(crate) lseek: Option<
         extern "C" fn(
             req: fuse_req_t,
             ino: fuse_ino_t,
@@ -265,26 +283,26 @@ pub struct fuse_lowlevel_ops {
             fi: *mut fuse_file_info,
         ),
     >,
-    pub tmpfile: Option<
+    pub(crate) tmpfile: Option<
         extern "C" fn(req: fuse_req_t, parent: fuse_ino_t, mode: mode_t, fi: *mut fuse_file_info),
     >,
 }
 unsafe extern "C" {
     // Really this returns *fuse_session, but we don't need to access its fields
-    pub fn fuse_session_new(
+    pub(crate) fn fuse_session_new(
         args: *const fuse_args,
         op: *const fuse_lowlevel_ops,
         op_size: libc::size_t,
         userdata: *mut c_void,
     ) -> *mut c_void;
-    pub fn fuse_session_mount(
+    pub(crate) fn fuse_session_mount(
         se: *mut c_void, // This argument is really a *fuse_session
         mountpoint: *const c_char,
     ) -> c_int;
     // This function's argument is really a *fuse_session
-    pub fn fuse_session_fd(se: *mut c_void) -> c_int;
+    pub(crate) fn fuse_session_fd(se: *mut c_void) -> c_int;
     // This function's argument is really a *fuse_session
-    pub fn fuse_session_unmount(se: *mut c_void);
+    pub(crate) fn fuse_session_unmount(se: *mut c_void);
     // This function's argument is really a *fuse_session
-    pub fn fuse_session_destroy(se: *mut c_void);
+    pub(crate) fn fuse_session_destroy(se: *mut c_void);
 }

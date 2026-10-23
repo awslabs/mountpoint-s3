@@ -1,12 +1,19 @@
-use std::{convert::TryInto, io::IoSlice, mem::size_of, num::TryFromIntError};
-
+use std::convert::TryInto;
 #[allow(unused)]
-use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+use std::ffi::OsStr;
+use std::io::IoSlice;
+use std::num::TryFromIntError;
+#[allow(unused)]
+use std::os::unix::ffi::OsStrExt;
 
-use smallvec::{SmallVec, smallvec};
-use zerocopy::{Immutable, IntoBytes};
+use smallvec::SmallVec;
+use smallvec::smallvec;
+use zerocopy::Immutable;
+use zerocopy::IntoBytes;
 
-use super::fuse_abi as abi;
+use crate::INodeNo;
+use crate::ll::fuse_abi as abi;
+use crate::notify::PollHandle;
 
 const INLINE_DATA_THRESHOLD: usize = size_of::<u64>() * 4;
 type NotificationBuf = SmallVec<[u8; INLINE_DATA_THRESHOLD]>;
@@ -58,18 +65,21 @@ impl<'a> Notification<'a> {
         Ok(f(&v))
     }
 
-    pub(crate) fn new_inval_entry(parent: u64, name: &'a OsStr) -> Result<Self, TryFromIntError> {
+    pub(crate) fn new_inval_entry(
+        parent: INodeNo,
+        name: &'a OsStr,
+    ) -> Result<Self, TryFromIntError> {
         let r = abi::fuse_notify_inval_entry_out {
-            parent,
+            parent: parent.0,
             namelen: name.len().try_into()?,
             padding: 0,
         };
         Ok(Self::from_struct_with_name(&r, name.as_bytes()))
     }
 
-    pub(crate) fn new_inval_inode(ino: u64, offset: i64, len: i64) -> Self {
+    pub(crate) fn new_inval_inode(ino: INodeNo, offset: i64, len: i64) -> Self {
         let r = abi::fuse_notify_inval_inode_out {
-            ino,
+            ino: ino.0,
             off: offset,
             len,
         };
@@ -77,12 +87,12 @@ impl<'a> Notification<'a> {
     }
 
     pub(crate) fn new_store(
-        ino: u64,
+        ino: INodeNo,
         offset: u64,
         data: &'a [u8],
     ) -> Result<Self, TryFromIntError> {
         let r = abi::fuse_notify_store_out {
-            nodeid: ino,
+            nodeid: ino.0,
             offset,
             size: data.len().try_into()?,
             padding: 0,
@@ -91,21 +101,21 @@ impl<'a> Notification<'a> {
     }
 
     pub(crate) fn new_delete(
-        parent: u64,
-        child: u64,
+        parent: INodeNo,
+        child: INodeNo,
         name: &'a OsStr,
     ) -> Result<Self, TryFromIntError> {
         let r = abi::fuse_notify_delete_out {
-            parent,
-            child,
+            parent: parent.0,
+            child: child.0,
             namelen: name.len().try_into()?,
             padding: 0,
         };
         Ok(Self::from_struct_with_name(&r, name.as_bytes()))
     }
 
-    pub(crate) fn new_poll(kh: u64) -> Self {
-        let r = abi::fuse_notify_poll_wakeup_out { kh };
+    pub(crate) fn new_poll(kh: PollHandle) -> Self {
+        let r = abi::fuse_notify_poll_wakeup_out { kh: kh.0 };
         Self::from_struct(&r)
     }
 
@@ -126,12 +136,12 @@ impl<'a> Notification<'a> {
 
 #[cfg(test)]
 mod test {
-    use super::super::test::ioslice_to_vec;
-    use super::*;
+    use crate::ll::notify::*;
+    use crate::ll::test::ioslice_to_vec;
 
     #[test]
     fn inval_entry() {
-        let n = Notification::new_inval_entry(0x42, OsStr::new("abc"))
+        let n = Notification::new_inval_entry(INodeNo(0x42), OsStr::new("abc"))
             .unwrap()
             .with_iovec(
                 abi::fuse_notify_code::FUSE_NOTIFY_INVAL_ENTRY,
@@ -148,7 +158,7 @@ mod test {
 
     #[test]
     fn inval_inode() {
-        let n = Notification::new_inval_inode(0x42, 100, 200)
+        let n = Notification::new_inval_inode(INodeNo(0x42), 100, 200)
             .with_iovec(
                 abi::fuse_notify_code::FUSE_NOTIFY_INVAL_INODE,
                 ioslice_to_vec,
@@ -164,7 +174,7 @@ mod test {
 
     #[test]
     fn store() {
-        let n = Notification::new_store(0x42, 50, &[0xde, 0xad, 0xbe, 0xef])
+        let n = Notification::new_store(INodeNo(0x42), 50, &[0xde, 0xad, 0xbe, 0xef])
             .unwrap()
             .with_iovec(abi::fuse_notify_code::FUSE_NOTIFY_STORE, ioslice_to_vec)
             .unwrap();
@@ -179,7 +189,7 @@ mod test {
 
     #[test]
     fn delete() {
-        let n = Notification::new_inval_entry(0x42, OsStr::new("abc"))
+        let n = Notification::new_inval_entry(INodeNo(0x42), OsStr::new("abc"))
             .unwrap()
             .with_iovec(abi::fuse_notify_code::FUSE_NOTIFY_DELETE, ioslice_to_vec)
             .unwrap();
@@ -193,7 +203,7 @@ mod test {
 
     #[test]
     fn poll() {
-        let n = Notification::new_poll(0x4321)
+        let n = Notification::new_poll(PollHandle(0x4321))
             .with_iovec(abi::fuse_notify_code::FUSE_POLL, ioslice_to_vec)
             .unwrap();
         let expected = vec![

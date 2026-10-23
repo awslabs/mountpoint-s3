@@ -1,81 +1,95 @@
-use std::{
-    convert::TryInto,
-    io::IoSlice,
-    mem::size_of,
-    os::unix::prelude::OsStrExt,
-    path::Path,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+#![allow(refining_impl_trait)]
+
+use std::io::IoSlice;
+use std::os::unix::prelude::OsStrExt;
+use std::path::Path;
+use std::time::Duration;
+#[cfg(target_os = "macos")]
+use std::time::SystemTime;
+
+use smallvec::SmallVec;
+use zerocopy::Immutable;
+use zerocopy::IntoBytes;
 
 use crate::FileType;
-
-use super::{Errno, FileHandle, Generation, INodeNo, fuse_abi as abi};
-use super::{Lock, RequestId};
-use smallvec::{SmallVec, smallvec};
-use zerocopy::{Immutable, IntoBytes};
+use crate::PollEvents;
+use crate::ll::Errno;
+use crate::ll::FileHandle;
+use crate::ll::Generation;
+use crate::ll::INodeNo;
+use crate::ll::Lock;
+use crate::ll::RequestId;
+use crate::ll::flags::fopen_flags::FopenFlags;
+use crate::ll::fuse_abi as abi;
+use crate::ll::ioslice_concat::IosliceConcat;
+use crate::time::time_from_system_time;
 
 const INLINE_DATA_THRESHOLD: usize = size_of::<u64>() * 4;
 pub(crate) type ResponseBuf = SmallVec<[u8; INLINE_DATA_THRESHOLD]>;
 
-#[derive(Debug)]
-pub enum Response<'a> {
-    Error(i32),
-    Data(ResponseBuf),
-    Slice(&'a [u8]),
-}
+pub(crate) trait Response {
+    fn errno(&self) -> Option<Errno> {
+        None
+    }
 
-impl<'a> Response<'a> {
-    pub(crate) fn with_iovec<F: FnOnce(&[IoSlice<'_>]) -> T, T>(
-        &self,
-        unique: RequestId,
-        f: F,
-    ) -> T {
-        let datalen = match &self {
-            Response::Error(_) => 0,
-            Response::Data(v) => v.len(),
-            Response::Slice(d) => d.len(),
-        };
+    fn payload(&self) -> impl IosliceConcat;
+
+    fn with_iovec<F: FnOnce(&[IoSlice<'_>]) -> T, T>(&self, unique: RequestId, f: F) -> T {
+        let payload = self.payload();
+        let payload_len = payload.sum_len();
         let header = abi::fuse_out_header {
             unique: unique.0,
-            error: if let Response::Error(errno) = self {
-                -errno
-            } else {
-                0
-            },
-            len: (size_of::<abi::fuse_out_header>() + datalen)
+            error: self.errno().map_or(0, |e| -e.0.get()),
+            len: (size_of::<abi::fuse_out_header>() + payload_len)
                 .try_into()
                 .expect("Too much data"),
         };
-        let mut v: SmallVec<[IoSlice<'_>; 3]> = smallvec![IoSlice::new(header.as_bytes())];
-        match &self {
-            Response::Error(_) => {}
-            Response::Data(d) => v.push(IoSlice::new(d)),
-            Response::Slice(d) => v.push(IoSlice::new(d)),
-        }
-        f(&v)
+        let v = ([IoSlice::new(header.as_bytes())], payload);
+        IosliceConcat::with_ioslice(&v, f)
     }
+}
 
-    // Constructors
-    pub(crate) fn new_empty() -> Self {
-        Self::Error(0)
-    }
+pub(crate) struct ResponseSlice<'a>(pub(crate) &'a [u8]);
 
-    pub(crate) fn new_error(error: Errno) -> Self {
-        Self::Error(error.into())
-    }
-
-    pub(crate) fn new_data<T: AsRef<[u8]> + Into<Vec<u8>>>(data: T) -> Self {
-        Self::Data(if data.as_ref().len() <= INLINE_DATA_THRESHOLD {
-            ResponseBuf::from_slice(data.as_ref())
+impl Response for ResponseSlice<'_> {
+    fn payload(&self) -> Option<[IoSlice<'_>; 1]> {
+        if self.0.is_empty() {
+            None
         } else {
-            ResponseBuf::from_vec(data.into())
-        })
+            Some([IoSlice::new(self.0)])
+        }
+    }
+}
+
+pub(crate) struct ResponseEmpty;
+
+impl Response for ResponseEmpty {
+    fn payload(&self) -> [IoSlice<'_>; 0] {
+        []
+    }
+}
+
+pub(crate) struct ResponseErrno(pub(crate) Errno);
+
+impl Response for ResponseErrno {
+    fn errno(&self) -> Option<Errno> {
+        Some(self.0)
     }
 
-    pub(crate) fn new_slice(data: &'a [u8]) -> Self {
-        Self::Slice(data)
+    fn payload(&self) -> [IoSlice<'_>; 0] {
+        []
     }
+}
 
+pub(crate) struct ResponseStruct<S: IntoBytes + Immutable>(pub(crate) S);
+
+impl<S: IntoBytes + Immutable> Response for ResponseStruct<S> {
+    fn payload(&self) -> [IoSlice<'_>; 1] {
+        [IoSlice::new(self.0.as_bytes())]
+    }
+}
+
+impl ResponseStruct<abi::fuse_entry_out> {
     pub(crate) fn new_entry(
         ino: INodeNo,
         generation: Generation,
@@ -83,82 +97,82 @@ impl<'a> Response<'a> {
         attr_ttl: Duration,
         entry_ttl: Duration,
     ) -> Self {
-        let d = abi::fuse_entry_out {
+        ResponseStruct(abi::fuse_entry_out {
             nodeid: ino.into(),
-            generation: generation.into(),
+            generation: generation.0,
             entry_valid: entry_ttl.as_secs(),
             attr_valid: attr_ttl.as_secs(),
             entry_valid_nsec: entry_ttl.subsec_nanos(),
             attr_valid_nsec: attr_ttl.subsec_nanos(),
             attr: attr.attr,
-        };
-        Self::from_struct(d.as_bytes())
+        })
     }
+}
 
+impl ResponseStruct<abi::fuse_attr_out> {
     pub(crate) fn new_attr(ttl: &Duration, attr: &Attr) -> Self {
-        let r = abi::fuse_attr_out {
+        ResponseStruct(abi::fuse_attr_out {
             attr_valid: ttl.as_secs(),
             attr_valid_nsec: ttl.subsec_nanos(),
             dummy: 0,
             attr: attr.attr,
-        };
-        Self::from_struct(&r)
+        })
     }
+}
 
-    #[cfg(target_os = "macos")]
+#[cfg(target_os = "macos")]
+impl ResponseStruct<abi::fuse_getxtimes_out> {
     pub(crate) fn new_xtimes(bkuptime: SystemTime, crtime: SystemTime) -> Self {
         let (bkuptime_secs, bkuptime_nanos) = time_from_system_time(&bkuptime);
         let (crtime_secs, crtime_nanos) = time_from_system_time(&crtime);
-        let r = abi::fuse_getxtimes_out {
+        ResponseStruct(abi::fuse_getxtimes_out {
             bkuptime: bkuptime_secs as u64,
             crtime: crtime_secs as u64,
             bkuptimensec: bkuptime_nanos,
             crtimensec: crtime_nanos,
-        };
-        Self::from_struct(&r)
+        })
     }
+}
 
-    // TODO: Could flags be more strongly typed?
-    pub(crate) fn new_open(fh: FileHandle, flags: u32, backing_id: u32) -> Self {
-        #[cfg(not(feature = "abi-7-40"))]
-        let _ = backing_id;
-
-        let r = abi::fuse_open_out {
+impl ResponseStruct<abi::fuse_open_out> {
+    pub(crate) fn new_open(fh: FileHandle, flags: FopenFlags, backing_id: u32) -> Self {
+        ResponseStruct(abi::fuse_open_out {
             fh: fh.into(),
-            open_flags: flags,
-            #[cfg(not(feature = "abi-7-40"))]
-            padding: 0,
-            #[cfg(feature = "abi-7-40")]
+            open_flags: flags.bits(),
             backing_id,
-        };
-        Self::from_struct(&r)
+        })
     }
+}
 
+impl ResponseStruct<abi::fuse_lk_out> {
     pub(crate) fn new_lock(lock: &Lock) -> Self {
-        let r = abi::fuse_lk_out {
+        ResponseStruct(abi::fuse_lk_out {
             lk: abi::fuse_file_lock {
                 start: lock.range.0,
                 end: lock.range.1,
                 typ: lock.typ,
                 pid: lock.pid,
             },
-        };
-        Self::from_struct(&r)
+        })
     }
+}
 
+impl ResponseStruct<abi::fuse_bmap_out> {
     pub(crate) fn new_bmap(block: u64) -> Self {
-        let r = abi::fuse_bmap_out { block };
-        Self::from_struct(&r)
+        ResponseStruct(abi::fuse_bmap_out { block })
     }
+}
 
+impl ResponseStruct<abi::fuse_write_out> {
     pub(crate) fn new_write(written: u32) -> Self {
-        let r = abi::fuse_write_out {
+        ResponseStruct(abi::fuse_write_out {
             size: written,
             padding: 0,
-        };
-        Self::from_struct(&r)
+        })
     }
+}
 
+impl ResponseStruct<abi::fuse_statfs_out> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_statfs(
         blocks: u64,
@@ -170,7 +184,7 @@ impl<'a> Response<'a> {
         namelen: u32,
         frsize: u32,
     ) -> Self {
-        let r = abi::fuse_statfs_out {
+        ResponseStruct(abi::fuse_statfs_out {
             st: abi::fuse_kstatfs {
                 blocks,
                 bfree,
@@ -183,23 +197,20 @@ impl<'a> Response<'a> {
                 padding: 0,
                 spare: [0; 6],
             },
-        };
-        Self::from_struct(&r)
+        })
     }
+}
 
-    // TODO: Can flags be more strongly typed?
+impl ResponseStruct<abi::fuse_create_out> {
     pub(crate) fn new_create(
         ttl: &Duration,
         attr: &Attr,
         generation: Generation,
         fh: FileHandle,
-        flags: u32,
+        flags: FopenFlags,
         backing_id: u32,
     ) -> Self {
-        #[cfg(not(feature = "abi-7-40"))]
-        let _ = backing_id;
-
-        let r = abi::fuse_create_out(
+        ResponseStruct(abi::fuse_create_out(
             abi::fuse_entry_out {
                 nodeid: attr.attr.ino,
                 generation: generation.into(),
@@ -211,71 +222,88 @@ impl<'a> Response<'a> {
             },
             abi::fuse_open_out {
                 fh: fh.into(),
-                open_flags: flags,
-                #[cfg(not(feature = "abi-7-40"))]
-                padding: 0,
-                #[cfg(feature = "abi-7-40")]
+                open_flags: flags.bits(),
                 backing_id,
             },
-        );
-        Self::from_struct(&r)
+        ))
     }
+}
 
+impl ResponseStruct<abi::fuse_poll_out> {
+    pub(crate) fn new_poll(revents: PollEvents) -> Self {
+        ResponseStruct(abi::fuse_poll_out {
+            revents: revents.bits(),
+            padding: 0,
+        })
+    }
+}
+
+impl ResponseStruct<abi::fuse_getxattr_out> {
+    pub(crate) fn new_xattr_size(size: u32) -> Self {
+        ResponseStruct(abi::fuse_getxattr_out { size, padding: 0 })
+    }
+}
+
+impl ResponseStruct<abi::fuse_lseek_out> {
+    pub(crate) fn new_lseek(offset: i64) -> Self {
+        ResponseStruct(abi::fuse_lseek_out { offset })
+    }
+}
+
+pub(crate) struct ResponseIoctl<'a> {
+    out: abi::fuse_ioctl_out,
+    iovs: &'a [IoSlice<'a>],
+}
+
+impl<'a> ResponseIoctl<'a> {
     // TODO: Are you allowed to send data while result != 0?
-    pub(crate) fn new_ioctl(result: i32, data: &[IoSlice<'_>]) -> Self {
-        let r = abi::fuse_ioctl_out {
+    pub(crate) fn new_ioctl(result: i32, iovs: &'a [IoSlice<'a>]) -> Self {
+        let out = abi::fuse_ioctl_out {
             result,
             // these fields are only needed for unrestricted ioctls
             flags: 0,
             in_iovs: 1,
-            out_iovs: if !data.is_empty() { 1 } else { 0 },
+            out_iovs: iovs.len().try_into().expect("Too many ioctls"),
         };
-        // TODO: Don't copy this data
-        let mut v: ResponseBuf = ResponseBuf::from_slice(r.as_bytes());
-        for x in data {
-            v.extend_from_slice(x)
+        ResponseIoctl { out, iovs }
+    }
+}
+
+impl Response for ResponseIoctl<'_> {
+    fn payload(&self) -> ([IoSlice<'_>; 1], &'_ [IoSlice<'_>]) {
+        ([IoSlice::new(self.out.as_bytes())], self.iovs)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ResponseData(ResponseBuf);
+
+impl Response for ResponseData {
+    fn payload(&self) -> Option<[IoSlice<'_>; 1]> {
+        if self.0.is_empty() {
+            None
+        } else {
+            Some([IoSlice::new(&self.0)])
         }
-        Self::Data(v)
+    }
+}
+
+impl ResponseData {
+    // Constructors
+    pub(crate) fn new_data<T: AsRef<[u8]> + Into<Vec<u8>>>(data: T) -> Self {
+        Self(if data.as_ref().len() <= INLINE_DATA_THRESHOLD {
+            ResponseBuf::from_slice(data.as_ref())
+        } else {
+            ResponseBuf::from_vec(data.into())
+        })
     }
 
-    pub(crate) fn new_poll(revents: u32) -> Self {
-        let r = abi::fuse_poll_out {
-            revents,
-            padding: 0,
-        };
-        Self::from_struct(&r)
-    }
-
-    fn new_directory(list: EntListBuf) -> Self {
+    pub(crate) fn new_directory(list: EntListBuf) -> Self {
         assert!(list.buf.len() <= list.max_size);
-        Self::Data(list.buf)
-    }
-
-    pub(crate) fn new_xattr_size(size: u32) -> Self {
-        let r = abi::fuse_getxattr_out { size, padding: 0 };
-        Self::from_struct(&r)
-    }
-
-    pub(crate) fn new_lseek(offset: i64) -> Self {
-        let r = abi::fuse_lseek_out { offset };
-        Self::from_struct(&r)
-    }
-
-    fn from_struct<T: IntoBytes + Immutable + ?Sized>(data: &T) -> Self {
-        Self::Data(SmallVec::from_slice(data.as_bytes()))
+        Self(list.buf)
     }
 }
 
-pub(crate) fn time_from_system_time(system_time: &SystemTime) -> (i64, u32) {
-    // Convert to signed 64-bit time with epoch at 0
-    match system_time.duration_since(UNIX_EPOCH) {
-        Ok(duration) => (duration.as_secs() as i64, duration.subsec_nanos()),
-        Err(before_epoch_error) => (
-            -(before_epoch_error.duration().as_secs() as i64),
-            before_epoch_error.duration().subsec_nanos(),
-        ),
-    }
-}
 // Some platforms like Linux x86_64 have mode_t = u32, and lint warns of a trivial_numeric_casts.
 // But others like macOS x86_64 have mode_t = u16, requiring a typecast.  So, just silence lint.
 #[allow(trivial_numeric_casts)]
@@ -291,9 +319,9 @@ pub(crate) fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
         FileType::Symlink => libc::S_IFLNK,
         FileType::Socket => libc::S_IFSOCK,
     }) as u32
-        | perm as u32
+        | u32::from(perm)
 }
-/// Returns a fuse_attr from FileAttr
+/// Returns a `fuse_attr` from `FileAttr`
 pub(crate) fn fuse_attr_from_attr(attr: &crate::FileAttr) -> abi::fuse_attr {
     let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime);
     let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime);
@@ -302,7 +330,7 @@ pub(crate) fn fuse_attr_from_attr(attr: &crate::FileAttr) -> abi::fuse_attr {
     let (crtime_secs, crtime_nanos) = time_from_system_time(&attr.crtime);
 
     abi::fuse_attr {
-        ino: attr.ino,
+        ino: attr.ino.0,
         size: attr.size,
         blocks: attr.blocks,
         atime: atime_secs,
@@ -329,7 +357,7 @@ pub(crate) fn fuse_attr_from_attr(attr: &crate::FileAttr) -> abi::fuse_attr {
 
 // TODO: Add methods for creating this without making a `FileAttr` first.
 #[derive(Debug, Clone, Copy)]
-pub struct Attr {
+pub(crate) struct Attr {
     pub(crate) attr: abi::fuse_attr,
 }
 impl From<&crate::FileAttr> for Attr {
@@ -348,12 +376,13 @@ impl From<crate::FileAttr> for Attr {
 }
 
 #[derive(Debug)]
-struct EntListBuf {
+/// A generic data buffer
+pub(crate) struct EntListBuf {
     max_size: usize,
     buf: ResponseBuf,
 }
 impl EntListBuf {
-    fn new(max_size: usize) -> Self {
+    pub(crate) fn new(max_size: usize) -> Self {
         Self {
             max_size,
             buf: ResponseBuf::new(),
@@ -364,30 +393,28 @@ impl EntListBuf {
     /// A transparent offset value can be provided for each entry. The kernel uses these
     /// value to request the next entries in further readdir calls
     #[must_use]
-    fn push(&mut self, ent: [&[u8]; 2]) -> bool {
+    pub(crate) fn push(&mut self, ent: [&[u8]; 2]) -> bool {
+        debug_assert!(self.buf.len() % size_of::<u64>() == 0);
+
         let entlen = ent[0].len() + ent[1].len();
-        let entsize = (entlen + size_of::<u64>() - 1) & !(size_of::<u64>() - 1); // 64bit align
+        let entsize = entlen.next_multiple_of(size_of::<u64>()); // 64 bit align
         if self.buf.len() + entsize > self.max_size {
             return true;
         }
+        self.buf.reserve(entsize);
         self.buf.extend_from_slice(ent[0]);
         self.buf.extend_from_slice(ent[1]);
         let padlen = entsize - entlen;
-        self.buf.extend_from_slice(&[0u8; 8][..padlen]);
+        self.buf.resize(self.buf.len() + padlen, 0);
         false
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
-pub struct DirEntOffset(pub i64);
-impl From<DirEntOffset> for i64 {
-    fn from(x: DirEntOffset) -> Self {
-        x.0
-    }
-}
+pub(crate) struct DirEntOffset(pub(crate) u64);
 
 #[derive(Debug)]
-pub struct DirEntry<T: AsRef<Path>> {
+pub(crate) struct DirEntry<T: AsRef<Path>> {
     ino: INodeNo,
     offset: DirEntOffset,
     kind: FileType,
@@ -395,7 +422,7 @@ pub struct DirEntry<T: AsRef<Path>> {
 }
 
 impl<T: AsRef<Path>> DirEntry<T> {
-    pub fn new(ino: INodeNo, offset: DirEntOffset, kind: FileType, name: T) -> DirEntry<T> {
+    pub(crate) fn new(ino: INodeNo, offset: DirEntOffset, kind: FileType, name: T) -> DirEntry<T> {
         DirEntry::<T> {
             ino,
             offset,
@@ -405,13 +432,13 @@ impl<T: AsRef<Path>> DirEntry<T> {
     }
 }
 
-/// Used to respond to [ReadDirPlus] requests.
+/// Data buffer used to respond to [`Readdir`] requests.
 #[derive(Debug)]
-pub struct DirEntList(EntListBuf);
-impl From<DirEntList> for Response<'_> {
+pub(crate) struct DirEntList(EntListBuf);
+impl From<DirEntList> for ResponseData {
     fn from(l: DirEntList) -> Self {
         assert!(l.0.buf.len() <= l.0.max_size);
-        Response::new_directory(l.0)
+        ResponseData::new_directory(l.0)
     }
 }
 
@@ -423,7 +450,7 @@ impl DirEntList {
     /// A transparent offset value can be provided for each entry. The kernel uses these
     /// value to request the next entries in further readdir calls
     #[must_use]
-    pub fn push<T: AsRef<Path>>(&mut self, ent: &DirEntry<T>) -> bool {
+    pub(crate) fn push<T: AsRef<Path>>(&mut self, ent: &DirEntry<T>) -> bool {
         let name = ent.name.as_ref().as_os_str().as_bytes();
         let header = abi::fuse_dirent {
             ino: ent.ino.into(),
@@ -436,7 +463,7 @@ impl DirEntList {
 }
 
 #[derive(Debug)]
-pub struct DirEntryPlus<T: AsRef<Path>> {
+pub(crate) struct DirEntryPlus<T: AsRef<Path>> {
     #[allow(unused)] // We use `attr.ino` instead
     ino: INodeNo,
     generation: Generation,
@@ -448,7 +475,7 @@ pub struct DirEntryPlus<T: AsRef<Path>> {
 }
 
 impl<T: AsRef<Path>> DirEntryPlus<T> {
-    pub fn new(
+    pub(crate) fn new(
         ino: INodeNo,
         generation: Generation,
         offset: DirEntOffset,
@@ -469,13 +496,13 @@ impl<T: AsRef<Path>> DirEntryPlus<T> {
     }
 }
 
-/// Used to respond to [ReadDir] requests.
+/// Data buffer used to respond to [`ReaddirPlus`] requests.
 #[derive(Debug)]
-pub struct DirEntPlusList(EntListBuf);
-impl From<DirEntPlusList> for Response<'_> {
+pub(crate) struct DirEntPlusList(EntListBuf);
+impl From<DirEntPlusList> for ResponseData {
     fn from(l: DirEntPlusList) -> Self {
         assert!(l.0.buf.len() <= l.0.max_size);
-        Response::new_directory(l.0)
+        ResponseData::new_directory(l.0)
     }
 }
 
@@ -487,7 +514,7 @@ impl DirEntPlusList {
     /// A transparent offset value can be provided for each entry. The kernel uses these
     /// value to request the next entries in further readdir calls
     #[must_use]
-    pub fn push<T: AsRef<Path>>(&mut self, x: &DirEntryPlus<T>) -> bool {
+    pub(crate) fn push<T: AsRef<Path>>(&mut self, x: &DirEntryPlus<T>) -> bool {
         let name = x.name.as_ref().as_os_str().as_bytes();
         let header = abi::fuse_direntplus {
             entry_out: abi::fuse_entry_out {
@@ -501,7 +528,7 @@ impl DirEntPlusList {
             },
             dirent: abi::fuse_dirent {
                 ino: x.attr.attr.ino,
-                off: x.offset.into(),
+                off: x.offset.0,
                 namelen: name.len().try_into().expect("Name too long"),
                 typ: x.attr.attr.mode >> 12,
             },
@@ -513,13 +540,14 @@ impl DirEntPlusList {
 #[cfg(test)]
 mod test {
     use std::num::NonZeroI32;
+    use std::time::UNIX_EPOCH;
 
-    use super::super::test::ioslice_to_vec;
-    use super::*;
+    use crate::ll::reply::*;
+    use crate::ll::test::ioslice_to_vec;
 
     #[test]
     fn reply_empty() {
-        let r = Response::new_empty();
+        let r = ResponseEmpty;
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             vec![
@@ -531,7 +559,7 @@ mod test {
 
     #[test]
     fn reply_error() {
-        let r = Response::new_error(Errno(NonZeroI32::new(66).unwrap()));
+        let r = ResponseErrno(Errno(NonZeroI32::new(66).unwrap()));
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             vec![
@@ -543,7 +571,7 @@ mod test {
 
     #[test]
     fn reply_data() {
-        let r = Response::new_data([0xde, 0xad, 0xbe, 0xef].as_ref());
+        let r = ResponseData::new_data([0xde, 0xad, 0xbe, 0xef].as_ref());
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             vec![
@@ -590,7 +618,7 @@ mod test {
         let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
         let ttl = Duration::new(0x8765, 0x4321);
         let attr = crate::FileAttr {
-            ino: 0x11,
+            ino: INodeNo(0x11),
             size: 0x22,
             blocks: 0x33,
             atime: time,
@@ -606,7 +634,7 @@ mod test {
             flags: 0x99,
             blksize: 0xbb,
         };
-        let r = Response::new_entry(INodeNo(0x11), Generation(0xaa), &attr.into(), ttl, ttl);
+        let r = ResponseStruct::new_entry(INodeNo(0x11), Generation(0xaa), &attr.into(), ttl, ttl);
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected
@@ -647,7 +675,7 @@ mod test {
         let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
         let ttl = Duration::new(0x8765, 0x4321);
         let attr = crate::FileAttr {
-            ino: 0x11,
+            ino: INodeNo(0x11),
             size: 0x22,
             blocks: 0x33,
             atime: time,
@@ -663,7 +691,7 @@ mod test {
             flags: 0x99,
             blksize: 0xbb,
         };
-        let r = Response::new_attr(&ttl, &attr.into());
+        let r = ResponseStruct::new_attr(&ttl, &attr.into());
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected
@@ -679,7 +707,7 @@ mod test {
             0x00, 0x00, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00,
         ];
         let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
-        let r = Response::new_xtimes(time, time);
+        let r = ResponseStruct::new_xtimes(time, time);
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected
@@ -693,7 +721,7 @@ mod test {
             0x00, 0x00, 0x22, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x33, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00,
         ];
-        let r = Response::new_open(FileHandle(0x1122), 0x33, 0);
+        let r = ResponseStruct::new_open(FileHandle(0x1122), FopenFlags::from_bits_retain(0x33), 0);
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected
@@ -706,7 +734,7 @@ mod test {
             0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
             0x00, 0x00, 0x22, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
-        let r = Response::new_write(0x1122);
+        let r = ResponseStruct::new_write(0x1122);
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected
@@ -724,7 +752,7 @@ mod test {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
-        let r = Response::new_statfs(0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88);
+        let r = ResponseStruct::new_statfs(0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88);
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected
@@ -774,7 +802,7 @@ mod test {
         let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
         let ttl = Duration::new(0x8765, 0x4321);
         let attr = crate::FileAttr {
-            ino: 0x11,
+            ino: INodeNo(0x11),
             size: 0x22,
             blocks: 0x33,
             atime: time,
@@ -790,12 +818,12 @@ mod test {
             flags: 0x99,
             blksize: 0xdd,
         };
-        let r = Response::new_create(
+        let r = ResponseStruct::new_create(
             &ttl,
             &attr.into(),
             Generation(0xaa),
             FileHandle(0xbb),
-            0xcc,
+            FopenFlags::from_bits_retain(0xcc),
             0,
         );
         assert_eq!(
@@ -811,7 +839,7 @@ mod test {
             0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x33, 0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00,
         ];
-        let r = Response::new_lock(&Lock {
+        let r = ResponseStruct::new_lock(&Lock {
             range: (0x11, 0x22),
             typ: 0x33,
             pid: 0x44,
@@ -828,7 +856,7 @@ mod test {
             0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
             0x00, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
-        let r = Response::new_bmap(0x1234);
+        let r = ResponseStruct::new_bmap(0x1234);
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected
@@ -841,7 +869,7 @@ mod test {
             0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xEF, 0xBE, 0xAD, 0xDE, 0x00, 0x00,
             0x00, 0x00, 0x78, 0x56, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00,
         ];
-        let r = Response::new_xattr_size(0x12345678);
+        let r = ResponseStruct::new_xattr_size(0x12345678);
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected
@@ -854,7 +882,7 @@ mod test {
             0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xEF, 0xBE, 0xAD, 0xDE, 0x00, 0x00,
             0x00, 0x00, 0x11, 0x22, 0x33, 0x44,
         ];
-        let r = Response::new_data([0x11, 0x22, 0x33, 0x44].as_ref());
+        let r = ResponseData::new_data([0x11, 0x22, 0x33, 0x44].as_ref());
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected
@@ -884,7 +912,7 @@ mod test {
             FileType::RegularFile,
             "world.rs"
         )));
-        let r: Response<'_> = buf.into();
+        let r: ResponseData = buf.into();
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected
