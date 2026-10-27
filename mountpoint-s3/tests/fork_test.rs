@@ -238,6 +238,77 @@ fn run_in_foreground() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// The mount process runs jemalloc's background threads (enabled by the `mount-s3` binary's jemalloc
+/// config) in both modes, including in background mode where jemalloc turns them off in the forked
+/// child.
+#[cfg(target_os = "linux")]
+#[test_case(false; "background")]
+#[test_case(true; "foreground")]
+fn run_with_jemalloc_background_threads(foreground: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_run_with_jemalloc_background_threads");
+    let region = get_test_region();
+    let mount_point = assert_fs::TempDir::new()?;
+    let pid_file = assert_fs::NamedTempFile::new("mount-s3.pid")?;
+
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
+    cmd.arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--auto-unmount")
+        .arg(format!("--region={region}"))
+        .env("UNSTABLE_MOUNTPOINT_PID_FILE", pid_file.path());
+    if foreground {
+        cmd.arg("--foreground");
+    }
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
+
+    let child = cmd.spawn().expect("unable to spawn child");
+    let foreground_child = if foreground {
+        wait_for_mount("mountpoint-s3", mount_point.path().to_str().unwrap());
+        Some(child)
+    } else {
+        assert!(wait_for_exit(child).success());
+        None
+    };
+    // No early return before unmounting, so a failure doesn't leave the mount behind.
+    let pid = fs::read_to_string(pid_file.path()).unwrap_or_default();
+
+    // jemalloc names its threads when they start, so allow them some time.
+    let st = Instant::now();
+    let found = loop {
+        let found = thread_names(&pid).iter().any(|name| name == "jemalloc_bg_thd");
+        if found || st.elapsed() > MAX_WAIT_DURATION {
+            break found;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+
+    unmount(mount_point.path());
+    if let Some(child) = foreground_child {
+        wait_for_exit(child);
+    }
+
+    assert!(
+        found,
+        "no jemalloc background thread in mount process (PID file contents: {pid:?})"
+    );
+    Ok(())
+}
+
+/// Names of the threads of the process with the given PID.
+#[cfg(target_os = "linux")]
+fn thread_names(pid: &str) -> Vec<String> {
+    let Ok(tasks) = fs::read_dir(format!("/proc/{}/task", pid.trim())) else {
+        return Vec::new();
+    };
+    tasks
+        .filter_map(|task| fs::read_to_string(task.ok()?.path().join("comm")).ok())
+        .map(|name| name.trim_end().to_owned())
+        .collect()
+}
+
 #[test]
 fn test_info_level_logging() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_info_logging");

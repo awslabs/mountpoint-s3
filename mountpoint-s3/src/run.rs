@@ -1,7 +1,7 @@
-use std::ffi::OsString;
+use std::ffi::{CStr, OsString, c_int};
 use std::fs::File;
 use std::io::{Read, Write};
-use std::os::fd::AsRawFd;
+use std::ptr;
 use std::time::Duration;
 use std::{env, fs};
 
@@ -76,17 +76,37 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
         // copy-on-write, but just in case we ever add something more fancy to the struct.
         drop(args);
 
+        // jemalloc turns its background threads off in a forked child, so note whether they are on
+        // here and turn them back on in the child, which then runs with the same allocator setup as
+        // a foreground mount.
+        let jemalloc_background_threads = jemalloc_background_threads_enabled();
+
         // SAFETY: Child process has full ownership of its resources.
         // There is no shared data between parent and child processes other than logging configuration.
         let pid = unsafe { nix::unistd::fork() };
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
+                // Before anything else, so the whole mount process runs with them. Failing to start
+                // them fails the mount, as a foreground mount fails to start if jemalloc can't create
+                // its first background thread.
+                let jemalloc_restored = jemalloc_background_threads.then(enable_jemalloc_background_threads);
+
                 let args = parse_cli_args(false);
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
+                if let Some(Err(e)) = jemalloc_restored {
+                    return Err(anyhow!("failed to start background threads: mallctl error code {e}"));
+                }
                 let otlp_endpoint = args.otlp_endpoint.clone();
                 let metrics = init_metrics(&otlp_endpoint, args.otlp_export_interval)?;
 
                 create_pid_file()?;
+
+                // Opened before mounting, so that a failure is reported like any other mount failure.
+                let dev_null = File::options()
+                    .read(true)
+                    .write(true)
+                    .open("/dev/null")
+                    .context("couldn't open /dev/null")?;
 
                 let session = mount(args, client_builder, &metrics);
 
@@ -100,18 +120,22 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
 
                 match session {
                     Ok(session) => {
+                        // Logging is set up and the mount succeeded, so we can hang up
+                        // stdin/out/err now to cleanly daemonize ourselves. They point to /dev/null
+                        // rather than being closed, so that files and sockets opened later can't
+                        // reuse fds 0-2 and receive writes meant for stderr (e.g. from jemalloc or
+                        // a panic). Done before reporting success, so that a failure here fails the mount.
+                        nix::unistd::dup2_stdin(&dev_null).context("couldn't redirect stdin")?;
+                        nix::unistd::dup2_stdout(&dev_null).context("couldn't redirect stdout")?;
+                        nix::unistd::dup2_stderr(&dev_null).context("couldn't redirect stderr")?;
+                        drop(dev_null);
+
                         tracing::trace!("FUSE session created OK, sending message back to parent process");
                         pipe_file
                             .write(status_success)
                             .context("Failed to write data to the pipe")?;
                         drop(pipe_file);
                         tracing::trace!("message sent back to parent process");
-
-                        // Logging is set up and the mount succeeded, so we can hang up
-                        // stdin/out/err now to cleanly daemonize ourselves
-                        nix::unistd::close(std::io::stdin().as_raw_fd()).context("couldn't close stdin")?;
-                        nix::unistd::close(std::io::stdout().as_raw_fd()).context("couldn't close stdout")?;
-                        nix::unistd::close(std::io::stderr().as_raw_fd()).context("couldn't close stderr")?;
 
                         session.join().context("failed to join session")?;
                     }
@@ -251,6 +275,51 @@ fn mount(
         }));
     }
     Ok(fuse_session)
+}
+
+/// jemalloc's `background_thread` control: a read-write `bool` (see `man jemalloc`).
+const JEMALLOC_BACKGROUND_THREAD: &CStr = c"background_thread";
+
+/// Whether jemalloc's background threads are enabled in this process: `false` if they are disabled
+/// or jemalloc doesn't support them on this platform.
+fn jemalloc_background_threads_enabled() -> bool {
+    let mut enabled = false;
+    let mut len = size_of::<bool>();
+    // SAFETY: the control is a `bool`, and `enabled` and `len` describe a `bool` buffer that
+    // outlives the call.
+    let ret = unsafe {
+        tikv_jemalloc_sys::mallctl(
+            JEMALLOC_BACKGROUND_THREAD.as_ptr(),
+            (&raw mut enabled).cast(),
+            &raw mut len,
+            ptr::null_mut(),
+            0,
+        )
+    };
+    ret == 0 && enabled
+}
+
+/// Enable jemalloc's background threads. jemalloc starts them on demand, up to its configured
+/// maximum (`max_background_threads`), which a fork preserves.
+///
+/// Returns `mallctl`'s error code on failure. The codes are jemalloc's own, which reuse errno
+/// values with different meanings (e.g. `EFAULT` if it can't start a thread).
+fn enable_jemalloc_background_threads() -> Result<(), c_int> {
+    let mut enabled = true;
+    // SAFETY: the control is a `bool`, and `enabled` is a `bool` that outlives the call.
+    let ret = unsafe {
+        tikv_jemalloc_sys::mallctl(
+            JEMALLOC_BACKGROUND_THREAD.as_ptr(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            (&raw mut enabled).cast(),
+            size_of::<bool>(),
+        )
+    };
+    match ret {
+        0 => Ok(()),
+        code => Err(code),
+    }
 }
 
 /// Builder for [ObjectClient] implementations.
