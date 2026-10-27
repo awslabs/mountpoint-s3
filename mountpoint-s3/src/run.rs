@@ -1,7 +1,6 @@
 use std::ffi::{CStr, OsString, c_int};
 use std::fs::File;
 use std::io::{Read, Write};
-use std::os::fd::AsRawFd;
 use std::ptr;
 use std::time::Duration;
 use std::{env, fs};
@@ -102,6 +101,13 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
 
                 create_pid_file()?;
 
+                // Opened before mounting, so that a failure is reported like any other mount failure.
+                let dev_null = File::options()
+                    .read(true)
+                    .write(true)
+                    .open("/dev/null")
+                    .context("couldn't open /dev/null")?;
+
                 let session = mount(args, client_builder, &metrics);
 
                 // close unused file descriptor, we only write from this end.
@@ -114,18 +120,22 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
 
                 match session {
                     Ok(session) => {
+                        // Logging is set up and the mount succeeded, so we can hang up
+                        // stdin/out/err now to cleanly daemonize ourselves. They point to /dev/null
+                        // rather than being closed, so that files and sockets opened later can't
+                        // reuse fds 0-2 and receive writes meant for stderr (e.g. from jemalloc or
+                        // a panic). Done before reporting success, so that a failure here fails the mount.
+                        nix::unistd::dup2_stdin(&dev_null).context("couldn't redirect stdin")?;
+                        nix::unistd::dup2_stdout(&dev_null).context("couldn't redirect stdout")?;
+                        nix::unistd::dup2_stderr(&dev_null).context("couldn't redirect stderr")?;
+                        drop(dev_null);
+
                         tracing::trace!("FUSE session created OK, sending message back to parent process");
                         pipe_file
                             .write(status_success)
                             .context("Failed to write data to the pipe")?;
                         drop(pipe_file);
                         tracing::trace!("message sent back to parent process");
-
-                        // Logging is set up and the mount succeeded, so we can hang up
-                        // stdin/out/err now to cleanly daemonize ourselves
-                        nix::unistd::close(std::io::stdin().as_raw_fd()).context("couldn't close stdin")?;
-                        nix::unistd::close(std::io::stdout().as_raw_fd()).context("couldn't close stdout")?;
-                        nix::unistd::close(std::io::stderr().as_raw_fd()).context("couldn't close stderr")?;
 
                         session.join().context("failed to join session")?;
                     }
