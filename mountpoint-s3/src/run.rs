@@ -87,17 +87,15 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
         let pid = unsafe { nix::unistd::fork() };
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
-                // Before anything else, so the whole mount process runs with them. Errors are only
-                // logged: the threads move page purging off the threads that free memory, and the
-                // mount works without them.
+                // Before anything else, so the whole mount process runs with them. Failing to start
+                // them fails the mount, as a foreground mount fails to start if jemalloc can't create
+                // its first background thread.
                 let jemalloc_restored = jemalloc_background_threads.then(enable_jemalloc_background_threads);
 
                 let args = parse_cli_args(false);
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
                 if let Some(Err(e)) = jemalloc_restored {
-                    tracing::warn!(
-                        "failed to re-enable jemalloc background threads after fork: mallctl error code {e}"
-                    );
+                    return Err(anyhow!("failed to start background threads: mallctl error code {e}"));
                 }
                 let otlp_endpoint = args.otlp_endpoint.clone();
                 let metrics = init_metrics(&otlp_endpoint, args.otlp_export_interval)?;
