@@ -45,6 +45,10 @@ impl FuseSessionConfig {
             options.push(MountOption::RO);
         }
         if fuse_options.auto_unmount {
+            // fuser 0.17 requires allow_root or allow_other when using auto_unmount
+            if !fuse_options.allow_root && !fuse_options.allow_other {
+                return Err(anyhow!("auto_unmount requires allow_root or allow_other to be enabled"));
+            }
             options.push(MountOption::AutoUnmount);
         }
 
@@ -252,6 +256,25 @@ mod tests {
 
         assert_eq!(config.read_only(), read_only);
         assert_eq!(config.options.contains(&MountOption::RO), read_only);
+    }
+
+    #[test]
+    fn test_auto_unmount_requires_acl() {
+        let result = FuseSessionConfig::new(
+            MountPoint::Directory("/mnt/mountpoint-s3-test".into()),
+            FuseOptions {
+                auto_unmount: true,
+                ..Default::default()
+            },
+            1,
+        );
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("auto_unmount requires allow_root or allow_other")
+        );
     }
 
     #[test_case("/dev/fd/3", Some(3); "valid file descriptor")]

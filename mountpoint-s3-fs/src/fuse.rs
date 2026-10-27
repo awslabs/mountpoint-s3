@@ -14,10 +14,10 @@ use crate::metrics::defs::{ATTR_FUSE_REQUEST, FUSE_IO_SIZE, FUSE_REQUEST_ERRORS}
 #[cfg(target_os = "macos")]
 use fuser::ReplyXTimes;
 use fuser::{
-    AccessFlags, BsdFileFlags, CopyFileRangeFlags, Errno, FileHandle, Filesystem, FopenFlags, Generation, INodeNo,
-    IoctlFlags, KernelConfig, LockOwner, OpenFlags, RenameFlags, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData,
-    ReplyEmpty, ReplyEntry, ReplyIoctl, ReplyLock, ReplyLseek, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request,
-    TimeOrNow, WriteFlags,
+    AccessFlags, BsdFileFlags, CopyFileRangeFlags, Errno, FileHandle, Filesystem, Generation, INodeNo, IoctlFlags,
+    KernelConfig, LockOwner, OpenFlags, RenameFlags, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyEmpty,
+    ReplyEntry, ReplyIoctl, ReplyLock, ReplyLseek, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow,
+    WriteFlags,
 };
 
 pub mod config;
@@ -114,7 +114,7 @@ where
     #[instrument(level="warn", skip_all, fields(req=req.unique().0, ino=parent.0, name=?name, pid=req.pid()))]
     fn lookup(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
         debug!("New request");
-        match block_on(self.fs.lookup(parent.into(), name).in_current_span()) {
+        match block_on(self.fs.lookup(parent, name).in_current_span()) {
             Ok(entry) => reply.entry(&entry.ttl, &entry.attr, Generation(entry.generation)),
             Err(e) => fuse_error!("lookup", reply, e, self, req),
         }
@@ -123,7 +123,7 @@ where
     #[instrument(level="warn", skip_all, fields(req=req.unique().0, ino=ino.0, name=field::Empty, pid=req.pid()))]
     fn getattr(&self, req: &Request, ino: INodeNo, _fh: Option<FileHandle>, reply: ReplyAttr) {
         debug!("New request");
-        match block_on(self.fs.getattr(ino.into()).in_current_span()) {
+        match block_on(self.fs.getattr(ino).in_current_span()) {
             Ok(attr) => reply.attr(&attr.ttl, &attr.attr),
             Err(e) => fuse_error!("getattr", reply, e, self, req),
         }
@@ -132,14 +132,14 @@ where
     #[instrument(level="warn", skip_all, fields(req=_req.unique().0, ino=ino.0, nlookup, name=field::Empty, pid=_req.pid()))]
     fn forget(&self, _req: &Request, ino: INodeNo, nlookup: u64) {
         debug!("New request");
-        block_on(self.fs.forget(ino.into(), nlookup));
+        block_on(self.fs.forget(ino, nlookup));
     }
 
     #[instrument(level="warn", skip_all, fields(req=req.unique().0, ino=ino.0, name=field::Empty, pid=req.pid()))]
     fn open(&self, req: &Request, ino: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
         debug!("New request");
-        match block_on(self.fs.open(ino.into(), flags.0.into(), req.pid()).in_current_span()) {
-            Ok(opened) => reply.opened(FileHandle(opened.fh), FopenFlags::from_bits_truncate(opened.flags)),
+        match block_on(self.fs.open(ino, flags, req.pid()).in_current_span()) {
+            Ok(opened) => reply.opened(opened.fh, opened.flags),
             Err(e) => fuse_error!("open", reply, e, self, req),
         }
     }
@@ -161,7 +161,7 @@ where
 
         match block_on(
             self.fs
-                .read(ino.into(), fh.into(), offset as i64, size, flags.0, lock.map(|l| l.0))
+                .read(ino, fh, offset as i64, size, flags.0, lock.map(|l| l.0))
                 .in_current_span(),
         ) {
             Ok(data) => {
@@ -178,8 +178,8 @@ where
     #[instrument(level="warn", skip_all, fields(req=req.unique().0, ino=parent.0, name=field::Empty, pid=req.pid()))]
     fn opendir(&self, req: &Request, parent: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
         debug!("New request");
-        match block_on(self.fs.opendir(parent.into(), flags.0).in_current_span()) {
-            Ok(opened) => reply.opened(FileHandle(opened.fh), FopenFlags::from_bits_truncate(opened.flags)),
+        match block_on(self.fs.opendir(parent, flags).in_current_span()) {
+            Ok(opened) => reply.opened(opened.fh, opened.flags),
             Err(e) => fuse_error!("opendir", reply, e, self, req),
         }
     }
@@ -210,11 +210,7 @@ where
             count: &mut count,
         };
 
-        match block_on(
-            self.fs
-                .readdir(parent.into(), fh.into(), offset as i64, replier)
-                .in_current_span(),
-        ) {
+        match block_on(self.fs.readdir(parent, fh, offset as i64, replier).in_current_span()) {
             Ok(_) => {
                 reply.ok();
                 metrics::histogram!("fuse.readdir.entries").record(count as f64);
@@ -263,7 +259,7 @@ where
 
         match block_on(
             self.fs
-                .readdirplus(parent.into(), fh.into(), offset as i64, replier)
+                .readdirplus(parent, fh, offset as i64, replier)
                 .in_current_span(),
         ) {
             Ok(_) => {
@@ -277,7 +273,7 @@ where
     #[instrument(level="warn", skip_all, fields(req=req.unique().0, ino=ino.0, fh=fh.0, datasync=datasync, name=field::Empty, pid=req.pid()))]
     fn fsync(&self, req: &Request, ino: INodeNo, fh: FileHandle, datasync: bool, reply: ReplyEmpty) {
         debug!("New request");
-        match block_on(self.fs.fsync(ino.into(), fh.into(), datasync).in_current_span()) {
+        match block_on(self.fs.fsync(ino, fh, datasync).in_current_span()) {
             Ok(()) => reply.ok(),
             Err(e) => fuse_error!("fsync", reply, e, self, req),
         }
@@ -310,7 +306,7 @@ where
         debug!("New request");
         match block_on(
             self.fs
-                .release(ino.into(), fh.into(), flags.0, lock_owner.map(|l| l.0), flush)
+                .release(ino, fh, flags.0, lock_owner.map(|l| l.0), flush)
                 .in_current_span(),
         ) {
             Ok(()) => reply.ok(),
@@ -321,7 +317,7 @@ where
     #[instrument(level="warn", skip_all, fields(req=req.unique().0, ino=ino.0, fh=fh.0, name=field::Empty, pid=req.pid()))]
     fn releasedir(&self, req: &Request, ino: INodeNo, fh: FileHandle, flags: OpenFlags, reply: ReplyEmpty) {
         debug!("New request");
-        match block_on(self.fs.releasedir(ino.into(), fh.into(), flags.0).in_current_span()) {
+        match block_on(self.fs.releasedir(ino, fh, flags.0).in_current_span()) {
             Ok(()) => reply.ok(),
             Err(e) => fuse_error!("releasedir", reply, e, self, req),
         }
@@ -333,7 +329,7 @@ where
         // mode_t is u32 on Linux but u16 on macOS, so cast it here
         let mode = mode as libc::mode_t;
 
-        match block_on(self.fs.mknod(parent.into(), name, mode, umask, rdev).in_current_span()) {
+        match block_on(self.fs.mknod(parent, name, mode, umask, rdev).in_current_span()) {
             Ok(entry) => reply.entry(&entry.ttl, &entry.attr, Generation(entry.generation)),
             Err(e) => fuse_error!("mknod", reply, e, self, req),
         }
@@ -345,7 +341,7 @@ where
         // mode_t is u32 on Linux but u16 on macOS, so cast it here
         let mode = mode as libc::mode_t;
 
-        match block_on(self.fs.mkdir(parent.into(), name, mode, umask).in_current_span()) {
+        match block_on(self.fs.mkdir(parent, name, mode, umask).in_current_span()) {
             Ok(entry) => reply.entry(&entry.ttl, &entry.attr, Generation(entry.generation)),
             Err(e) => fuse_error!("mkdir", reply, e, self, req),
         }
@@ -368,8 +364,8 @@ where
         match block_on(
             self.fs
                 .write(
-                    ino.into(),
-                    fh.into(),
+                    ino,
+                    fh,
                     offset as i64,
                     data,
                     write_flags.bits(),
@@ -390,7 +386,7 @@ where
     #[instrument(level="warn", skip_all, fields(req=req.unique().0, parent=parent.0, name=?name, pid=req.pid()))]
     fn rmdir(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         debug!("New request");
-        match block_on(self.fs.rmdir(parent.into(), name).in_current_span()) {
+        match block_on(self.fs.rmdir(parent, name).in_current_span()) {
             Ok(()) => reply.ok(),
             Err(e) => fuse_error!("rmdir", reply, e, self, req),
         }
@@ -399,7 +395,7 @@ where
     #[instrument(level="warn", skip_all, fields(req=req.unique().0, parent=parent.0, name=?name, pid=req.pid()))]
     fn unlink(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         debug!("New request");
-        match block_on(self.fs.unlink(parent.into(), name).in_current_span()) {
+        match block_on(self.fs.unlink(parent, name).in_current_span()) {
             Ok(()) => reply.ok(),
             Err(e) => fuse_error!("unlink", reply, e, self, req),
         }
@@ -468,7 +464,7 @@ where
     #[instrument(level="warn", skip_all, fields(req=req.unique().0, ino=ino.0, pid=req.pid()))]
     fn statfs(&self, req: &Request, ino: INodeNo, reply: ReplyStatfs) {
         debug!("New request");
-        match block_on(self.fs.statfs(ino.into()).in_current_span()) {
+        match block_on(self.fs.statfs(ino).in_current_span()) {
             Ok(statfs) => reply.statfs(
                 statfs.total_blocks,
                 statfs.free_blocks,

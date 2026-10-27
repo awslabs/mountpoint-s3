@@ -6,6 +6,8 @@ members = [
 	"mountpoint-s3",
 	"mountpoint-s3-fs",
 ]
+# Vendored fork with its own workspace (see mountpoint-s3-fuser/README.md); built only as a path dependency.
+exclude = ["mountpoint-s3-fuser"]
 resolver = "2"
 
 [workspace.dependencies]

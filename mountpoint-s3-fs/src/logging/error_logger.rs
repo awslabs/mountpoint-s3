@@ -168,7 +168,7 @@ impl Event {
             operation: fuse_operation.to_string(),
             fuse_request_id: Some(fuse_request_id),
             error_code: error_code.to_string(),
-            errno: Some(error.errno),
+            errno: Some(error.errno.into()),
             internal_message: Some(format!("{error:#}")),
             s3_object_key: error.meta().s3_object_key.clone(),
             s3_bucket_name: error.meta().s3_bucket_name.clone(),
@@ -206,7 +206,7 @@ mod tests {
     fn test_log_event() {
         // define input and the expected output
         let fs_errors = [Error {
-            errno: 6,
+            errno: fuser::Errno::from_i32(6),
             message: "fs error".to_string(),
             source: Some(anyhow::anyhow!(PrefetchReadError::GetRequestFailed {
                 source: ObjectClientError::ClientError(GetObjectError::NoSuchKey(Default::default())),

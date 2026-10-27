@@ -7,7 +7,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use fuser::FileType;
+use fuser::{FileHandle, FileType, INodeNo, OpenFlags as FuseOpenFlags};
 use mountpoint_s3_client::ObjectClient;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_client::PutObjectRequest;
@@ -68,9 +68,9 @@ async fn test_read_dir_root(prefix: &str) {
     let file_perm: u16 = 0o644;
 
     // Listing the root directory doesn't require resolving it first, can just opendir the root inode
-    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+    let dir_handle = fs.opendir(INodeNo(FUSE_ROOT_INODE), FuseOpenFlags(0)).await.unwrap().fh;
     let mut reply = Default::default();
-    fs.readdirplus(1, dir_handle, 0, &mut reply).await.unwrap();
+    fs.readdirplus(INodeNo(1), dir_handle, 0, &mut reply).await.unwrap();
 
     assert_eq!(reply.entries.len(), 2 + 3);
 
@@ -89,17 +89,21 @@ async fn test_read_dir_root(prefix: &str) {
         assert_eq!(reply.attr.kind, FileType::RegularFile);
         assert!(reply.ino > 1);
 
-        let attr = fs.getattr(reply.ino).await.unwrap();
+        let attr = fs.getattr(INodeNo(reply.ino)).await.unwrap();
         assert_eq!(u64::from(attr.attr.ino), reply.ino);
         assert_attr(attr.attr, FileType::RegularFile, 15, uid, gid, file_perm);
 
-        let fh = fs.open(reply.ino, OpenFlags::empty(), 0).await.unwrap().fh;
+        let fh = fs
+            .open(INodeNo(reply.ino), FuseOpenFlags(OpenFlags::empty().bits()), 0)
+            .await
+            .unwrap()
+            .fh;
         let bytes_read = fs
-            .read(reply.ino, fh, 0, 4096, 0, None)
+            .read(INodeNo(reply.ino), fh, 0, 4096, 0, None)
             .await
             .expect("fs read should succeed");
         assert_eq!(&bytes_read[..], &[0xa0 + (i as u8 + 1); 15]);
-        fs.release(reply.ino, fh, 0, None, true).await.unwrap();
+        fs.release(INodeNo(reply.ino), fh, 0, None, true).await.unwrap();
 
         offset = offset.max(reply.offset);
     }
@@ -107,12 +111,12 @@ async fn test_read_dir_root(prefix: &str) {
     assert!(offset > 0);
 
     let mut reply = Default::default();
-    fs.readdir(FUSE_ROOT_INODE, dir_handle, offset, &mut reply)
+    fs.readdir(INodeNo(FUSE_ROOT_INODE), dir_handle, offset, &mut reply)
         .await
         .unwrap();
     assert_eq!(reply.entries.len(), 0);
 
-    fs.releasedir(FUSE_ROOT_INODE, dir_handle, 0).await.unwrap();
+    fs.releasedir(INodeNo(FUSE_ROOT_INODE), dir_handle, 0).await.unwrap();
 }
 
 #[test_case(""; "unprefixed")]
@@ -140,13 +144,15 @@ async fn test_read_dir_nested(prefix: &str) {
     let dir_perm: u16 = 0o755;
     let file_perm: u16 = 0o644;
 
-    let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
+    let entry = fs.lookup(INodeNo(FUSE_ROOT_INODE), "dir1".as_ref()).await.unwrap();
     assert_eq!(entry.attr.kind, FileType::Directory);
     let dir_ino = entry.attr.ino.into();
 
-    let dir_handle = fs.opendir(dir_ino, 0).await.unwrap().fh;
+    let dir_handle = fs.opendir(INodeNo(dir_ino), FuseOpenFlags(0)).await.unwrap().fh;
     let mut reply = Default::default();
-    fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
+    fs.readdirplus(INodeNo(dir_ino), dir_handle, 0, &mut reply)
+        .await
+        .unwrap();
 
     assert_eq!(reply.entries.len(), 2 + 2);
 
@@ -164,17 +170,21 @@ async fn test_read_dir_nested(prefix: &str) {
         assert_eq!(reply.attr.kind, FileType::RegularFile);
         assert!(reply.ino > 1);
 
-        let attr = fs.getattr(reply.ino).await.unwrap();
+        let attr = fs.getattr(INodeNo(reply.ino)).await.unwrap();
         assert_eq!(u64::from(attr.attr.ino), reply.ino);
         assert_attr(attr.attr, FileType::RegularFile, 15, uid, gid, file_perm);
 
-        let fh = fs.open(reply.ino, OpenFlags::empty(), 0).await.unwrap().fh;
+        let fh = fs
+            .open(INodeNo(reply.ino), FuseOpenFlags(OpenFlags::empty().bits()), 0)
+            .await
+            .unwrap()
+            .fh;
         let bytes_read = fs
-            .read(reply.ino, fh, 0, 4096, 0, None)
+            .read(INodeNo(reply.ino), fh, 0, 4096, 0, None)
             .await
             .expect("fs read should succeed");
         assert_eq!(&bytes_read[..], &[0xa0 + (i as u8 + 1); 15]);
-        fs.release(reply.ino, fh, 0, None, true).await.unwrap();
+        fs.release(INodeNo(reply.ino), fh, 0, None, true).await.unwrap();
 
         offset = offset.max(reply.offset);
     }
@@ -182,10 +192,12 @@ async fn test_read_dir_nested(prefix: &str) {
     assert!(offset > 0);
 
     let mut reply = Default::default();
-    fs.readdir(dir_ino, dir_handle, offset, &mut reply).await.unwrap();
+    fs.readdir(INodeNo(dir_ino), dir_handle, offset, &mut reply)
+        .await
+        .unwrap();
     assert_eq!(reply.entries.len(), 0);
 
-    fs.releasedir(dir_ino, dir_handle, 0).await.unwrap();
+    fs.releasedir(INodeNo(dir_ino), dir_handle, 0).await.unwrap();
 }
 
 #[tokio::test]
@@ -200,7 +212,7 @@ async fn test_lookup_negative_cached() {
     let list_counter = client.new_counter(Operation::ListObjectsV2);
 
     let _ = fs
-        .lookup(FUSE_ROOT_INODE, "file1.txt".as_ref())
+        .lookup(INodeNo(FUSE_ROOT_INODE), "file1.txt".as_ref())
         .await
         .expect_err("should fail as no object exists");
     assert_eq!(head_counter.count(), 1);
@@ -208,7 +220,7 @@ async fn test_lookup_negative_cached() {
 
     // Check negative caching
     let _ = fs
-        .lookup(FUSE_ROOT_INODE, "file1.txt".as_ref())
+        .lookup(INodeNo(FUSE_ROOT_INODE), "file1.txt".as_ref())
         .await
         .expect_err("should fail as no object exists");
     assert_eq!(head_counter.count(), 1);
@@ -217,7 +229,7 @@ async fn test_lookup_negative_cached() {
     client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
     let _ = fs
-        .lookup(FUSE_ROOT_INODE, "file1.txt".as_ref())
+        .lookup(INodeNo(FUSE_ROOT_INODE), "file1.txt".as_ref())
         .await
         .expect_err("should fail as mountpoint should use negative cache");
     assert_eq!(head_counter.count(), 1);
@@ -225,9 +237,9 @@ async fn test_lookup_negative_cached() {
 
     // Use readdirplus to discover the new file
     {
-        let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+        let dir_handle = fs.opendir(INodeNo(FUSE_ROOT_INODE), FuseOpenFlags(0)).await.unwrap().fh;
         let mut reply = Default::default();
-        fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
+        fs.readdirplus(INodeNo(FUSE_ROOT_INODE), dir_handle, 0, &mut reply)
             .await
             .unwrap();
 
@@ -246,7 +258,7 @@ async fn test_lookup_negative_cached() {
     assert_eq!(list_counter.count(), 2);
 
     let _ = fs
-        .lookup(FUSE_ROOT_INODE, "file1.txt".as_ref())
+        .lookup(INodeNo(FUSE_ROOT_INODE), "file1.txt".as_ref())
         .await
         .expect("should succeed as object is cached and exists");
     assert_eq!(head_counter.count(), 1);
@@ -266,18 +278,30 @@ async fn test_lookup_then_open_cached() {
     let head_counter = client.new_counter(Operation::HeadObject);
     let list_counter = client.new_counter(Operation::ListObjectsV2);
 
-    let entry = fs.lookup(FUSE_ROOT_INODE, "file1.txt".as_ref()).await.unwrap();
+    let entry = fs.lookup(INodeNo(FUSE_ROOT_INODE), "file1.txt".as_ref()).await.unwrap();
     let ino = entry.attr.ino;
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    let fh = fs.open(ino.into(), OpenFlags::empty(), 0).await.unwrap().fh;
-    fs.release(ino.into(), fh, 0, None, true).await.unwrap();
+    let fh = fs
+        .open(INodeNo(ino.into()), FuseOpenFlags(OpenFlags::empty().bits()), 0)
+        .await
+        .unwrap()
+        .fh;
+    fs.release(INodeNo(ino.into()), fh, 0, None, true).await.unwrap();
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    let fh = fs.open(entry.attr.ino.into(), OpenFlags::empty(), 0).await.unwrap().fh;
-    fs.release(ino.into(), fh, 0, None, true).await.unwrap();
+    let fh = fs
+        .open(
+            INodeNo(entry.attr.ino.into()),
+            FuseOpenFlags(OpenFlags::empty().bits()),
+            0,
+        )
+        .await
+        .unwrap()
+        .fh;
+    fs.release(INodeNo(ino.into()), fh, 0, None, true).await.unwrap();
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 }
@@ -295,18 +319,30 @@ async fn test_lookup_then_open_no_cache() {
     let head_counter = client.new_counter(Operation::HeadObject);
     let list_counter = client.new_counter(Operation::ListObjectsV2);
 
-    let entry = fs.lookup(FUSE_ROOT_INODE, "file1.txt".as_ref()).await.unwrap();
+    let entry = fs.lookup(INodeNo(FUSE_ROOT_INODE), "file1.txt".as_ref()).await.unwrap();
     let ino = entry.attr.ino;
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    let fh = fs.open(ino.into(), OpenFlags::empty(), 0).await.unwrap().fh;
-    fs.release(ino.into(), fh, 0, None, true).await.unwrap();
+    let fh = fs
+        .open(INodeNo(ino.into()), FuseOpenFlags(OpenFlags::empty().bits()), 0)
+        .await
+        .unwrap()
+        .fh;
+    fs.release(INodeNo(ino.into()), fh, 0, None, true).await.unwrap();
     assert_eq!(head_counter.count(), 2);
     assert_eq!(list_counter.count(), 2);
 
-    let fh = fs.open(entry.attr.ino.into(), OpenFlags::empty(), 0).await.unwrap().fh;
-    fs.release(ino.into(), fh, 0, None, true).await.unwrap();
+    let fh = fs
+        .open(
+            INodeNo(entry.attr.ino.into()),
+            FuseOpenFlags(OpenFlags::empty().bits()),
+            0,
+        )
+        .await
+        .unwrap()
+        .fh;
+    fs.release(INodeNo(ino.into()), fh, 0, None, true).await.unwrap();
     assert_eq!(head_counter.count(), 3);
     assert_eq!(list_counter.count(), 3);
 }
@@ -327,9 +363,11 @@ async fn test_readdir_then_open_cached() {
         let list_counter = client.new_counter(Operation::ListObjectsV2);
 
         let dir_ino = FUSE_ROOT_INODE;
-        let dir_handle = fs.opendir(dir_ino, 0).await.unwrap().fh;
+        let dir_handle = fs.opendir(INodeNo(dir_ino), FuseOpenFlags(0)).await.unwrap().fh;
         let mut reply = Default::default();
-        fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
+        fs.readdirplus(INodeNo(dir_ino), dir_handle, 0, &mut reply)
+            .await
+            .unwrap();
 
         assert_eq!(reply.entries.len(), 2 + 1);
 
@@ -345,12 +383,16 @@ async fn test_readdir_then_open_cached() {
         assert_eq!(head_counter.count(), 0);
         assert_eq!(list_counter.count(), 1);
 
-        let fh = fs.open(entry.ino, OpenFlags::empty(), 0).await.unwrap().fh;
+        let fh = fs
+            .open(INodeNo(entry.ino), FuseOpenFlags(OpenFlags::empty().bits()), 0)
+            .await
+            .unwrap()
+            .fh;
 
         assert_eq!(head_counter.count(), 0);
         assert_eq!(list_counter.count(), 1);
-        fs.release(entry.ino, fh, 0, None, true).await.unwrap();
-        fs.releasedir(dir_ino, dir_handle, 0).await.unwrap();
+        fs.release(INodeNo(entry.ino), fh, 0, None, true).await.unwrap();
+        fs.releasedir(INodeNo(dir_ino), dir_handle, 0).await.unwrap();
 
         assert_eq!(head_counter.count(), 0);
         assert_eq!(list_counter.count(), 1);
@@ -373,7 +415,7 @@ async fn test_unlink_cached() {
     let list_counter = client.new_counter(Operation::ListObjectsV2);
 
     let _entry = fs
-        .lookup(parent_ino, "file1.txt".as_ref())
+        .lookup(INodeNo(parent_ino), "file1.txt".as_ref())
         .await
         .expect("should find file as object exists");
     assert_eq!(head_counter.count(), 1);
@@ -381,20 +423,20 @@ async fn test_unlink_cached() {
 
     client.remove_object("file1.txt");
     let _entry = fs
-        .lookup(parent_ino, "file1.txt".as_ref())
+        .lookup(INodeNo(parent_ino), "file1.txt".as_ref())
         .await
         .expect("lookup should still see obj");
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    fs.unlink(parent_ino, "file1.txt".as_ref())
+    fs.unlink(INodeNo(parent_ino), "file1.txt".as_ref())
         .await
         .expect("unlink should unlink cached object");
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
     let _entry = fs
-        .lookup(parent_ino, "file1.txt".as_ref())
+        .lookup(INodeNo(parent_ino), "file1.txt".as_ref())
         .await
         .expect_err("cached entry should now be gone");
     assert_eq!(head_counter.count(), 2);
@@ -418,7 +460,7 @@ async fn test_mknod_cached() {
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let err_no = fs
-        .mknod(parent, "file1.txt".as_ref(), mode, 0, 0)
+        .mknod(INodeNo(parent), "file1.txt".as_ref(), mode, 0, 0)
         .await
         .expect_err("file already exists")
         .to_errno();
@@ -429,7 +471,7 @@ async fn test_mknod_cached() {
     client.remove_object("file1.txt");
 
     let err_no = fs
-        .mknod(parent, "file1.txt".as_ref(), mode, 0, 0)
+        .mknod(INodeNo(parent), "file1.txt".as_ref(), mode, 0, 0)
         .await
         .expect_err("should fail as directory entry still cached")
         .to_errno();
@@ -450,16 +492,20 @@ async fn test_random_read(object_size: usize) {
     client.add_object("file", MockObject::from_bytes(&expected[..], ETag::for_tests()));
 
     // Find the object
-    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+    let dir_handle = fs.opendir(INodeNo(FUSE_ROOT_INODE), FuseOpenFlags(0)).await.unwrap().fh;
     let mut reply = Default::default();
-    fs.readdirplus(1, dir_handle, 0, &mut reply).await.unwrap();
+    fs.readdirplus(INodeNo(1), dir_handle, 0, &mut reply).await.unwrap();
 
     assert_eq!(reply.entries.len(), 2 + 1);
 
     assert_eq!(reply.entries[2].name, "file");
     let ino = reply.entries[2].ino;
 
-    let fh = fs.open(ino, OpenFlags::empty(), 0).await.unwrap().fh;
+    let fh = fs
+        .open(INodeNo(ino), FuseOpenFlags(OpenFlags::empty().bits()), 0)
+        .await
+        .unwrap()
+        .fh;
 
     let mut rng = SmallRng::seed_from_u64(0x12345678);
     for _ in 0..10 {
@@ -467,15 +513,15 @@ async fn test_random_read(object_size: usize) {
         // TODO do we need to bound it? should work anyway, just partial read, right?
         let length = rng.random_range(0..(object_size - offset).min(1024 * 1024)) + 1;
         let bytes_read = fs
-            .read(ino, fh, offset as i64, length as u32, 0, None)
+            .read(INodeNo(ino), fh, offset as i64, length as u32, 0, None)
             .await
             .expect("fs read should succeed");
         assert_eq!(bytes_read.len(), length);
         assert_eq!(&bytes_read[..], &expected[offset..offset + length]);
     }
 
-    fs.release(ino, fh, 0, None, true).await.unwrap();
-    fs.releasedir(FUSE_ROOT_INODE, dir_handle, 0).await.unwrap();
+    fs.release(INodeNo(ino), fh, 0, None, true).await.unwrap();
+    fs.releasedir(INodeNo(FUSE_ROOT_INODE), dir_handle, 0).await.unwrap();
 }
 
 #[test_case(""; "unprefixed")]
@@ -496,13 +542,15 @@ async fn test_implicit_directory_shadow(prefix: &str) {
         MockObject::constant(0xa2, 15, ETag::from_str("test_etag_2").unwrap()),
     );
 
-    let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
+    let entry = fs.lookup(INodeNo(FUSE_ROOT_INODE), "dir1".as_ref()).await.unwrap();
     assert_eq!(entry.attr.kind, FileType::Directory);
     let dir_ino = entry.attr.ino.into();
 
-    let dir_handle = fs.opendir(dir_ino, 0).await.unwrap().fh;
+    let dir_handle = fs.opendir(INodeNo(dir_ino), FuseOpenFlags(0)).await.unwrap().fh;
     let mut reply = Default::default();
-    fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
+    fs.readdirplus(INodeNo(dir_ino), dir_handle, 0, &mut reply)
+        .await
+        .unwrap();
 
     assert_eq!(reply.entries.len(), 2 + 1);
 
@@ -514,21 +562,31 @@ async fn test_implicit_directory_shadow(prefix: &str) {
     assert_eq!(reply.entries[2].name, "file2.txt");
     assert_eq!(reply.entries[2].attr.kind, FileType::RegularFile);
 
-    let fh = fs.open(reply.entries[2].ino, OpenFlags::empty(), 0).await.unwrap().fh;
+    let fh = fs
+        .open(
+            INodeNo(reply.entries[2].ino),
+            FuseOpenFlags(OpenFlags::empty().bits()),
+            0,
+        )
+        .await
+        .unwrap()
+        .fh;
     let bytes_read = fs
-        .read(reply.entries[2].ino, fh, 0, 4096, 0, None)
+        .read(INodeNo(reply.entries[2].ino), fh, 0, 4096, 0, None)
         .await
         .expect("fs read should succeed");
     assert_eq!(&bytes_read[..], &[0xa2; 15]);
-    fs.release(reply.entries[2].ino, fh, 0, None, true).await.unwrap();
+    fs.release(INodeNo(reply.entries[2].ino), fh, 0, None, true)
+        .await
+        .unwrap();
 
     // Explicitly looking up the shadowed file should fail
-    let entry = fs.lookup(FUSE_ROOT_INODE, "dir1/".as_ref()).await;
+    let entry = fs.lookup(INodeNo(FUSE_ROOT_INODE), "dir1/".as_ref()).await;
     assert!(matches!(entry, Err(e) if i32::from(e.to_errno()) == libc::EINVAL));
 
     // TODO test removing the directory, removing the file
 
-    fs.releasedir(dir_ino, dir_handle, 0).await.unwrap();
+    fs.releasedir(INodeNo(dir_ino), dir_handle, 0).await.unwrap();
 }
 
 #[test_case(1024; "small")]
@@ -547,26 +605,33 @@ async fn test_sequential_write(write_size: usize) {
     client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
     // Find the dir1 directory
-    let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
+    let entry = fs.lookup(INodeNo(FUSE_ROOT_INODE), "dir1".as_ref()).await.unwrap();
     assert_eq!(entry.attr.kind, FileType::Directory);
     let dir_ino = entry.attr.ino.into();
 
     // Write the object into that directory
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
-    let dentry = fs.mknod(dir_ino, "file2.bin".as_ref(), mode, 0, 0).await.unwrap();
+    let dentry = fs
+        .mknod(INodeNo(dir_ino), "file2.bin".as_ref(), mode, 0, 0)
+        .await
+        .unwrap();
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino.into();
 
-    let fh = fs.open(file_ino, OpenFlags::O_WRONLY, 0).await.unwrap().fh;
+    let fh = fs
+        .open(INodeNo(file_ino), FuseOpenFlags(OpenFlags::O_WRONLY.bits()), 0)
+        .await
+        .unwrap()
+        .fh;
 
     let mut offset = 0;
     for data in body.chunks(write_size) {
-        let written = fs.write(file_ino, fh, offset, data, 0, 0, None).await.unwrap();
+        let written = fs.write(INodeNo(file_ino), fh, offset, data, 0, 0, None).await.unwrap();
         assert_eq!(written as usize, data.len());
         offset += written as i64;
     }
 
-    fs.release(file_ino, fh, 0, None, false).await.unwrap();
+    fs.release(INodeNo(file_ino), fh, 0, None, false).await.unwrap();
 
     // Check that the object made it to S3 as we expected
     let get = client
@@ -578,38 +643,42 @@ async fn test_sequential_write(write_size: usize) {
 
     // And now check that we can read it out of the file system too. We need to emulate the kernel's
     // handling of ESTALE, which will retry after re-looking-up.
-    let stat = match fs.getattr(file_ino).await {
+    let stat = match fs.getattr(INodeNo(file_ino)).await {
         Ok(stat) => stat,
         Err(e) if i32::from(e.to_errno()) == libc::ESTALE => {
-            let entry = fs.lookup(dir_ino, "file2.bin".as_ref()).await.unwrap();
+            let entry = fs.lookup(INodeNo(dir_ino), "file2.bin".as_ref()).await.unwrap();
             assert_ne!(u64::from(entry.attr.ino), file_ino);
-            fs.getattr(entry.attr.ino.into()).await.unwrap()
+            fs.getattr(INodeNo(entry.attr.ino.into())).await.unwrap()
         }
         Err(e) => panic!("unexpected getattr failure: {e:?}"),
     };
     assert_eq!(stat.attr.size, body.len() as u64);
 
-    let dentry = fs.lookup(dir_ino, "file2.bin".as_ref()).await.unwrap();
+    let dentry = fs.lookup(INodeNo(dir_ino), "file2.bin".as_ref()).await.unwrap();
     let size = dentry.attr.size as usize;
     assert_eq!(size, body.len());
     let file_ino = dentry.attr.ino.into();
 
     // First let's check that we can't write it again
     let result = fs
-        .open(file_ino, OpenFlags::O_WRONLY, 0)
+        .open(INodeNo(file_ino), FuseOpenFlags(OpenFlags::O_WRONLY.bits()), 0)
         .await
         .expect_err("file should not be overwritable")
         .to_errno();
     assert_eq!(i32::from(result), libc::EPERM);
 
     // But read-only should work
-    let fh = fs.open(file_ino, OpenFlags::empty(), 0).await.unwrap().fh;
+    let fh = fs
+        .open(INodeNo(file_ino), FuseOpenFlags(OpenFlags::empty().bits()), 0)
+        .await
+        .unwrap()
+        .fh;
 
     let mut offset = 0;
     while offset < size {
         let length = 1024.min(size - offset);
         let bytes_read = fs
-            .read(file_ino, fh, offset as i64, length as u32, 0, None)
+            .read(INodeNo(file_ino), fh, offset as i64, length as u32, 0, None)
             .await
             .expect("fs read should succeed");
         assert_eq!(bytes_read.len(), length);
@@ -617,7 +686,7 @@ async fn test_sequential_write(write_size: usize) {
         offset += length;
     }
 
-    fs.release(file_ino, fh, 0, None, true).await.unwrap();
+    fs.release(INodeNo(file_ino), fh, 0, None, true).await.unwrap();
 }
 
 #[test_case(-27; "earlier offset")]
@@ -630,27 +699,31 @@ async fn test_unordered_write_fails(offset: i64) {
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs
-        .mknod(FUSE_ROOT_INODE, "file2.bin".as_ref(), mode, 0, 0)
+        .mknod(INodeNo(FUSE_ROOT_INODE), "file2.bin".as_ref(), mode, 0, 0)
         .await
         .unwrap();
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino.into();
 
-    let fh = fs.open(file_ino, OpenFlags::O_WRONLY, 0).await.unwrap().fh;
+    let fh = fs
+        .open(INodeNo(file_ino), FuseOpenFlags(OpenFlags::O_WRONLY.bits()), 0)
+        .await
+        .unwrap()
+        .fh;
 
     let slice = &[0xaa; 27];
-    let written = fs.write(file_ino, fh, 0, slice, 0, 0, None).await.unwrap();
+    let written = fs.write(INodeNo(file_ino), fh, 0, slice, 0, 0, None).await.unwrap();
     assert_eq!(written, 27);
 
     let err = fs
-        .write(file_ino, fh, written as i64 + offset, slice, 0, 0, None)
+        .write(INodeNo(file_ino), fh, written as i64 + offset, slice, 0, 0, None)
         .await
         .expect_err("writes to out-of-order offsets should fail")
         .to_errno();
     assert_eq!(i32::from(err), libc::EINVAL);
 
     let err = fs
-        .write(file_ino, fh, written as i64, slice, 0, 0, None)
+        .write(INodeNo(file_ino), fh, written as i64, slice, 0, 0, None)
         .await
         .expect_err("any write after an error should fail")
         .to_errno();
@@ -667,13 +740,13 @@ async fn test_sync_flags_fail(flag: OpenFlags) {
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs
-        .mknod(FUSE_ROOT_INODE, "file2.bin".as_ref(), mode, 0, 0)
+        .mknod(INodeNo(FUSE_ROOT_INODE), "file2.bin".as_ref(), mode, 0, 0)
         .await
         .unwrap();
     let file_ino = dentry.attr.ino.into();
 
     let err = fs
-        .open(file_ino, flag, 0)
+        .open(INodeNo(file_ino), FuseOpenFlags(flag.bits()), 0)
         .await
         .expect_err("open should fail due to use of O_SYNC/O_DSYNC flag")
         .to_errno();
@@ -688,16 +761,19 @@ async fn test_duplicate_write_fails() {
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs
-        .mknod(FUSE_ROOT_INODE, "file2.bin".as_ref(), mode, 0, 0)
+        .mknod(INodeNo(FUSE_ROOT_INODE), "file2.bin".as_ref(), mode, 0, 0)
         .await
         .unwrap();
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino;
 
-    let _opened = fs.open(file_ino.into(), OpenFlags::O_WRONLY, 0).await.unwrap();
+    let _opened = fs
+        .open(INodeNo(file_ino.into()), FuseOpenFlags(OpenFlags::O_WRONLY.bits()), 0)
+        .await
+        .unwrap();
 
     let err = fs
-        .open(file_ino.into(), OpenFlags::O_WRONLY, 0)
+        .open(INodeNo(file_ino.into()), FuseOpenFlags(OpenFlags::O_WRONLY.bits()), 0)
         .await
         .expect_err("should not be able to write twice")
         .to_errno();
@@ -740,28 +816,35 @@ async fn test_upload_aborted_on_write_failure() {
     );
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
-    let dentry = fs.mknod(FUSE_ROOT_INODE, FILE_NAME.as_ref(), mode, 0, 0).await.unwrap();
+    let dentry = fs
+        .mknod(INodeNo(FUSE_ROOT_INODE), FILE_NAME.as_ref(), mode, 0, 0)
+        .await
+        .unwrap();
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino;
 
-    let fh = fs.open(file_ino.into(), OpenFlags::O_WRONLY, 0).await.unwrap().fh;
+    let fh = fs
+        .open(INodeNo(file_ino.into()), FuseOpenFlags(OpenFlags::O_WRONLY.bits()), 0)
+        .await
+        .unwrap()
+        .fh;
 
     let written = fs
-        .write(file_ino.into(), fh, 0, &[0xaa; 27], 0, 0, None)
+        .write(INodeNo(file_ino.into()), fh, 0, &[0xaa; 27], 0, 0, None)
         .await
         .expect("first write should succeed");
 
     assert!(client.is_upload_in_progress(FILE_NAME));
 
     let write_error = fs
-        .write(file_ino.into(), fh, written as i64, &[0xaa; 27], 0, 0, None)
+        .write(INodeNo(file_ino.into()), fh, written as i64, &[0xaa; 27], 0, 0, None)
         .await
         .expect_err("second write should fail")
         .to_errno();
     assert_eq!(i32::from(write_error), libc::EIO);
 
     let err = fs
-        .write(file_ino.into(), fh, 0, &[0xaa; 27], 0, 0, None)
+        .write(INodeNo(file_ino.into()), fh, 0, &[0xaa; 27], 0, 0, None)
         .await
         .expect_err("subsequent writes should fail")
         .to_errno();
@@ -772,13 +855,13 @@ async fn test_upload_aborted_on_write_failure() {
     assert!(!client.contains_key(FILE_NAME));
 
     let err = fs
-        .fsync(file_ino.into(), fh, true)
+        .fsync(INodeNo(file_ino.into()), fh, true)
         .await
         .expect_err("subsequent fsync should fail")
         .to_errno();
     assert_eq!(i32::from(err), libc::EIO);
 
-    fs.release(file_ino.into(), fh, 0, None, true)
+    fs.release(INodeNo(file_ino.into()), fh, 0, None, true)
         .await
         .expect("release succeeds (no op)");
 }
@@ -819,21 +902,28 @@ async fn test_upload_aborted_on_fsync_failure() {
     );
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
-    let dentry = fs.mknod(FUSE_ROOT_INODE, FILE_NAME.as_ref(), mode, 0, 0).await.unwrap();
+    let dentry = fs
+        .mknod(INodeNo(FUSE_ROOT_INODE), FILE_NAME.as_ref(), mode, 0, 0)
+        .await
+        .unwrap();
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino;
 
-    let fh = fs.open(file_ino.into(), OpenFlags::O_WRONLY, 0).await.unwrap().fh;
+    let fh = fs
+        .open(INodeNo(file_ino.into()), FuseOpenFlags(OpenFlags::O_WRONLY.bits()), 0)
+        .await
+        .unwrap()
+        .fh;
 
     _ = fs
-        .write(file_ino.into(), fh, 0, &[0xaa; 27], 0, 0, None)
+        .write(INodeNo(file_ino.into()), fh, 0, &[0xaa; 27], 0, 0, None)
         .await
         .expect("first write should succeed");
 
     assert!(client.is_upload_in_progress(FILE_NAME));
 
     let err = fs
-        .fsync(file_ino.into(), fh, true)
+        .fsync(INodeNo(file_ino.into()), fh, true)
         .await
         .expect_err("subsequent fsync should fail")
         .to_errno();
@@ -842,7 +932,7 @@ async fn test_upload_aborted_on_fsync_failure() {
     assert!(!client.is_upload_in_progress(FILE_NAME));
     assert!(!client.contains_key(FILE_NAME));
 
-    fs.release(file_ino.into(), fh, 0, None, true)
+    fs.release(INodeNo(file_ino.into()), fh, 0, None, true)
         .await
         .expect("release succeeds (no op)");
 }
@@ -883,21 +973,28 @@ async fn test_upload_aborted_on_release_failure() {
     );
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
-    let dentry = fs.mknod(FUSE_ROOT_INODE, FILE_NAME.as_ref(), mode, 0, 0).await.unwrap();
+    let dentry = fs
+        .mknod(INodeNo(FUSE_ROOT_INODE), FILE_NAME.as_ref(), mode, 0, 0)
+        .await
+        .unwrap();
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino;
 
-    let fh = fs.open(file_ino.into(), OpenFlags::O_WRONLY, 0).await.unwrap().fh;
+    let fh = fs
+        .open(INodeNo(file_ino.into()), FuseOpenFlags(OpenFlags::O_WRONLY.bits()), 0)
+        .await
+        .unwrap()
+        .fh;
 
     _ = fs
-        .write(file_ino.into(), fh, 0, &[0xaa; 27], 0, 0, None)
+        .write(INodeNo(file_ino.into()), fh, 0, &[0xaa; 27], 0, 0, None)
         .await
         .expect("first write should succeed");
 
     assert!(client.is_upload_in_progress(FILE_NAME));
 
     let err = fs
-        .release(file_ino.into(), fh, 0, None, true)
+        .release(INodeNo(file_ino.into()), fh, 0, None, true)
         .await
         .expect_err("subsequent release should fail")
         .to_errno();
@@ -928,19 +1025,25 @@ async fn test_stat_block_size() {
         MockObject::constant(0xa3, 4097, ETag::from_str("test_etag_4").unwrap()),
     );
 
-    let lookup = fs.lookup(FUSE_ROOT_INODE, "file0.txt".as_ref()).await.unwrap();
+    let lookup = fs.lookup(INodeNo(FUSE_ROOT_INODE), "file0.txt".as_ref()).await.unwrap();
     assert_eq!(lookup.attr.blocks, 0);
     assert_eq!(lookup.attr.blksize, 4096);
 
-    let lookup = fs.lookup(FUSE_ROOT_INODE, "file1.txt".as_ref()).await.unwrap();
+    let lookup = fs.lookup(INodeNo(FUSE_ROOT_INODE), "file1.txt".as_ref()).await.unwrap();
     assert_eq!(lookup.attr.blocks, 1);
     assert_eq!(lookup.attr.blksize, 4096);
 
-    let lookup = fs.lookup(FUSE_ROOT_INODE, "file4096.txt".as_ref()).await.unwrap();
+    let lookup = fs
+        .lookup(INodeNo(FUSE_ROOT_INODE), "file4096.txt".as_ref())
+        .await
+        .unwrap();
     assert_eq!(lookup.attr.blocks, 8);
     assert_eq!(lookup.attr.blksize, 4096);
 
-    let lookup = fs.lookup(FUSE_ROOT_INODE, "file4097.txt".as_ref()).await.unwrap();
+    let lookup = fs
+        .lookup(INodeNo(FUSE_ROOT_INODE), "file4097.txt".as_ref())
+        .await
+        .unwrap();
     assert_eq!(lookup.attr.blocks, 9);
     assert_eq!(lookup.attr.blksize, 4096);
 }
@@ -960,17 +1063,17 @@ async fn test_lookup_removes_old_children(key: &str) {
     let child_name = key.split_once('/').map(|(p, _)| p).unwrap_or(key);
 
     // Ensure the file is visible in mountpoint
-    fs.lookup(FUSE_ROOT_INODE, child_name.as_ref()).await.unwrap();
+    fs.lookup(INodeNo(FUSE_ROOT_INODE), child_name.as_ref()).await.unwrap();
 
     // Remove object on the client
     client.remove_object(key);
 
-    fs.lookup(FUSE_ROOT_INODE, child_name.as_ref())
+    fs.lookup(INodeNo(FUSE_ROOT_INODE), child_name.as_ref())
         .await
         .expect_err("the child should not be visible");
 
     fs.mknod(
-        FUSE_ROOT_INODE,
+        INodeNo(FUSE_ROOT_INODE),
         child_name.as_ref(),
         libc::S_IFREG | libc::S_IRWXU,
         0,
@@ -990,7 +1093,7 @@ async fn test_local_dir(prefix: &str) {
     // Create local directory
     let dirname = "local";
     let dir_entry = fs
-        .mkdir(FUSE_ROOT_INODE, dirname.as_ref(), libc::S_IFDIR, 0)
+        .mkdir(INodeNo(FUSE_ROOT_INODE), dirname.as_ref(), libc::S_IFDIR, 0)
         .await
         .unwrap();
 
@@ -999,23 +1102,29 @@ async fn test_local_dir(prefix: &str) {
 
     assert!(!client.contains_prefix(&format!("{prefix}{dirname}")));
 
-    let lookup_entry = fs.lookup(FUSE_ROOT_INODE, dirname.as_ref()).await.unwrap();
+    let lookup_entry = fs.lookup(INodeNo(FUSE_ROOT_INODE), dirname.as_ref()).await.unwrap();
     assert_eq!(lookup_entry.attr, dir_entry.attr);
 
     // Write an object into the directory
     let filename = "file.bin";
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
-    let file_entry = fs.mknod(dir_ino, filename.as_ref(), mode, 0, 0).await.unwrap();
+    let file_entry = fs.mknod(INodeNo(dir_ino), filename.as_ref(), mode, 0, 0).await.unwrap();
     let file_ino = file_entry.attr.ino.into();
-    let file_handle = fs.open(file_ino, OpenFlags::O_WRONLY, 0).await.unwrap().fh;
+    let file_handle = fs
+        .open(INodeNo(file_ino), FuseOpenFlags(OpenFlags::O_WRONLY.bits()), 0)
+        .await
+        .unwrap()
+        .fh;
 
-    fs.release(file_ino, file_handle, 0, None, false).await.unwrap();
+    fs.release(INodeNo(file_ino), file_handle, 0, None, false)
+        .await
+        .unwrap();
 
     // Remove the new object from the client
     client.remove_object(&format!("{prefix}{dirname}/{filename}"));
 
     // Verify that the directory disappeared
-    let lookup = fs.lookup(FUSE_ROOT_INODE, dirname.as_ref()).await;
+    let lookup = fs.lookup(INodeNo(FUSE_ROOT_INODE), dirname.as_ref()).await;
     assert!(matches!(lookup, Err(e) if i32::from(e.to_errno()) == libc::ENOENT));
 }
 
@@ -1031,20 +1140,20 @@ async fn test_directory_shadowing_lookup() {
     let name = "foo";
     client.add_object(name, b"foo".into());
 
-    let lookup_entry = fs.lookup(FUSE_ROOT_INODE, name.as_ref()).await.unwrap();
+    let lookup_entry = fs.lookup(INodeNo(FUSE_ROOT_INODE), name.as_ref()).await.unwrap();
     assert_eq!(lookup_entry.attr.kind, FileType::RegularFile);
 
     // Add another object, whose prefix shadows the first
     let nested = format!("{name}/bar");
     client.add_object(&nested, b"bar".into());
 
-    let lookup_entry = fs.lookup(FUSE_ROOT_INODE, name.as_ref()).await.unwrap();
+    let lookup_entry = fs.lookup(INodeNo(FUSE_ROOT_INODE), name.as_ref()).await.unwrap();
     assert_eq!(lookup_entry.attr.kind, FileType::Directory);
 
     // Remove the second object
     client.remove_object(&nested);
 
-    let lookup_entry = fs.lookup(FUSE_ROOT_INODE, name.as_ref()).await.unwrap();
+    let lookup_entry = fs.lookup(INodeNo(FUSE_ROOT_INODE), name.as_ref()).await.unwrap();
     assert_eq!(lookup_entry.attr.kind, FileType::RegularFile);
 }
 
@@ -1059,16 +1168,22 @@ async fn test_directory_shadowing_readdir() {
     // Add `foo/bar` as a file
     client.add_object("foo/bar", b"foo/bar".into());
 
-    let foo_dir = fs.lookup(FUSE_ROOT_INODE, "foo".as_ref()).await.unwrap();
+    let foo_dir = fs.lookup(INodeNo(FUSE_ROOT_INODE), "foo".as_ref()).await.unwrap();
     assert_eq!(foo_dir.attr.kind, FileType::Directory);
 
     let bar_dentry = {
-        let dir_handle = fs.opendir(foo_dir.attr.ino.into(), 0).await.unwrap().fh;
+        let dir_handle = fs
+            .opendir(INodeNo(foo_dir.attr.ino.into()), FuseOpenFlags(0))
+            .await
+            .unwrap()
+            .fh;
         let mut reply = Default::default();
-        fs.readdir(foo_dir.attr.ino.into(), dir_handle, 0, &mut reply)
+        fs.readdir(INodeNo(foo_dir.attr.ino.into()), dir_handle, 0, &mut reply)
             .await
             .unwrap();
-        fs.releasedir(foo_dir.attr.ino.into(), dir_handle, 0).await.unwrap();
+        fs.releasedir(INodeNo(foo_dir.attr.ino.into()), dir_handle, 0)
+            .await
+            .unwrap();
 
         // Skip . and .. to get to the `bar` dentry
         reply.entries.get(2).unwrap().clone()
@@ -1078,7 +1193,10 @@ async fn test_directory_shadowing_readdir() {
     assert_eq!(bar_dentry.name, "bar");
 
     // Lookup should be consistent with readdir
-    let bar_file = fs.lookup(foo_dir.attr.ino.into(), "bar".as_ref()).await.unwrap();
+    let bar_file = fs
+        .lookup(INodeNo(foo_dir.attr.ino.into()), "bar".as_ref())
+        .await
+        .unwrap();
     assert_eq!(bar_file.attr.kind, FileType::RegularFile);
     assert_eq!(bar_file.attr.ino, bar_dentry.attr.ino);
 
@@ -1086,12 +1204,18 @@ async fn test_directory_shadowing_readdir() {
     client.add_object("foo/bar/baz", b"bar".into());
 
     let bar_dentry_new = {
-        let dir_handle = fs.opendir(foo_dir.attr.ino.into(), 0).await.unwrap().fh;
+        let dir_handle = fs
+            .opendir(INodeNo(foo_dir.attr.ino.into()), FuseOpenFlags(0))
+            .await
+            .unwrap()
+            .fh;
         let mut reply = Default::default();
-        fs.readdir(bar_file.attr.ino.into(), dir_handle, 0, &mut reply)
+        fs.readdir(INodeNo(bar_file.attr.ino.into()), dir_handle, 0, &mut reply)
             .await
             .unwrap();
-        fs.releasedir(bar_file.attr.ino.into(), dir_handle, 0).await.unwrap();
+        fs.releasedir(INodeNo(bar_file.attr.ino.into()), dir_handle, 0)
+            .await
+            .unwrap();
 
         // Skip . and .. to get to the `bar` dentry
         reply.entries.get(2).unwrap().clone()
@@ -1103,7 +1227,10 @@ async fn test_directory_shadowing_readdir() {
     assert_ne!(bar_dentry_new.attr.ino, bar_dentry.attr.ino);
 
     // Lookup should again be consistent with readdir
-    let bar_dir = fs.lookup(foo_dir.attr.ino.into(), "bar".as_ref()).await.unwrap();
+    let bar_dir = fs
+        .lookup(INodeNo(foo_dir.attr.ino.into()), "bar".as_ref())
+        .await
+        .unwrap();
     assert_eq!(bar_dir.attr.kind, FileType::Directory);
     assert_eq!(bar_dir.attr.ino, bar_dentry_new.attr.ino);
 
@@ -1111,12 +1238,18 @@ async fn test_directory_shadowing_readdir() {
     client.remove_object("foo/bar/baz");
 
     let bar_dentry = {
-        let dir_handle = fs.opendir(foo_dir.attr.ino.into(), 0).await.unwrap().fh;
+        let dir_handle = fs
+            .opendir(INodeNo(foo_dir.attr.ino.into()), FuseOpenFlags(0))
+            .await
+            .unwrap()
+            .fh;
         let mut reply = Default::default();
-        fs.readdir(foo_dir.attr.ino.into(), dir_handle, 0, &mut reply)
+        fs.readdir(INodeNo(foo_dir.attr.ino.into()), dir_handle, 0, &mut reply)
             .await
             .unwrap();
-        fs.releasedir(foo_dir.attr.ino.into(), dir_handle, 0).await.unwrap();
+        fs.releasedir(INodeNo(foo_dir.attr.ino.into()), dir_handle, 0)
+            .await
+            .unwrap();
 
         // Skip . and .. to get to the `bar` dentry
         reply.entries.get(2).unwrap().clone()
@@ -1129,7 +1262,10 @@ async fn test_directory_shadowing_readdir() {
     assert_ne!(bar_dentry.attr.ino, bar_dentry_new.attr.ino);
 
     // Lookup should be consistent with readdir
-    let bar_file = fs.lookup(foo_dir.attr.ino.into(), "bar".as_ref()).await.unwrap();
+    let bar_file = fs
+        .lookup(INodeNo(foo_dir.attr.ino.into()), "bar".as_ref())
+        .await
+        .unwrap();
     assert_eq!(bar_file.attr.kind, FileType::RegularFile);
     assert_eq!(bar_file.attr.ino, bar_dentry.attr.ino);
 }
@@ -1142,10 +1278,12 @@ async fn test_readdir_vs_readdirplus() {
     client.add_object("baz/foo", b"foo".into());
 
     let readdir_entries = {
-        let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+        let dir_handle = fs.opendir(INodeNo(FUSE_ROOT_INODE), FuseOpenFlags(0)).await.unwrap().fh;
         let mut reply = Default::default();
-        fs.readdir(FUSE_ROOT_INODE, dir_handle, 0, &mut reply).await.unwrap();
-        fs.releasedir(FUSE_ROOT_INODE, dir_handle, 0).await.unwrap();
+        fs.readdir(INodeNo(FUSE_ROOT_INODE), dir_handle, 0, &mut reply)
+            .await
+            .unwrap();
+        fs.releasedir(INodeNo(FUSE_ROOT_INODE), dir_handle, 0).await.unwrap();
 
         // Skip . and ..
         reply.entries.into_iter().skip(2).collect::<Vec<_>>()
@@ -1158,7 +1296,7 @@ async fn test_readdir_vs_readdirplus() {
 
     for entry in readdir_entries {
         let err = fs
-            .getattr(entry.ino)
+            .getattr(INodeNo(entry.ino))
             .await
             .expect_err("readdir should not add inodes to the superblock")
             .to_errno();
@@ -1166,12 +1304,12 @@ async fn test_readdir_vs_readdirplus() {
     }
 
     let readdirplus_entries = {
-        let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+        let dir_handle = fs.opendir(INodeNo(FUSE_ROOT_INODE), FuseOpenFlags(0)).await.unwrap().fh;
         let mut reply = Default::default();
-        fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
+        fs.readdirplus(INodeNo(FUSE_ROOT_INODE), dir_handle, 0, &mut reply)
             .await
             .unwrap();
-        fs.releasedir(FUSE_ROOT_INODE, dir_handle, 0).await.unwrap();
+        fs.releasedir(INodeNo(FUSE_ROOT_INODE), dir_handle, 0).await.unwrap();
 
         // Skip . and ..
         reply.entries.into_iter().skip(2).collect::<Vec<_>>()
@@ -1184,7 +1322,7 @@ async fn test_readdir_vs_readdirplus() {
 
     for entry in readdirplus_entries {
         let attr = fs
-            .getattr(entry.ino)
+            .getattr(INodeNo(entry.ino))
             .await
             .expect("readdirplus should add inodes to the superblock");
         assert_eq!(entry.ino, u64::from(attr.attr.ino));
@@ -1220,12 +1358,12 @@ async fn test_flexible_retrieval_objects() {
         client.add_object(name, object);
     }
 
-    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+    let dir_handle = fs.opendir(INodeNo(FUSE_ROOT_INODE), FuseOpenFlags(0)).await.unwrap().fh;
     let mut reply = Default::default();
-    fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
+    fs.readdirplus(INodeNo(FUSE_ROOT_INODE), dir_handle, 0, &mut reply)
         .await
         .unwrap();
-    fs.releasedir(FUSE_ROOT_INODE, dir_handle, 0).await.unwrap();
+    fs.releasedir(INodeNo(FUSE_ROOT_INODE), dir_handle, 0).await.unwrap();
 
     // Skip . and ..
     let iter = reply.entries.into_iter().skip(2);
@@ -1233,16 +1371,18 @@ async fn test_flexible_retrieval_objects() {
         let flexible_retrieval = entry.name == "GLACIER" || entry.name == "DEEP_ARCHIVE";
         assert_eq!(flexible_retrieval, entry.attr.perm == 0);
 
-        let getattr = fs.getattr(entry.ino).await.unwrap();
+        let getattr = fs.getattr(INodeNo(entry.ino)).await.unwrap();
         assert_eq!(flexible_retrieval, getattr.attr.perm == 0);
 
-        let open = fs.open(entry.ino, OpenFlags::empty(), 0).await;
+        let open = fs
+            .open(INodeNo(entry.ino), FuseOpenFlags(OpenFlags::empty().bits()), 0)
+            .await;
         if flexible_retrieval {
             let err = open.expect_err("can't open flexible retrieval objects");
             assert_eq!(i32::from(err.to_errno()), libc::EACCES);
         } else {
             let open = open.expect("instant retrieval files are readable");
-            fs.release(entry.ino, open.fh, 0, None, true).await.unwrap();
+            fs.release(INodeNo(entry.ino), open.fh, 0, None, true).await.unwrap();
         }
     }
 
@@ -1262,18 +1402,24 @@ async fn test_flexible_retrieval_objects() {
         });
         client.add_object(&file_name, object);
 
-        let lookup = fs.lookup(FUSE_ROOT_INODE, file_name.as_ref()).await.unwrap();
+        let lookup = fs.lookup(INodeNo(FUSE_ROOT_INODE), file_name.as_ref()).await.unwrap();
 
-        let getattr = fs.getattr(lookup.attr.ino.into()).await.unwrap();
+        let getattr = fs.getattr(INodeNo(lookup.attr.ino.into())).await.unwrap();
         assert_eq!(flexible_retrieval, getattr.attr.perm == 0);
 
-        let open = fs.open(lookup.attr.ino.into(), OpenFlags::empty(), 0).await;
+        let open = fs
+            .open(
+                INodeNo(lookup.attr.ino.into()),
+                FuseOpenFlags(OpenFlags::empty().bits()),
+                0,
+            )
+            .await;
         if flexible_retrieval {
             let err = open.expect_err("can't open flexible retrieval objects");
             assert_eq!(i32::from(err.to_errno()), libc::EACCES);
         } else {
             let open = open.expect("instant retrieval files are readable");
-            fs.release(lookup.attr.ino.into(), open.fh, 0, None, true)
+            fs.release(INodeNo(lookup.attr.ino.into()), open.fh, 0, None, true)
                 .await
                 .unwrap();
         }
@@ -1288,10 +1434,10 @@ async fn test_readdir_rewind_ordered() {
         client.add_object(&format!("foo{i}"), b"foo".into());
     }
 
-    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+    let dir_handle = fs.opendir(INodeNo(FUSE_ROOT_INODE), FuseOpenFlags(0)).await.unwrap().fh;
 
     let mut reply = DirectoryReply::new(5);
-    fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
+    fs.readdirplus(INodeNo(FUSE_ROOT_INODE), dir_handle, 0, &mut reply)
         .await
         .unwrap();
     let entries = reply
@@ -1303,7 +1449,7 @@ async fn test_readdir_rewind_ordered() {
 
     // Trying to read out of order should fail (only offsets in the range of the previous response, or the one immediately following, are valid)
     assert!(reply.entries.back().unwrap().offset > 1);
-    fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 6, &mut Default::default())
+    fs.readdirplus(INodeNo(FUSE_ROOT_INODE), dir_handle, 6, &mut Default::default())
         .await
         .expect_err("out of order");
 
@@ -1338,7 +1484,7 @@ async fn test_readdir_rewind_ordered() {
     let _ = ls(&fs, dir_handle, 0, 5).await;
     let mut next_page = DirectoryReply::new(0);
     fs.readdirplus(
-        FUSE_ROOT_INODE,
+        INodeNo(FUSE_ROOT_INODE),
         dir_handle,
         reply.entries.back().unwrap().offset,
         &mut next_page,
@@ -1353,7 +1499,7 @@ async fn test_readdir_rewind_ordered() {
         if entry.ino != FUSE_ROOT_INODE {
             // Each inode in this list should be remembered twice since we did two `readdirplus`es.
             // Forget will panic if this makes the lookup count underflow.
-            fs.forget(entry.ino, 2).await;
+            fs.forget(INodeNo(entry.ino), 2).await;
         }
     }
 }
@@ -1370,7 +1516,7 @@ async fn test_readdir_rewind_unordered() {
         client.add_object(&format!("foo{i}"), b"foo".into());
     }
 
-    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+    let dir_handle = fs.opendir(INodeNo(FUSE_ROOT_INODE), FuseOpenFlags(0)).await.unwrap().fh;
 
     // Requesting same offset (non zero) works fine by returning last response
     let _ = ls(&fs, dir_handle, 0, 5).await;
@@ -1401,7 +1547,7 @@ async fn test_readdir_rewind_with_new_files(s3_fs_config: S3FilesystemConfig) {
         client.add_object(&format!("foo{i}"), b"foo".into());
     }
 
-    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+    let dir_handle = fs.opendir(INodeNo(FUSE_ROOT_INODE), FuseOpenFlags(0)).await.unwrap().fh;
 
     // Let's add a new local file
     let file_name = "newfile.bin";
@@ -1440,7 +1586,7 @@ async fn test_readdir_rewind_with_new_files(s3_fs_config: S3FilesystemConfig) {
 async fn test_readdir_rewind_with_local_files_only() {
     let (_, fs) = make_test_filesystem("test_readdir_rewind", &Default::default(), Default::default());
 
-    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+    let dir_handle = fs.opendir(INodeNo(FUSE_ROOT_INODE), FuseOpenFlags(0)).await.unwrap().fh;
 
     // Let's add a new local file
     let file_name = "newfile.bin";
@@ -1489,7 +1635,7 @@ async fn test_readdir_repeat_response_partial(first_repeated_offset: usize, seco
         client.add_object(&format!("foo{i}"), b"foo".into());
     }
 
-    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+    let dir_handle = fs.opendir(INodeNo(FUSE_ROOT_INODE), FuseOpenFlags(0)).await.unwrap().fh;
     let max_entries = 25;
 
     // first request should just succeed
@@ -1522,7 +1668,7 @@ async fn test_readdir_repeat_response_after_rewind() {
         client.add_object(&format!("foo{i}"), b"foo".into());
     }
 
-    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+    let dir_handle = fs.opendir(INodeNo(FUSE_ROOT_INODE), FuseOpenFlags(0)).await.unwrap().fh;
     let max_entries = 25;
 
     // read the first response, we'll later use it as an expected result
@@ -1565,7 +1711,7 @@ async fn test_lookup_404_not_an_error() {
         Default::default(),
     );
     let err = fs
-        .lookup(FUSE_ROOT_INODE, name.as_ref())
+        .lookup(INodeNo(FUSE_ROOT_INODE), name.as_ref())
         .await
         .expect_err("lookup must fail");
     // ensure inexistent object has a dedicated error code
@@ -1618,7 +1764,7 @@ async fn test_lookup_forbidden() {
         Default::default(),
     );
     let err = fs
-        .lookup(FUSE_ROOT_INODE, name.as_ref())
+        .lookup(INodeNo(FUSE_ROOT_INODE), name.as_ref())
         .await
         .expect_err("lookup must fail");
     let metadata = err.meta();
@@ -1639,26 +1785,36 @@ async fn test_lookup_forbidden() {
 
 async fn new_local_file(fs: &S3Filesystem<Arc<MockClient>>, filename: &str) {
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
-    let dentry = fs.mknod(FUSE_ROOT_INODE, filename.as_ref(), mode, 0, 0).await.unwrap();
+    let dentry = fs
+        .mknod(INodeNo(FUSE_ROOT_INODE), filename.as_ref(), mode, 0, 0)
+        .await
+        .unwrap();
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino;
 
-    let fh = fs.open(file_ino.into(), OpenFlags::O_WRONLY, 0).await.unwrap().fh;
+    let fh = fs
+        .open(INodeNo(file_ino.into()), FuseOpenFlags(OpenFlags::O_WRONLY.bits()), 0)
+        .await
+        .unwrap()
+        .fh;
 
     let slice = &[0xaa; 27];
-    let written = fs.write(file_ino.into(), fh, 0, slice, 0, 0, None).await.unwrap();
+    let written = fs
+        .write(INodeNo(file_ino.into()), fh, 0, slice, 0, 0, None)
+        .await
+        .unwrap();
     assert_eq!(written as usize, slice.len());
-    fs.fsync(file_ino.into(), fh, true).await.unwrap();
+    fs.fsync(INodeNo(file_ino.into()), fh, true).await.unwrap();
 }
 
 async fn ls(
     fs: &S3Filesystem<Arc<MockClient>>,
-    dir_handle: u64,
+    dir_handle: FileHandle,
     offset: i64,
     max_entries: usize,
 ) -> Vec<(u64, OsString)> {
     let mut reply = DirectoryReply::new(max_entries);
-    fs.readdirplus(FUSE_ROOT_INODE, dir_handle, offset, &mut reply)
+    fs.readdirplus(INodeNo(FUSE_ROOT_INODE), dir_handle, offset, &mut reply)
         .await
         .unwrap();
     reply

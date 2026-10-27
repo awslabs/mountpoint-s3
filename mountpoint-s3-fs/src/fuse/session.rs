@@ -24,13 +24,6 @@ pub struct FuseSession {
 
 type OnClose = Box<dyn FnOnce() + Send>;
 
-struct SessionAndConfig<FS>
-where
-    FS: Filesystem + Send + Sync + 'static,
-{
-    session: Session<FS>,
-}
-
 impl FuseSession {
     /// Create a new multi-threaded FUSE session.
     pub fn new<FS: Filesystem + Send + Sync + 'static>(
@@ -107,9 +100,7 @@ impl FuseSession {
                 .context("failed to spawn waiter thread")?
         };
 
-        let session_and_config = SessionAndConfig { session };
-        WorkerPool::start(session_and_config, workers_tx, max_worker_threads)
-            .context("failed to start worker thread pool")?;
+        WorkerPool::start(session, workers_tx, max_worker_threads).context("failed to start worker thread pool")?;
 
         Ok(Self {
             unmounter,
@@ -275,7 +266,7 @@ impl<W: Work> Clone for WorkerPool<W> {
     }
 }
 
-impl<FS> Work for SessionAndConfig<FS>
+impl<FS> Work for Session<FS>
 where
     FS: Filesystem + Send + Sync + 'static,
 {
@@ -286,7 +277,7 @@ where
         FB: FnMut(),
         FA: FnMut(),
     {
-        self.session.run_with_callbacks(
+        self.run_with_callbacks(
             |req| {
                 // Do not scale threads on bursts of forget messages.
                 if req.is_forget() {

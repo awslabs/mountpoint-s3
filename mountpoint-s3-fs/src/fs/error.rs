@@ -8,6 +8,8 @@ use crate::metablock::InodeError;
 use crate::prefetch::PrefetchReadError;
 use crate::upload::UploadError;
 
+pub use fuser::Errno;
+
 /// Generate an error that includes a conversion to a libc errno for use in replies to FUSE.
 ///
 /// `mountpoint-s3` is an application, so we'd be happy to just use the [anyhow] crate directly,
@@ -39,7 +41,7 @@ macro_rules! err {
     // Base case -- don't use directly
     ($errno:expr, __source:$source:expr, $level:expr, $metadata:expr, $message:literal, $($args:tt)*) => {
         Error {
-            errno: $errno,
+            errno: fuser::Errno::from_i32($errno),
             message: format!($message, $($args)*),
             source: $source,
             level: $level,
@@ -75,7 +77,7 @@ macro_rules! err {
 /// details.
 #[derive(Debug, thiserror::Error)]
 pub struct Error {
-    pub(crate) errno: libc::c_int,
+    pub(crate) errno: Errno,
     pub(crate) message: String,
     pub(crate) source: Option<anyhow::Error>,
     pub(crate) level: Level,
@@ -95,8 +97,8 @@ impl std::fmt::Display for Error {
 
 impl From<InodeError> for Error {
     fn from(err: InodeError) -> Self {
-        let errno = err.to_errno().into();
-        let metadata = err.meta().clone();
+        let errno = err.to_errno();
+        let metadata = err.meta();
         Error {
             errno,
             message: String::from("inode error"),
@@ -110,7 +112,7 @@ impl From<InodeError> for Error {
 
 impl<E: std::error::Error + Send + Sync + 'static> From<UploadError<E>> for Error {
     fn from(err: UploadError<E>) -> Self {
-        let errno = err.to_errno().into();
+        let errno = err.to_errno();
         Error {
             errno,
             message: String::from("upload error"),
@@ -146,17 +148,17 @@ impl<E: std::error::Error + Send + Sync + 'static> From<PrefetchReadError<E>> fo
 
 /// Errors that can be converted to a raw OS error (errno)
 pub trait ToErrno {
-    fn to_errno(&self) -> fuser::Errno;
+    fn to_errno(&self) -> Errno;
 }
 
 impl ToErrno for Error {
-    fn to_errno(&self) -> fuser::Errno {
-        fuser::Errno::from_i32(self.errno)
+    fn to_errno(&self) -> Errno {
+        self.errno
     }
 }
 
 impl ToErrno for InodeError {
-    fn to_errno(&self) -> fuser::Errno {
+    fn to_errno(&self) -> Errno {
         let errno = match self {
             InodeError::ClientError { .. } => libc::EIO,
             InodeError::FileDoesNotExist(_, _) => libc::ENOENT,
@@ -192,12 +194,12 @@ impl ToErrno for InodeError {
             InodeError::FlexibleRetrievalObjectNotAccessible(_) => libc::EACCES,
             InodeError::WriteHandleLimitExceeded(_) => libc::ENOMEM,
         };
-        fuser::Errno::from_i32(errno)
+        Errno::from_i32(errno)
     }
 }
 
 impl<E: std::error::Error> ToErrno for UploadError<E> {
-    fn to_errno(&self) -> fuser::Errno {
+    fn to_errno(&self) -> Errno {
         let errno = match self {
             UploadError::PutRequestFailed(_) => libc::EIO,
             UploadError::UploadAlreadyTerminated => libc::EIO,
@@ -207,7 +209,7 @@ impl<E: std::error::Error> ToErrno for UploadError<E> {
             UploadError::OutOfOrderWrite { .. } => libc::EINVAL,
             UploadError::ObjectTooBig { .. } => libc::EFBIG,
         };
-        fuser::Errno::from_i32(errno)
+        Errno::from_i32(errno)
     }
 }
 

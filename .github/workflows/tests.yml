@@ -165,8 +165,7 @@ jobs:
           target/
         key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Check all targets
-      # Scope to workspace members only so --all-features doesn't propagate to vendored mountpoint-s3-fuser
-      run: cargo check --locked --all-targets -p mountpoint-s3 -p mountpoint-s3-fs -p mountpoint-s3-client -p mountpoint-s3-crt -p mountpoint-s3-crt-sys --all-features
+      run: cargo check --locked --all-targets --all-features
 
   bench:
     name: Cargo benchmarks
