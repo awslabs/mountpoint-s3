@@ -1,5 +1,6 @@
 ## Unreleased (v0.17.0)
 
+* Build the CRT against the aws-lc library of the `aws-lc-sys` crate, through `mountpoint-s3-crt-sys` 0.18.0.
 * Update to latest CRT dependencies.
 
 ## v0.16.2 (October 6, 2026)

@@ -40,6 +40,12 @@ The CRT submodules can be updated by following these steps:
 4. Check the whole project builds successfully: `cargo build`.
    This will build both Mountpoint filesystem as well as the client components.
 
+   s2n-tls and aws-c-cal are built against the aws-lc library of the `aws-lc-sys` crate, a regular Cargo dependency.
+   If they need a newer aws-lc, the build fails with missing symbols or failing s2n-tls feature probes.
+   Then update `aws-lc-sys`: `cargo update -p aws-lc-sys`, or, for a new minor version, the `aws-lc-sys` requirement in
+   `mountpoint-s3-crt-sys/Cargo.toml` together with `cargo update -p aws-lc-rs -p aws-lc-sys`.
+   `cargo deny check bans` fails if the workspace ends up with two versions of `aws-lc-sys`.
+
 5. Verify the compressed size of the `mountpoint-s3-crt-sys` crate does not exceed the crates.io limit of 10MiB.
 
    ```

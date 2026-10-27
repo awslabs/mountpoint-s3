@@ -1,12 +1,15 @@
 """
 This RPM spec generator creates a distribution-specific .spec file.
-It extracts versions from Cargo.toml/rust-toolchain.toml and scans git submodules for bundled library declarations.
+It extracts versions from Cargo.toml/rust-toolchain.toml and scans git submodules and the aws-lc-sys crate for bundled
+library declarations.
 
 The script takes a target distribution, loads the corresponding template,
 and outputs a complete RPM spec file ready for rpmbuild.
 """
 
 import argparse
+import json
+import re
 import subprocess
 import tomllib
 from datetime import datetime
@@ -45,6 +48,22 @@ def get_submodule_versions() -> dict[str, str]:
     return versions
 
 
+def get_aws_lc_version() -> str:
+    """The version of aws-lc built by the `aws-lc-sys` crate, which the CRT is built against."""
+    result = subprocess.run(
+        ["cargo", "metadata", "--format-version", "1", "--locked", "--manifest-path", project_root / "Cargo.toml"],
+        stdout=subprocess.PIPE,
+        text=True,
+        check=True,
+    )
+    package = next(p for p in json.loads(result.stdout)["packages"] if p["name"] == "aws-lc-sys")
+    base_h = Path(package["manifest_path"]).parent / "aws-lc" / "include" / "openssl" / "base.h"
+    match = re.search(r'^#define AWSLC_VERSION_NUMBER_STRING "(.+)"$', base_h.read_text(), re.MULTILINE)
+    if match is None:
+        raise ValueError(f"AWSLC_VERSION_NUMBER_STRING not found in {base_h}")
+    return match.group(1)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate RPM spec files for different distributions")
     parser.add_argument("build_target", help="Target distribution (e.g., amzn2023)")
@@ -68,7 +87,7 @@ def main() -> None:
 
     version = get_version()
     rust_version = get_rust_version()
-    submodule_versions = get_submodule_versions()
+    bundled_versions = dict(sorted({**get_submodule_versions(), "aws-lc": get_aws_lc_version()}.items()))
     current_date = datetime.now().strftime("%a %b %d %Y")
 
     env = Environment(loader=FileSystemLoader(templates_dir), trim_blocks=True, lstrip_blocks=True)
@@ -79,7 +98,7 @@ def main() -> None:
         version=version,
         rust_version=rust_version,
         current_date=current_date,
-        submodule_versions=submodule_versions,
+        bundled_versions=bundled_versions,
         use_github_source=args.use_github_source,
     )
 

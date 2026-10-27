@@ -13,6 +13,10 @@ mod generated {
 
 pub use generated::*;
 
+// The CRT's static libraries reference the libcrypto of `aws-lc-sys` (see `build.rs`). No Rust code
+// here uses the crate, so this import makes sure it is linked.
+use aws_lc_sys as _;
+
 pub mod logging_shim;
 
 #[cfg(test)]

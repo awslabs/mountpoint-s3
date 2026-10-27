@@ -24,3 +24,11 @@ yanked = "warn"
 ignore = [
     { id = "RUSTSEC-2025-0141", reason = "bincode is unmaintained (https://rustsec.org/advisories/RUSTSEC-2025-0141). Ignore unmaintained warning until we remove the dependency." },
 ]
+
+[bans]
+deny = [
+    # The CRT and rustls share the aws-lc library built by `aws-lc-sys`. A second version of
+    # `aws-lc-sys` would add a second aws-lc library to the binary, with the CRT and rustls each using
+    # a different one.
+    { crate = "aws-lc-sys", deny-multiple-versions = true, reason = "the CRT and rustls must share one aws-lc library" },
+]

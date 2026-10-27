@@ -7,9 +7,10 @@ use rustflags::Flag;
 /// Path to the CRT repos, relative to the crate root.
 const CRT_PATH: &str = "crt";
 
-/// The CRT libraries we use, in order of their dependencies.
+/// The CRT libraries we use, in order of their dependencies. They are built against the libcrypto of
+/// `aws-lc-sys` (see [AwsLcSys]), or, with a pre-built CRT, linked with the libcrypto installed with
+/// them.
 const CRT_LIBRARIES: &[&str] = &[
-    "aws-lc",
     "s2n-tls",
     "aws-c-common",
     "aws-c-cal",
@@ -86,8 +87,8 @@ fn get_env(var: &str) -> Option<String> {
     }
 }
 
-/// A single CRT library dependency. Some CRT libraries (aws-lc and s2n) have a different library
-/// name to their package name, so we record both.
+/// A single CRT library dependency. Some CRT libraries (s2n) have a different library name to their
+/// package name, so we record both.
 #[derive(Debug, Clone)]
 struct CrtLibrary {
     package_name: String,
@@ -99,9 +100,8 @@ fn get_required_libraries() -> Vec<CrtLibrary> {
     CRT_LIBRARIES
         .iter()
         .map(|pkg| {
-            // aws-lc and s2n-tls have different lib names to their package name
+            // s2n-tls has a different lib name to its package name
             let lib_name = match *pkg {
-                "aws-lc" => "crypto",
                 "s2n-tls" => "s2n",
                 lib => lib,
             };
@@ -200,6 +200,52 @@ fn generate_bindings(include_dir: &Path, output_path: &Path) -> Result<(), Bindg
     Ok(())
 }
 
+/// The aws-lc library built by the `aws-lc-sys` crate, which the CRT is built against, so that a
+/// binary that also uses `aws-lc-rs` (e.g. through rustls) links a single aws-lc.
+///
+/// `aws-lc-sys` exports the paths through its `links` metadata for build scripts that compile C code
+/// against its library. Its library has prefixed symbols (`aws_lc_<version>_*`), and its include
+/// directory applies the same prefix: `openssl/base.h` includes `boringssl_prefix_symbols.h`. So
+/// the CRT sources compile against it unchanged.
+#[derive(Debug)]
+struct AwsLcSys {
+    include_dir: PathBuf,
+    libcrypto_path: PathBuf,
+}
+
+/// Prefix of the variables Cargo sets from the `links` metadata of `aws-lc-sys`. Its `links` key
+/// includes its version (e.g. `aws_lc_0_46_0`), so the variables are matched by pattern.
+const AWS_LC_SYS_DEP_PREFIX: &str = "DEP_AWS_LC_";
+
+impl AwsLcSys {
+    fn from_env() -> Self {
+        let dep_var = |suffix: &str| {
+            let mut values = env::vars_os().filter_map(|(key, value)| {
+                let version = key
+                    .to_str()?
+                    .strip_prefix(AWS_LC_SYS_DEP_PREFIX)?
+                    .strip_suffix(suffix)?;
+                version
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || b == b'_')
+                    .then(|| PathBuf::from(value))
+            });
+            let value = values
+                .next()
+                .unwrap_or_else(|| panic!("aws-lc-sys did not set {AWS_LC_SYS_DEP_PREFIX}<version>{suffix}"));
+            assert!(
+                values.next().is_none(),
+                "found more than one {AWS_LC_SYS_DEP_PREFIX}<version>{suffix} variable"
+            );
+            value
+        };
+        Self {
+            include_dir: dep_var("_INCLUDE"),
+            libcrypto_path: dep_var("_LIBCRYPTO_PATH"),
+        }
+    }
+}
+
 /// Compile the CRT from the Git submodule sources in this crate, and configure the Rust build to
 /// statically link them. Returns the path to the target directory the CRT was installed into by
 /// `cmake`.
@@ -223,6 +269,7 @@ fn compile_crt(output_dir: &Path) -> PathBuf {
     fs::create_dir_all(&build_dir).expect("failed to create build directory");
     fs::create_dir_all(&target_dir).expect("failed to create target directory");
 
+    let aws_lc_sys = AwsLcSys::from_env();
     let libraries = get_required_libraries();
 
     for lib in libraries.iter() {
@@ -245,27 +292,19 @@ fn compile_crt(output_dir: &Path) -> PathBuf {
             .build_target("install")
             .define("CMAKE_INSTALL_PREFIX", &target_dir)
             .define("CMAKE_PREFIX_PATH", &target_dir)
-            .define("BUILD_TESTING", "OFF");
+            .define("BUILD_TESTING", "OFF")
+            // s2n-tls and aws-c-cal find libcrypto with `find_package(crypto)`, and their
+            // `Findcrypto.cmake` uses these variables when they are set instead of searching for
+            // `libcrypto` in the install prefix. They are set for every library, so that the ones that
+            // find libcrypto through a dependency's CMake config see the same values.
+            .define("crypto_INCLUDE_DIR", &aws_lc_sys.include_dir)
+            .define("crypto_LIBRARY", &aws_lc_sys.libcrypto_path)
+            .define("crypto_STATIC_LIBRARY", &aws_lc_sys.libcrypto_path);
 
-        if lib.package_name == "aws-lc" {
-            builder.define("DISABLE_PERL", "ON");
-            builder.define("DISABLE_GO", "ON");
-            builder.define("BUILD_TOOL", "OFF");
-            builder.define("ENABLE_SOURCE_MODIFICATION", "OFF");
-
-            // cmake-rs has logic that strips Optimization/Debug options that are passed via CFLAGS:
-            // https://github.com/rust-lang/cmake-rs/issues/240
-            // This breaks build configurations that generate warnings when optimizations
-            // are disabled.
-            if let Ok(cflags) = env::var("CFLAGS") {
-                let split = cflags.split_whitespace();
-                for arg in split {
-                    if arg.starts_with("-O") || arg.starts_with("/O") {
-                        println!("cargo:info=Preserving optimization flag: {arg}");
-                        builder.cflag(arg);
-                    }
-                }
-            }
+        if lib.package_name == "s2n-tls" {
+            // s2n-tls detects libcrypto features by building executables against it, and by default
+            // builds without the features if they fail to link. Fail the build instead.
+            builder.define("S2N_ENFORCE_PROPER_LIBCRYPTO_FEATURE_PROBE", "ON");
         }
 
         // Force compiler optimizations for aws-checksums even in debug builds to improve throughput
@@ -288,6 +327,11 @@ fn compile_crt(output_dir: &Path) -> PathBuf {
                 .define("SANITIZERS", "address")
                 .init_c_cfg(clang)
                 .init_cxx_cfg(clangxx);
+            // In ASan builds, `aws-lc-sys` builds an instrumented aws-lc (see the Makefile), so the
+            // executables that s2n-tls links against it to detect its features need the ASan runtime.
+            if lib.package_name == "s2n-tls" {
+                builder.define("CMAKE_EXE_LINKER_FLAGS", "-fsanitize=address");
+            }
             println!("cargo:warning=CRT building with address sanitizer");
         }
 
@@ -307,7 +351,8 @@ fn compile_crt(output_dir: &Path) -> PathBuf {
         println!("cargo:rustc-link-lib=framework=Network");
     }
 
-    // Statically link all the compiled CRT libraries
+    // Statically link all the compiled CRT libraries. `aws-lc-sys` links its libcrypto (see
+    // `src/lib.rs`).
     for lib in libraries.iter() {
         println!(
             "cargo:rustc-link-lib={}={}",
@@ -353,7 +398,8 @@ fn static_link_modifiers_for_lib(library_name: &str) -> &'static str {
 /// to. The build still needs access to the Git submodules for any private CRT headers we use, but
 /// the code from the submodules won't be compiled. When `MOUNTPOINT_CRT_LIB_DIR` is set,
 /// by default the CRT libraries will be dynamically linked. Static linking occurs when the
-/// `MOUNTPOINT_CRT_LIB_LINK_STATIC` is set.
+/// `MOUNTPOINT_CRT_LIB_LINK_STATIC` is set. Either way, the pre-built CRT is linked with the
+/// libcrypto in `MOUNTPOINT_CRT_LIB_DIR`; `aws-lc-sys` is still built, but its library is unused.
 ///
 /// Note that `MOUNTPOINT_CRT_LIB_DIR` requires a compatible version of the CRT libraries. The CRT
 /// has no versioning mechanism for shared libraries right now, so customers configuring this
@@ -366,14 +412,17 @@ fn main() {
     let include_dir = if let Some(path) = get_env("MOUNTPOINT_CRT_LIB_DIR") {
         println!("cargo:rustc-link-search=native={path}");
 
-        let libraries = get_required_libraries();
-        for lib in libraries {
+        // The pre-built CRT libraries were compiled against the unprefixed symbols of the libcrypto
+        // installed with them, not the one of `aws-lc-sys`.
+        let library_names = std::iter::once("crypto".to_owned())
+            .chain(get_required_libraries().into_iter().map(|lib| lib.library_name));
+        for library_name in library_names {
             let link_type = match get_env("MOUNTPOINT_CRT_LIB_LINK_STATIC") {
-                Some(_) => static_link_modifiers_for_lib(&lib.library_name),
+                Some(_) => static_link_modifiers_for_lib(&library_name),
                 None => "dylib",
             };
 
-            println!("cargo:rustc-link-lib={}={}", link_type, lib.library_name);
+            println!("cargo:rustc-link-lib={link_type}={library_name}");
         }
 
         PathBuf::from(

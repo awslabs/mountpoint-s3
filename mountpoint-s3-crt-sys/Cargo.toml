@@ -10,7 +10,6 @@ exclude = [
     # Exclude large files/directories not required to build the CRT (e.g. tests, docs)
     "crt/*/samples/**",
     "crt/*/tests",
-    "!crt/aws-lc/tests/compiler_features_tests",
     "!crt/s2n-tls/tests/features",
     "crt/*/verification",
     "crt/*/include/aws/testing",
@@ -19,38 +18,6 @@ exclude = [
     "crt/aws-c-common/verification/*",
     "crt/aws-c-common/AWSCRTAndroidTestRunner",
     "crt/aws-c-s3/benchmarks",
-    "crt/aws-lc/**/*test*.go",
-    "crt/aws-lc/**/*test*.json",
-    "crt/aws-lc/**/*test*.py",
-    "crt/aws-lc/**/*test*.txt",
-    # All the text files in kat/ directory are 'known answer tests'
-    "crt/aws-lc/crypto/fipsmodule/ml_dsa/kat/*.txt",
-    "crt/aws-lc/crypto/**/*_test.cc",
-    "crt/aws-lc/crypto/cipher_extra/test/*",
-    "crt/aws-lc/crypto/fipsmodule/bn/test/*",
-    "crt/aws-lc/crypto/fipsmodule/policydocs/*",
-    "crt/aws-lc/crypto/fipsmodule/sha/testvectors/*",
-    "crt/aws-lc/crypto/keccak/testvectors/*",
-    # All the text files in kat/ directory are 'known answer tests'
-    "crt/aws-lc/crypto/fipsmodule/ml_kem/kat/*.txt",
-    # All the text files in kat/ directory are 'known answer tests'
-    "crt/aws-lc/crypto/kyber/kat/*.txt",
-    # All the text files in kat/ directory are 'known answer tests'
-    "crt/aws-lc/crypto/dilithium/kat/*.txt",
-    "crt/aws-lc/crypto/x509/test/*",
-    "crt/aws-lc/crypto/ocsp/test/*",
-    "crt/aws-lc/crypto/hpke/test-vectors.json",
-    "crt/aws-lc/fuzz/*",
-    "crt/aws-lc/generated-src/crypto_test_data.cc.tar.bz2",
-    "crt/aws-lc/ssl/ssl_test.cc",
-    "crt/aws-lc/ssl/test/*",
-    "crt/aws-lc/tests",
-    "crt/aws-lc/third_party/googletest/*",
-    "crt/aws-lc/third_party/wycheproof_testvectors/*",
-    "crt/aws-lc/tool",
-    "crt/aws-lc/util",
-    "!crt/aws-lc/util/fipstools/CMakeLists.txt",
-    "!crt/aws-lc/util/fipstools/acvp/modulewrapper/CMakeLists.txt",
     "crt/s2n-tls/compliance/*",
     "crt/s2n-tls/docker-images/*",
     "crt/s2n-tls/nix/*",
@@ -82,6 +49,9 @@ which = "8.0.4"
 
 [dependencies]
 libc = "0.2.186"
+# The requirement must stay semver-compatible with the one of `aws-lc-rs` (used by rustls), otherwise
+# Cargo builds a second `aws-lc-sys` and a binary using both links two aws-lc libraries.
+aws-lc-sys = { version = "0.47.0", default-features = false }
 
 [lib]
 # this prevents C docs being interpreted as rustdoc tests after bindgen

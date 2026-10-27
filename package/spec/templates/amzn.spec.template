@@ -34,7 +34,7 @@ BuildRequires:  rust-toolset
 
 ExclusiveArch: x86_64 aarch64
 
-{% for lib_name, lib_version in submodule_versions.items() %}
+{% for lib_name, lib_version in bundled_versions.items() %}
 Provides: bundled({{ lib_name }}) = {{ lib_version }}
 {% endfor %}
 

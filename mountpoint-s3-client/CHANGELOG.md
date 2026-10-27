@@ -1,5 +1,6 @@
 ## Unreleased (v0.23.0)
 
+* The CRT's TLS and cryptography use the aws-lc library of the `aws-lc-sys` crate, at the version selected in `Cargo.lock`, instead of the aws-lc version bundled with `mountpoint-s3-crt-sys`. An application that also uses `aws-lc-rs` with a compatible `aws-lc-sys` version links a single aws-lc.
 * Update to latest CRT dependencies.
 * Fix `S3CrtClient::new` panicking when the maximum number of attempts (`max_attempts` or `AWS_MAX_ATTEMPTS`) is more than 64. ([#2010](https://github.com/awslabs/mountpoint-s3/pull/2010))
 * Add `MockBucket`, the in-memory bucket model behind `MockClient`, so that other in-memory test backends can share a bucket with a `MockClient`. A bucket is configured with `MockBucketConfig`, and a client over an existing bucket with `MockDataConfig` (`MockClient::with_bucket`). `MockClientConfig` is unchanged and combines both. ([#1989](https://github.com/awslabs/mountpoint-s3/pull/1989))

@@ -22,9 +22,13 @@ check:
 test:
 	cargo nextest run ${PACKAGES}
 
+# The ASan targets set `AWS_LC_SYS_SANITIZER` so that the aws-lc of `aws-lc-sys`, which the CRT is
+# built against, is instrumented as well.
+
 # Run a test that we know should fail if ASan is enabled
 .PHONY: test-asan-working
 test-asan-working:
+	AWS_LC_SYS_SANITIZER=asan \
 	RUSTFLAGS="-Zsanitizer=address" \
 	RUSTC_BOOTSTRAP=1 \
 	cargo test -Z build-std --target `rustc -vV | grep 'host:' | cut -f2 -d' '` --lib --features ${RUST_FEATURES} ${PACKAGES} -- --ignored test_asan_working 2>&1 \
@@ -35,6 +39,7 @@ test-asan-working:
 .PHONY: test-asan
 test-asan:
 	LSAN_OPTIONS=suppressions="$$(pwd)/lsan-suppressions.txt" \
+	AWS_LC_SYS_SANITIZER=asan \
 	RUSTFLAGS="-Zsanitizer=address" \
 	RUSTC_BOOTSTRAP=1 \
 	cargo test -Z build-std --target `rustc -vV | grep 'host:' | cut -f2 -d' '` \
