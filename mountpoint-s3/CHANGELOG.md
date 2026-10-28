@@ -1,6 +1,6 @@
 ## Unreleased (v1.24.1)
 
-* Fix Mountpoint failing to start when `AWS_MAX_ATTEMPTS` is set to more than 64.
+* Fix Mountpoint failing to start when `AWS_MAX_ATTEMPTS` is set to more than 64. ([#2010](https://github.com/awslabs/mountpoint-s3/pull/2010))
 * Make `--incremental-upload` consistently check for concurrent writes when appending (i.e. without `O_TRUNC`), even at offset 0. Previously, appending to an existing empty object could silently overwrite another writer's changes instead of failing with `EIO`. ([#1970](https://github.com/awslabs/mountpoint-s3/pull/1970) by @yerzhan7)
 * Fix S3 CRT client metrics (`s3.client.*`) not updating on every metrics publication cycle for requests lasting longer than five seconds. These gauges are now sampled when metrics are published, rather than only when a new S3 request starts. ([#1957](https://github.com/awslabs/mountpoint-s3/pull/1957))
 * Fix files and directories created through Mountpoint being reported as missing after an earlier lookup of the same name failed, when negative metadata caching is enabled (`--metadata-ttl` or `--negative-metadata-ttl`). Lookups could return `ENOENT` until the negative cache entry expired once the kernel had forgotten the new inode. ([#1985](https://github.com/awslabs/mountpoint-s3/pull/1985))

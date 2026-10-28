@@ -1,7 +1,7 @@
 ## Unreleased (v0.22.2)
 
 * Update to latest CRT dependencies.
-* Fix `S3CrtClient::new` panicking when the maximum number of attempts (`max_attempts` or `AWS_MAX_ATTEMPTS`) is more than 64.
+* Fix `S3CrtClient::new` panicking when the maximum number of attempts (`max_attempts` or `AWS_MAX_ATTEMPTS`) is more than 64. ([#2010](https://github.com/awslabs/mountpoint-s3/pull/2010))
 * Add `MockBucket`, the in-memory bucket model behind `MockClient`, so that other in-memory test backends can share a bucket with a `MockClient`. A bucket is configured with `MockBucketConfig`, and a client over an existing bucket with `MockDataConfig` (`MockClient::with_bucket`). `MockClientConfig` is unchanged and combines both. ([#1989](https://github.com/awslabs/mountpoint-s3/pull/1989))
 * Align `MockClient` checksum behaviour with S3. Uploads without an additional checksum now store S3's default full-object CRC64NVME checksum, and appends without a checksum are accepted on objects with a CRC64NVME checksum. `get_object_checksum` on mock GET responses now returns `ObjectChecksumError::DidNotRequestChecksums` unless the request enabled checksum mode, and an empty checksum for a range that does not cover the whole object, as `S3CrtClient` does. ([#1988](https://github.com/awslabs/mountpoint-s3/pull/1988))
 * `MockClient::put_object_single` now honors `PutObjectSingleParams::if_match` for requests without a write offset, failing with `PutObjectError::PreconditionFailed` when the object's ETag differs and with `PutObjectError::NoSuchKey` when the object does not exist, as S3 does. Previously the precondition was only checked on append requests. ([#1970](https://github.com/awslabs/mountpoint-s3/pull/1970))
