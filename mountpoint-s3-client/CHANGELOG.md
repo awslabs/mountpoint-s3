@@ -1,4 +1,4 @@
-## Unreleased (v0.22.2)
+## Unreleased (v0.23.0)
 
 * Update to latest CRT dependencies.
 * Fix `S3CrtClient::new` panicking when the maximum number of attempts (`max_attempts` or `AWS_MAX_ATTEMPTS`) is more than 64. ([#2010](https://github.com/awslabs/mountpoint-s3/pull/2010))
