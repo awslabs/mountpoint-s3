@@ -8,13 +8,12 @@ use crate::s3::config::Region;
 mod instance_throughput;
 use instance_throughput::get_instance_throughput;
 
-/// Determine the maximum network throughput for the current instance using IMDS. Returns an error
-/// if the instance type either cannot be retrieved using the IMDS client or does not have a known
-/// network throughput.
+/// Determine the maximum network throughput for the current instance. Returns an error if the
+/// instance type either cannot be retrieved or does not have a known network throughput.
 pub fn network_throughput(instance_info: &InstanceInfo) -> anyhow::Result<f64> {
     let instance_type = instance_info
         .instance_type()
-        .map_err(|e| anyhow!("failed to get instance type: {e}"))?;
+        .map_err(|e| anyhow!("failed to get instance type from IMDS or the instance's DMI tables: {e}"))?;
     let throughput = get_maximum_network_throughput(instance_type).context("failed to get network throughput")?;
     Ok(throughput)
 }
