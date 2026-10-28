@@ -23,5 +23,4 @@ license-files = [
 yanked = "warn"
 ignore = [
     { id = "RUSTSEC-2025-0141", reason = "bincode is unmaintained (https://rustsec.org/advisories/RUSTSEC-2025-0141). Ignore unmaintained warning until we remove the dependency." },
-    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint timing issues in aws-sigv4 v1.6.3. Waiting for AWS SDK update with crypto-bigint 0.7.x." },
 ]
