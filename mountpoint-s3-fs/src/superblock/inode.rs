@@ -160,6 +160,7 @@ impl Inode {
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
                 pending_upload_hook: None,
+                unlinked: false,
             },
         )
     }
@@ -190,6 +191,7 @@ impl Inode {
             write_status: WriteStatus::Remote,
             kind_data: InodeKindData::default_for(InodeKind::File),
             pending_upload_hook: None,
+            unlinked: false,
         };
 
         Ok(Self::new(self.ino(), new_parent, new_key, prefix, new_inode_state))
@@ -245,6 +247,10 @@ pub struct InodeState {
     pub write_status: WriteStatus,
     pub kind_data: InodeKindData,
     pub pending_upload_hook: Option<PendingUploadHook>,
+    /// Set once the inode has been `unlink`-ed. A lingering kernel reference can still reach the
+    /// inode by number (its lookup count may be non-zero even after it's removed from its parent),
+    /// so this flag lets the open path reject any further reads or writes to it.
+    pub unlinked: bool,
 }
 
 impl InodeState {
@@ -254,6 +260,7 @@ impl InodeState {
             kind_data: InodeKindData::default_for(kind),
             write_status,
             pending_upload_hook: None,
+            unlinked: false,
         }
     }
 }
@@ -344,6 +351,7 @@ mod tests {
                 stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, Default::default()),
                 kind_data: InodeKindData::File {},
                 pending_upload_hook: None,
+                unlinked: false,
             },
         );
         superblock.inner.inodes.write().unwrap().insert(ino, inode.clone(), 5);
@@ -487,6 +495,7 @@ mod tests {
                     write_status: WriteStatus::Remote,
                     kind_data: InodeKindData::File {},
                     pending_upload_hook: None,
+                    unlinked: false,
                 }),
             }),
         };
@@ -545,6 +554,7 @@ mod tests {
                     stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, None, Default::default()),
                     kind_data: InodeKindData::File {},
                     pending_upload_hook: None,
+                    unlinked: false,
                 }),
             }),
         };
