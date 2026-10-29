@@ -481,6 +481,59 @@ jobs:
         aws s3 rm "s3://${S3_BUCKET_NAME}/${{ env.test-prefix }}test.txt"
         aws s3 rm "s3://${S3_BUCKET_NAME}/${{ env.test-prefix }}write-test.txt"
 
+  packaging:
+    name: Package ${{ matrix.runner.name }}
+    needs: approval
+    runs-on: ${{ matrix.runner.tags }}
+
+    strategy:
+      # The two architectures are independent, so don't let a failure on one cancel an
+      # otherwise healthy build on the other.
+      fail-fast: false
+      matrix:
+        runner:
+        - name: x86_64
+          tags: [self-hosted, linux, x64, nvme-high-performance]
+        - name: aarch64
+          tags: [self-hosted, linux, arm64]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ inputs.ref }}
+        submodules: true
+        persist-credentials: false
+        # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
+        allow-unsafe-pr-checkout: true
+
+    - name: Install operating system dependencies
+      uses: ./.github/actions/install-dependencies
+      with:
+        fuseVersion: 2
+
+    - name: Build Docker image
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      with:
+        tags: mountpoint-builder
+        context: ./package
+        # https://github.com/docker/buildx/issues/379
+        ulimit: nofile=100000
+
+    - name: Package an unofficial release
+      run: docker run --mount type=bind,source=$(pwd),target=/mountpoint mountpoint-builder
+
+    - name: Check release binary
+      run: mkdir ./pkg-out && tar -xzf ./out/mount-s3*.tar.gz -C ./pkg-out && ./pkg-out/bin/mount-s3 --version
+
+    - name: Upload unofficial packages
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: packages-${{ matrix.runner.name }}
+        path:  ./out/*
+        retention-days: 3
+        if-no-files-found: error
+
   workflow-complete:
     name: "Integration Tests Complete"
     runs-on: ubuntu-latest
@@ -492,6 +545,7 @@ jobs:
       - asan
       - metrics
       - test-rpm
+      - packaging
     steps:
       - name: Verify jobs succeeded
         run: echo '${{ toJSON(needs) }}' | jq -e 'to_entries | all(.value.result == "success")'
