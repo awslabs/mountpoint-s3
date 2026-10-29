@@ -51,3 +51,38 @@ jobs:
           path:  ./out/*
           retention-days: 3
           if-no-files-found: error
+
+  # Compares the stripped size of the packaged `mount-s3` against the latest release, and fails if it
+  # grew by more than the budget. A separate job, so that an over-budget binary doesn't fail the
+  # packaging check.
+  binary-size:
+    name: Binary size ${{ matrix.runner.name }}
+    needs: packages
+    runs-on: ${{ matrix.runner.tags }}
+
+    strategy:
+      matrix:
+        runner:
+        - name: x86_64
+          release_arch: x86_64
+          tags: [ubuntu-22.04] # GitHub-hosted
+        - name: aarch64
+          release_arch: arm64
+          tags: [self-hosted, linux, arm64]
+
+    env:
+      # Allowed growth of the stripped binary over the latest release: 10 MiB.
+      SIZE_BUDGET_BYTES: 10485760
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download unofficial packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packages-${{ matrix.runner.name }}
+          path: ./out
+      - name: Download latest release
+        run: curl --fail --silent --show-error --location --retry 3 --output ./latest.tar.gz "https://s3.amazonaws.com/mountpoint-s3-release/latest/${{ matrix.runner.release_arch }}/mount-s3.tar.gz"
+      - name: Check binary size
+        run: .github/actions/scripts/check-binary-size.sh ./latest.tar.gz ./out/mount-s3*.tar.gz

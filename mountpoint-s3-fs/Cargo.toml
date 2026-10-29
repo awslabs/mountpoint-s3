@@ -16,6 +16,14 @@ async-channel = "2.5.0"
 async-lock = "3.4.2"
 async-stream = "0.3.6"
 async-trait = "0.1.89"
+# AWS SDK for Rust, for credentials and metadata requests. Default features are off and only what
+# Mountpoint needs is on: the Tokio runtime, the default HTTPS client (hyper, rustls on aws-lc-rs), the
+# credential providers for `credential_process`, SSO and login profiles (the environment, profile, web
+# identity, ECS and IMDS providers are always built), and SigV4A for multi-region access points.
+# `behavior-version-latest` stays off: Mountpoint sets the behavior version explicitly, so SDK upgrades
+# don't silently change its defaults.
+aws-config = { version = "1.12.0", default-features = false, features = ["rt-tokio", "default-https-client", "credentials-process", "sso", "credentials-login"] }
+aws-sdk-s3 = { version = "1.152.0", default-features = false, features = ["rt-tokio", "default-https-client", "sigv4a"] }
 base64ct = "1.8.3"
 wincode = { version = "0.6.1", features = ["derive"] }
 bitflags = "2.13.0"
@@ -65,9 +73,7 @@ mountpoint-s3-fs = { path = ".", features = ["mock"] }
 
 assert_cmd = "2.2.2"
 assert_fs = "1.1.4"
-aws-config = "1.8.18"
 aws-credential-types = "1.2.14"
-aws-sdk-s3 = { version = "1.137.0", default-features = false, features = ["behavior-version-latest", "sigv4a", "rt-tokio", "default-https-client"] }
 criterion = { version = "0.8.2", features = ["async", "async_futures"] }
 ctor = "1.0.7"
 futures = { version = "0.3.32", features = ["thread-pool"] }
