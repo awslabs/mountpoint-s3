@@ -631,7 +631,6 @@ mod tests {
         ///
         /// Opening the directory looks up its local children in the inode map while holding the
         /// directory's state lock, and `forget` unlinks the local child from the same directory.
-        /// Opening the directory skips the child if it is no longer in the inode map.
         #[test]
         fn test_opendir_and_forget_race_condition() {
             async fn test_helper(bucket: &Bucket) {
@@ -722,6 +721,56 @@ mod tests {
 
             let bucket = Bucket::new("test_bucket").unwrap();
             check_dfs(move || block_on(test_helper(&bucket)), Some(100000));
+        }
+
+        /// The forgets of a local directory and of its local child race with a lookup of the
+        /// directory, which may remember it again while it is being forgotten.
+        ///
+        /// The child must still be unlinked from the directory, so that the directory can be removed.
+        #[test]
+        fn test_forget_child_and_parent_race_condition_with_lookup() {
+            async fn test_helper(bucket: &Bucket) {
+                let client = in_memory_metadata(bucket, false);
+                let superblock = Arc::new(Superblock::new(
+                    client,
+                    S3Path::new(bucket.clone(), Default::default()),
+                    Default::default(),
+                ));
+                let dir = superblock
+                    .create(ROOT_INODE_NO, "dir".as_ref(), InodeKind::Directory)
+                    .await
+                    .unwrap()
+                    .ino();
+                let child = superblock
+                    .create(dir, "child".as_ref(), InodeKind::Directory)
+                    .await
+                    .unwrap()
+                    .ino();
+
+                let superblock_clone = superblock.clone();
+                let forget_child_task = thread::spawn(move || block_on(superblock_clone.forget(child, 1)));
+                let superblock_clone = superblock.clone();
+                let forget_dir_task = thread::spawn(move || block_on(superblock_clone.forget(dir, 1)));
+                let _ = superblock.lookup(ROOT_INODE_NO, "dir".as_ref()).await;
+                forget_child_task.join().unwrap();
+                forget_dir_task.join().unwrap();
+
+                // Unless the directory is gone, it no longer holds the forgotten child.
+                if let Ok(looked_up) = superblock.lookup(ROOT_INODE_NO, "dir".as_ref()).await {
+                    assert_eq!(looked_up.ino(), dir);
+                    superblock
+                        .rmdir(ROOT_INODE_NO, "dir".as_ref())
+                        .await
+                        .expect("the directory should be empty");
+                }
+            }
+
+            // DFS within its iteration limit misses the interleaving that leaves the child in the
+            // directory, while PCT finds it quickly.
+            let bucket = Bucket::new("test_bucket").unwrap();
+            check_pct(move || block_on(test_helper(&bucket)), 10000, 3);
+            let bucket = Bucket::new("test_bucket").unwrap();
+            check_random(move || block_on(test_helper(&bucket)), 10000);
         }
 
         #[test]

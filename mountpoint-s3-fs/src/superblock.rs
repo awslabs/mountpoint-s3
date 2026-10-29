@@ -112,7 +112,8 @@ impl RenameCache {
 #[derive(Debug)]
 struct SuperblockInner<OC: MetadataClient> {
     s3_path: Arc<S3Path>,
-    /// The inodes known to the kernel, with their lookup counts.
+    /// The inodes known to the kernel, with their lookup counts, and the inodes being forgotten,
+    /// with a lookup count of 0.
     inodes: InodeMap,
     open_handles: InodeHandleMap,
     negative_cache: NegativeCache,
@@ -1300,9 +1301,11 @@ impl<OC: MetadataClient + Clone> Metablock for Superblock<OC> {
     /// Reacts to the kernel notifying us that the lookup count of an Inode has decreased.
     /// If the lookup count reaches zero, it is safe for the [Superblock] to delete the [Inode].
     async fn forget(&self, ino: InodeNo, n: u64) {
-        // Remove the inode from the map, then unlink it from its parent.
-        let (removed_inode, parent) = match self.inner.inodes.decrease_lookup_count(ino, n) {
-            Ok(Some(removed)) => removed,
+        // An inode whose lookup count is reduced to 0 stays in the map until it is unlinked from its
+        // parent, so that the forget of a child still finds its parent while the parent is being
+        // forgotten.
+        let (forgotten_inode, parent) = match self.inner.inodes.decrease_lookup_count(ino, n) {
+            Ok(Some(forgotten)) => forgotten,
             Ok(None) => return,
             Err(_) => {
                 debug_assert!(
@@ -1314,16 +1317,15 @@ impl<OC: MetadataClient + Clone> Metablock for Superblock<OC> {
             }
         };
 
-        // Keep the inode if a lookup remembered it again in the meantime.
-        let is_remembered = || self.inner.inodes.contains(ino);
-        // Remove from the parent. Nothing to do if the parent has already been removed, e.g. when
-        // FORGETs are handled out-of-order.
-        let kept = match parent {
+        // Remove the inode from the map unless a lookup remembered it again in the meantime, and
+        // then from the parent. Nothing to do in the parent if it has already been removed, e.g.
+        // when FORGETs are handled out-of-order.
+        let removed = match parent {
             Some(parent) => {
                 let mut parent_state = parent.get_mut_inode_state_no_check();
                 // Lookups through the parent cannot find the inode while it is locked.
-                let kept = is_remembered();
-                if !kept {
+                let removed = self.inner.inodes.remove_if_forgotten(ino);
+                if removed {
                     let InodeKindData::Directory {
                         children,
                         writing_children,
@@ -1332,24 +1334,24 @@ impl<OC: MetadataClient + Clone> Metablock for Superblock<OC> {
                     else {
                         unreachable!("parent is always a directory");
                     };
-                    if let Some(child) = children.get(removed_inode.name()) {
+                    if let Some(child) = children.get(forgotten_inode.name()) {
                         // Don't accidentally remove a newer inode (e.g. remote shadowing local)
                         if child.ino() == ino {
-                            children.remove(removed_inode.name());
+                            children.remove(forgotten_inode.name());
                         }
                     }
                     writing_children.remove(&ino);
                 }
-                kept
+                removed
             }
-            None => is_remembered(),
+            None => self.inner.inodes.remove_if_forgotten(ino),
         };
-        if kept {
-            trace!(ino, "inode remembered again while being forgotten");
+        if !removed {
+            trace!(ino, "inode remembered again or removed by a concurrent forget");
             return;
         }
 
-        if let Ok(state) = removed_inode.get_inode_state() {
+        if let Ok(state) = forgotten_inode.get_inode_state() {
             metrics::counter!("metadata_cache.inode_forgotten_before_expiry").increment(state.stat.is_valid().into());
         };
         if self.inner.open_handles.remove_inode(ino) {
@@ -1963,6 +1965,7 @@ impl InodeMap {
             .map(|(node, _lookup_count)| node.clone())
     }
 
+    #[cfg(test)]
     fn contains(&self, ino: InodeNo) -> bool {
         self.map.read().unwrap().contains_key(&ino)
     }
@@ -2025,19 +2028,18 @@ impl InodeMap {
             });
     }
 
-    /// Decreases lookup count and removes the inode if it is reduced to 0. If removed, returns the
-    /// inode and its parent, if the parent is still in the map.
+    /// Decreases the lookup count. If it is reduced to 0, returns the inode and its parent, if the
+    /// parent is in the map. The inode stays in the map until [Self::remove_if_forgotten] removes it.
     fn decrease_lookup_count(&self, ino: InodeNo, n: u64) -> Result<Option<(Inode, Option<Inode>)>, InodeMapError> {
         let mut map = self.map.write().unwrap();
         match map.get_mut(&ino) {
-            Some((_, count)) => {
+            Some((inode, count)) => {
                 // Decrease lookup count
                 *count = count.saturating_sub(n);
                 trace!(ino = ino, new_lookup_count = *count, "decremented lookup count");
 
                 if *count == 0 {
-                    trace!(ino, "removing inode from superblock");
-                    let (inode, _) = map.remove(&ino).unwrap();
+                    let inode = inode.clone();
                     let parent = map.get(&inode.parent()).map(|(parent, _)| parent.clone());
                     Ok(Some((inode, parent)))
                 } else {
@@ -2045,6 +2047,18 @@ impl InodeMap {
                 }
             }
             None => Err(InodeMapError::InodeNotFound(ino)),
+        }
+    }
+
+    /// Removes the inode if its lookup count is 0. Returns whether it was removed.
+    fn remove_if_forgotten(&self, ino: InodeNo) -> bool {
+        let mut map = self.map.write().unwrap();
+        if map.get(&ino).is_some_and(|(_, count)| *count == 0) {
+            trace!(ino, "removing inode from superblock");
+            map.remove(&ino);
+            true
+        } else {
+            false
         }
     }
 

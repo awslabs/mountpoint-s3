@@ -78,7 +78,8 @@ impl ReaddirHandle {
                 InodeKindData::Directory { writing_children, .. } => writing_children
                     .iter()
                     .filter_map(|ino| match inner.get(*ino) {
-                        // Skip children that are not in the inode map, e.g. forgotten by the kernel.
+                        // Skip children that are not in the inode map, e.g. created but not yet
+                        // remembered.
                         Err(InodeError::InodeDoesNotExist(_)) => None,
                         result => Some(result),
                     })
@@ -718,8 +719,7 @@ mod tests {
             .expect("Readdir failed");
     }
 
-    /// Verifies that `readdir` skips local children that are no longer in the inode map, as
-    /// between `forget` removing an inode from the map and unlinking it from its parent.
+    /// Verifies that `readdir` skips local children that are not in the inode map.
     #[tokio::test]
     async fn test_readdir_skips_forgotten_local_children() {
         let bucket = Bucket::new("test-bucket").unwrap();
@@ -746,8 +746,9 @@ mod tests {
             .expect("Create kept failed");
 
         // Remove the inode from the map only, leaving it in the directory's local children.
-        let removed = superblock.inner.inodes.decrease_lookup_count(forgotten, 1);
-        assert!(matches!(removed, Ok(Some(_))));
+        let forgotten_result = superblock.inner.inodes.decrease_lookup_count(forgotten, 1);
+        assert!(matches!(forgotten_result, Ok(Some(_))));
+        assert!(superblock.inner.inodes.remove_if_forgotten(forgotten));
 
         let readdir_handle = superblock
             .new_readdir_handle(dir)
