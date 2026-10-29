@@ -75,6 +75,9 @@ struct InodeInner {
     ///   Note that the kernel locks by the actual pointer address instead of [InodeNo].
     ///   For rename operations, the destination parent is locked first if it is an ancestor of
     ///   the source parent; otherwise the two parents are locked in ascending order.
+    /// - The inode map lock is always taken last: never take an inode's lock while holding it.
+    ///   `InodeMap` enforces this by holding its lock only inside its methods, which take no
+    ///   inode lock.
     sync: RwLock<InodeState>,
 }
 

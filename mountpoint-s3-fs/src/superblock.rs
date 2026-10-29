@@ -1947,7 +1947,8 @@ impl From<LookedUpInode> for Lookup {
 ///
 /// Additionally reports metrics when inodes are added or removed.
 ///
-/// The map's lock is internal: methods return clones, so callers never hold it.
+/// The map's lock is internal: methods return clones, so callers never hold it, and they take no
+/// inode lock while holding it (see the lock order on `InodeInner::sync`).
 #[derive(Debug, Default)]
 struct InodeMap {
     map: RwLock<HashMap<InodeNo, (Inode, u64)>>,
