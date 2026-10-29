@@ -119,11 +119,11 @@ where
         self.next_request_offset
     }
 
-    pub async fn write(&mut self, offset: i64, data: &[u8]) -> Result<usize, UploadError<Client::ClientError>> {
+    pub async fn write(&mut self, offset: u64, data: &[u8]) -> Result<usize, UploadError<Client::ClientError>> {
         let next_offset = self.next_request_offset;
-        if offset != next_offset as i64 {
+        if offset != next_offset {
             return Err(UploadError::OutOfOrderWrite {
-                write_offset: offset as u64,
+                write_offset: offset,
                 expected_offset: next_offset,
             });
         }
@@ -354,7 +354,7 @@ mod tests {
 
         let data = b"foo";
         let mut offset = 0;
-        offset += request.write(offset, data).await.unwrap() as i64;
+        offset += request.write(offset, data).await.unwrap() as u64;
 
         request
             .write(0, data)
@@ -364,10 +364,10 @@ mod tests {
         offset += request
             .write(offset, data)
             .await
-            .expect("subsequent in order write should succeed") as i64;
+            .expect("subsequent in order write should succeed") as u64;
 
         let size = request.size();
-        assert_eq!(offset, size as i64);
+        assert_eq!(offset, size);
 
         request.complete().await.unwrap();
         assert!(client.contains_key(key));
@@ -457,13 +457,13 @@ mod tests {
         let data = vec![0xaa; write_size];
         for i in 0..successful_writes {
             let offset = i * write_size;
-            request.write(offset as i64, &data).await.expect("object should fit");
+            request.write(offset as u64, &data).await.expect("object should fit");
             assert!(client.is_upload_in_progress(key));
         }
 
         let offset = successful_writes * write_size;
         request
-            .write(offset as i64, &data)
+            .write(offset as u64, &data)
             .await
             .expect_err("object should be too big");
 

@@ -45,18 +45,28 @@ impl FuseSessionConfig {
             options.push(MountOption::RO);
         }
         if fuse_options.auto_unmount {
-            // fuser 0.17 requires allow_root or allow_other when using auto_unmount
             if !fuse_options.allow_root && !fuse_options.allow_other {
-                return Err(anyhow!("auto_unmount requires allow_root or allow_other to be enabled"));
+                // fuser 0.17 rejects AutoUnmount with an Owner ACL. Preserve the previous behavior:
+                // pass allow_other to the kernel (needed by fusermount for auto_unmount) while
+                // the Owner ACL keeps rejecting other users in userspace.
+                // This relies on the libfuse mount implementation (the `libfuse` feature), which
+                // passes CUSTOM options through to fusermount unchanged.
+                tracing::warn!(
+                    "Given auto_unmount without allow_root or allow_other; adding allow_other, with userspace permission handling"
+                );
+                options.push(MountOption::CUSTOM("auto_unmount".to_string()));
+                options.push(MountOption::CUSTOM("allow_other".to_string()));
+            } else {
+                options.push(MountOption::AutoUnmount);
             }
-            options.push(MountOption::AutoUnmount);
         }
 
-        // Determine SessionACL based on allow_root and allow_other
-        let acl = if fuse_options.allow_other {
-            SessionACL::All
-        } else if fuse_options.allow_root {
+        // Determine SessionACL based on allow_root and allow_other. allow_root takes precedence,
+        // so that setting both restricts access to root and the owner.
+        let acl = if fuse_options.allow_root {
             SessionACL::RootAndOwner
+        } else if fuse_options.allow_other {
+            SessionACL::All
         } else {
             SessionACL::Owner
         };
@@ -258,22 +268,61 @@ mod tests {
         assert_eq!(config.options.contains(&MountOption::RO), read_only);
     }
 
-    #[test]
-    fn test_auto_unmount_requires_acl() {
-        let result = FuseSessionConfig::new(
+    #[test_case(false, false, SessionACL::Owner; "empty options")]
+    #[test_case(false, true, SessionACL::All; "only allows other")]
+    #[test_case(true, false, SessionACL::RootAndOwner; "only allows root")]
+    #[test_case(true, true, SessionACL::RootAndOwner; "allows root and other")]
+    fn test_session_acl_from_fuse_options(allow_root: bool, allow_other: bool, expected: SessionACL) {
+        let config = FuseSessionConfig::new(
             MountPoint::Directory("/mnt/mountpoint-s3-test".into()),
             FuseOptions {
-                auto_unmount: true,
+                allow_root,
+                allow_other,
                 ..Default::default()
             },
             1,
+        )
+        .expect("session config should be valid");
+
+        assert_eq!(config.acl, expected);
+    }
+
+    #[test_case(false, false, SessionACL::Owner, false; "auto_unmount only")]
+    #[test_case(true, false, SessionACL::RootAndOwner, true; "auto_unmount with allow_root")]
+    #[test_case(false, true, SessionACL::All, true; "auto_unmount with allow_other")]
+    fn test_auto_unmount_options(
+        allow_root: bool,
+        allow_other: bool,
+        expected_acl: SessionACL,
+        expect_auto_unmount_option: bool,
+    ) {
+        let config = FuseSessionConfig::new(
+            MountPoint::Directory("/mnt/mountpoint-s3-test".into()),
+            FuseOptions {
+                auto_unmount: true,
+                allow_root,
+                allow_other,
+                ..Default::default()
+            },
+            1,
+        )
+        .expect("session config should be valid");
+
+        assert_eq!(config.acl, expected_acl);
+        assert_eq!(
+            config.options.contains(&MountOption::AutoUnmount),
+            expect_auto_unmount_option
         );
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("auto_unmount requires allow_root or allow_other")
+        // Without allow_root/allow_other, auto_unmount and allow_other are passed through as raw
+        // mount options, while the Owner ACL keeps the mount restricted to the owner.
+        let custom = |s: &str| MountOption::CUSTOM(s.to_string());
+        assert_eq!(
+            config.options.contains(&custom("auto_unmount")),
+            !expect_auto_unmount_option
+        );
+        assert_eq!(
+            config.options.contains(&custom("allow_other")),
+            !expect_auto_unmount_option
         );
     }
 

@@ -11,7 +11,9 @@ use fuser::{DevFuse, Mount, MountOption};
 ///
 /// The mount is automatically unmounted when the returned [Mount] is dropped.
 pub fn mount_for_passing_fuse_fd(mount_point: &Path, options: &[MountOption]) -> (Arc<DevFuse>, Mount) {
-    let (file, mount) = Mount::new(mount_point, options, fuser::SessionACL::All).unwrap();
+    // Only the user running the tests can access the mount, as with `mount-s3` without
+    // `--allow-other`/`--allow-root`.
+    let (file, mount) = Mount::new(mount_point, options, fuser::SessionACL::Owner).unwrap();
 
     // fuser sets `FD_CLOEXEC` (i.e., close-on-exec) flag on the file descriptor in its libfuse3 implementation.
     // Since we're forking the process in some of our test cases, this prevents child process to inherit the FUSE fd and causes our tests to fail.

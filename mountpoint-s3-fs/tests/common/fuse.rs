@@ -266,7 +266,7 @@ where
         MountOption::FSName("mountpoint-s3".to_string()),
         MountOption::NoAtime,
     ];
-    // Without `MountOption::AllowOther` or `MountOption::AllowRoot`, `Session::new` uses `SessionACL::Owner`.
+    // `SessionACL::Owner` mounts without `allow_other`, as `mount-s3` does without `--allow-other`/`--allow-root`.
     let session_acl = fuser::SessionACL::Owner;
 
     let fs = create_filesystem(

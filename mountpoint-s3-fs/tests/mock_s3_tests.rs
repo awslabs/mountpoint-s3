@@ -1,14 +1,13 @@
 use std::num::NonZeroUsize;
 
 use common::make_test_filesystem_with_client;
-use fuser::{FileHandle as FuseFileHandle, INodeNo, OpenFlags as FuseOpenFlags};
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_client::config::{
     AddressingStyle, Allocator, EndpointConfig, S3ClientAuthConfig, S3ClientConfig, Uri,
 };
 use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
 use mountpoint_s3_fs::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-use mountpoint_s3_fs::fs::{FUSE_ROOT_INODE, ToErrno};
+use mountpoint_s3_fs::fs::{INodeNo, OpenFlags, ToErrno};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -79,7 +78,7 @@ async fn test_lookup_empty_list_pages(directory_exists: bool, file_exists: bool)
             .await;
     }
 
-    let result = fs.lookup(INodeNo(FUSE_ROOT_INODE), key.as_ref()).await;
+    let result = fs.lookup(INodeNo::ROOT, key.as_ref()).await;
     if directory_exists || file_exists {
         let entry = result.expect("lookup should find an existing entry after empty pages");
         let expected_kind = if directory_exists {
@@ -152,7 +151,7 @@ async fn test_lookup_throttled_mock(head_object_throttled: bool, list_object_thr
 
     // perform a lookup
     let err = fs
-        .lookup(INodeNo(FUSE_ROOT_INODE), key.as_ref())
+        .lookup(INodeNo::ROOT, key.as_ref())
         .await
         .expect_err("lookup must fail");
     let actual_errno = nix::errno::Errno::from_raw(i32::from(err.to_errno()));
@@ -196,7 +195,7 @@ async fn test_lookup_unhandled_error_mock() {
         .await;
     // perform a lookup
     let err = fs
-        .lookup(INodeNo(FUSE_ROOT_INODE), key.as_ref())
+        .lookup(INodeNo::ROOT, key.as_ref())
         .await
         .expect_err("lookup must fail");
     let metadata = err.meta();
@@ -256,17 +255,16 @@ async fn test_read_unhandled_error_mock() {
 
     // perform a read
     let entry = fs
-        .lookup(INodeNo(FUSE_ROOT_INODE), key.as_ref())
+        .lookup(INodeNo::ROOT, key.as_ref())
         .await
         .expect("lookup must succeed");
     let fh = fs
-        .open(entry.attr.ino, FuseOpenFlags(0), 0)
+        .open(entry.attr.ino, OpenFlags::empty(), 0)
         .await
         .expect("open must succeed")
-        .fh
-        .0;
+        .fh;
     let err = fs
-        .read(entry.attr.ino, FuseFileHandle(fh), 0, 4096, 0, None)
+        .read(entry.attr.ino, fh, 0, 4096, 0, None)
         .await
         .expect_err("read must fail");
     let metadata = err.meta();

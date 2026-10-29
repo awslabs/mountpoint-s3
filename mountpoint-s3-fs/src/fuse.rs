@@ -14,10 +14,9 @@ use crate::metrics::defs::{ATTR_FUSE_REQUEST, FUSE_IO_SIZE, FUSE_REQUEST_ERRORS}
 #[cfg(target_os = "macos")]
 use fuser::ReplyXTimes;
 use fuser::{
-    AccessFlags, BsdFileFlags, CopyFileRangeFlags, Errno, FileHandle, Filesystem, Generation, INodeNo, IoctlFlags,
-    KernelConfig, LockOwner, OpenFlags, RenameFlags, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyEmpty,
-    ReplyEntry, ReplyIoctl, ReplyLock, ReplyLseek, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow,
-    WriteFlags,
+    AccessFlags, BsdFileFlags, CopyFileRangeFlags, Errno, FileHandle, Filesystem, INodeNo, IoctlFlags, KernelConfig,
+    LockOwner, OpenFlags, RenameFlags, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyEmpty, ReplyEntry,
+    ReplyIoctl, ReplyLock, ReplyLseek, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow, WriteFlags,
 };
 
 pub mod config;
@@ -55,7 +54,7 @@ macro_rules! fuse_error {
     ($name:literal, $reply:expr, $err:expr, $fs:expr, $request:expr) => {{
         let err = $err;
         let errno = err.to_errno();
-        event!(err.level, "{} failed with errno {}: {:#}", $name, i32::from(errno), err);
+        event!(err.level, "{} failed with errno {}: {:#}", $name, errno.code(), err);
         ::metrics::counter!(FUSE_REQUEST_ERRORS, ATTR_FUSE_REQUEST => $name).increment(1);
         if let Some(error_logger) = $fs.error_logger.as_ref() {
             error_logger.error(&err, $name, $request.unique().into());
@@ -108,14 +107,14 @@ where
         if let Some(error_logger) = self.error_logger.as_ref() {
             error_logger.event("mount", MOUNTPOINT_EVENT_READY);
         }
-        block_on(self.fs.init(config).in_current_span()).map_err(io::Error::from_raw_os_error)
+        block_on(self.fs.init(config).in_current_span())
     }
 
     #[instrument(level="warn", skip_all, fields(req=req.unique().0, ino=parent.0, name=?name, pid=req.pid()))]
     fn lookup(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
         debug!("New request");
         match block_on(self.fs.lookup(parent, name).in_current_span()) {
-            Ok(entry) => reply.entry(&entry.ttl, &entry.attr, Generation(entry.generation)),
+            Ok(entry) => reply.entry(&entry.ttl, &entry.attr, entry.generation),
             Err(e) => fuse_error!("lookup", reply, e, self, req),
         }
     }
@@ -138,7 +137,7 @@ where
     #[instrument(level="warn", skip_all, fields(req=req.unique().0, ino=ino.0, name=field::Empty, pid=req.pid()))]
     fn open(&self, req: &Request, ino: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
         debug!("New request");
-        match block_on(self.fs.open(ino, flags, req.pid()).in_current_span()) {
+        match block_on(self.fs.open(ino, flags.into(), req.pid()).in_current_span()) {
             Ok(opened) => reply.opened(opened.fh, opened.flags),
             Err(e) => fuse_error!("open", reply, e, self, req),
         }
@@ -159,11 +158,7 @@ where
         debug!("New request");
         let mut bytes_sent = 0;
 
-        match block_on(
-            self.fs
-                .read(ino, fh, offset as i64, size, flags.0, lock.map(|l| l.0))
-                .in_current_span(),
-        ) {
+        match block_on(self.fs.read(ino, fh, offset, size, flags.0, lock).in_current_span()) {
             Ok(data) => {
                 bytes_sent = data.len();
                 reply.data(&data);
@@ -178,7 +173,7 @@ where
     #[instrument(level="warn", skip_all, fields(req=req.unique().0, ino=parent.0, name=field::Empty, pid=req.pid()))]
     fn opendir(&self, req: &Request, parent: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
         debug!("New request");
-        match block_on(self.fs.opendir(parent, flags).in_current_span()) {
+        match block_on(self.fs.opendir(parent, flags.into()).in_current_span()) {
             Ok(opened) => reply.opened(opened.fh, opened.flags),
             Err(e) => fuse_error!("opendir", reply, e, self, req),
         }
@@ -194,9 +189,7 @@ where
 
         impl DirectoryReplier for ReplyDirectory<'_> {
             fn add(&mut self, entry: DirectoryEntry) -> bool {
-                let result = self
-                    .inner
-                    .add(INodeNo(entry.ino), entry.offset as u64, entry.attr.kind, entry.name);
+                let result = self.inner.add(entry.ino, entry.offset, entry.attr.kind, entry.name);
                 if !result {
                     *self.count += 1;
                 }
@@ -210,7 +203,7 @@ where
             count: &mut count,
         };
 
-        match block_on(self.fs.readdir(parent, fh, offset as i64, replier).in_current_span()) {
+        match block_on(self.fs.readdir(parent, fh, offset, replier).in_current_span()) {
             Ok(_) => {
                 reply.ok();
                 metrics::histogram!("fuse.readdir.entries").record(count as f64);
@@ -237,12 +230,12 @@ where
         impl DirectoryReplier for ReplyDirectoryPlus<'_> {
             fn add(&mut self, entry: DirectoryEntry) -> bool {
                 let result = self.inner.add(
-                    INodeNo(entry.ino),
-                    entry.offset as u64,
+                    entry.ino,
+                    entry.offset,
                     entry.name,
                     &entry.ttl,
                     &entry.attr,
-                    Generation(entry.generation),
+                    entry.generation,
                 );
                 if !result {
                     *self.count += 1;
@@ -257,11 +250,7 @@ where
             count: &mut count,
         };
 
-        match block_on(
-            self.fs
-                .readdirplus(parent, fh, offset as i64, replier)
-                .in_current_span(),
-        ) {
+        match block_on(self.fs.readdirplus(parent, fh, offset, replier).in_current_span()) {
             Ok(_) => {
                 reply.ok();
                 metrics::histogram!("fuse.readdirplus.entries").record(count as f64);
@@ -282,11 +271,7 @@ where
     #[instrument(level="warn", skip_all, fields(req=req.unique().0, ino=ino.0, fh=fh.0, name=field::Empty, pid=req.pid()))]
     fn flush(&self, req: &Request, ino: INodeNo, fh: FileHandle, lock_owner: LockOwner, reply: ReplyEmpty) {
         debug!("New request");
-        match block_on(
-            self.fs
-                .flush(ino.into(), fh.into(), lock_owner.0, req.pid())
-                .in_current_span(),
-        ) {
+        match block_on(self.fs.flush(ino, fh, lock_owner, req.pid()).in_current_span()) {
             Ok(()) => reply.ok(),
             Err(e) => fuse_error!("flush", reply, e, self, req),
         }
@@ -304,11 +289,7 @@ where
         reply: ReplyEmpty,
     ) {
         debug!("New request");
-        match block_on(
-            self.fs
-                .release(ino, fh, flags.0, lock_owner.map(|l| l.0), flush)
-                .in_current_span(),
-        ) {
+        match block_on(self.fs.release(ino, fh, flags.0, lock_owner, flush).in_current_span()) {
             Ok(()) => reply.ok(),
             Err(e) => fuse_error!("release", reply, e, self, req),
         }
@@ -330,7 +311,7 @@ where
         let mode = mode as libc::mode_t;
 
         match block_on(self.fs.mknod(parent, name, mode, umask, rdev).in_current_span()) {
-            Ok(entry) => reply.entry(&entry.ttl, &entry.attr, Generation(entry.generation)),
+            Ok(entry) => reply.entry(&entry.ttl, &entry.attr, entry.generation),
             Err(e) => fuse_error!("mknod", reply, e, self, req),
         }
     }
@@ -342,7 +323,7 @@ where
         let mode = mode as libc::mode_t;
 
         match block_on(self.fs.mkdir(parent, name, mode, umask).in_current_span()) {
-            Ok(entry) => reply.entry(&entry.ttl, &entry.attr, Generation(entry.generation)),
+            Ok(entry) => reply.entry(&entry.ttl, &entry.attr, entry.generation),
             Err(e) => fuse_error!("mkdir", reply, e, self, req),
         }
     }
@@ -363,15 +344,7 @@ where
         debug!("New request");
         match block_on(
             self.fs
-                .write(
-                    ino,
-                    fh,
-                    offset as i64,
-                    data,
-                    write_flags.bits(),
-                    flags.0,
-                    lock_owner.map(|l| l.0),
-                )
+                .write(ino, fh, offset, data, write_flags, flags.0, lock_owner)
                 .in_current_span(),
         ) {
             Ok(bytes_written) => {
@@ -429,11 +402,7 @@ where
             TimeOrNow::SpecificTime(st) => OffsetDateTime::from(st),
             TimeOrNow::Now => OffsetDateTime::now_utc(),
         });
-        match block_on(
-            self.fs
-                .setattr(ino.into(), atime, mtime, size, flags.map(|f| f.bits()))
-                .in_current_span(),
-        ) {
+        match block_on(self.fs.setattr(ino, atime, mtime, size, flags).in_current_span()) {
             Ok(attr) => reply.attr(&attr.ttl, &attr.attr),
             Err(e) => fuse_error!("setattr", reply, e, self, req),
         }
@@ -453,7 +422,7 @@ where
         debug!("New request");
         match block_on(
             self.fs
-                .rename(parent.into(), name, newparent.into(), newname, flags.bits().into())
+                .rename(parent, name, newparent, newname, flags.into())
                 .in_current_span(),
         ) {
             Ok(()) => reply.ok(),

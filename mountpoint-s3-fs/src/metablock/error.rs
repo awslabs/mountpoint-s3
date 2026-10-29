@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use fuser::FileHandle;
 use mountpoint_s3_client::error_metadata::ProvideErrorMetadata;
 use std::ffi::OsString;
 use thiserror::Error;
@@ -11,7 +12,7 @@ use crate::metablock::S3Location;
 use crate::sync::Arc;
 use crate::upload::UploadError;
 
-use super::InodeNo;
+use super::INodeNo;
 
 #[derive(Debug, Error, Clone)]
 pub enum InodeError {
@@ -24,7 +25,7 @@ pub enum InodeError {
     #[error("file {0:?} does not exist in parent inode {1}")]
     FileDoesNotExist(String, InodeErrorInfo),
     #[error("inode {0} does not exist")]
-    InodeDoesNotExist(InodeNo),
+    InodeDoesNotExist(INodeNo),
     #[error("invalid file name {0:?}")]
     InvalidFileName(OsString),
     #[error("inode {0} is not a directory")]
@@ -78,11 +79,11 @@ pub enum InodeError {
     #[error("manifest error")]
     ManifestError(#[source] Arc<ManifestError>),
     #[error("operation not supported on virtual inode {ino}")]
-    OperationNotSupportedOnSyntheticInode { ino: InodeNo },
+    OperationNotSupportedOnSyntheticInode { ino: INodeNo },
     #[error("out-of-order readdir, expected offset {expected} but got {actual} on dir handle {fh}")]
-    OutOfOrderReadDir { expected: i64, actual: i64, fh: u64 },
+    OutOfOrderReadDir { expected: u64, actual: u64, fh: FileHandle },
     #[error("invalid directory handle {fh}")]
-    NoSuchDirHandle { fh: u64 },
+    NoSuchDirHandle { fh: FileHandle },
     #[error("objects in flexible retrieval storage classes are not accessible")]
     FlexibleRetrievalObjectNotAccessible(InodeErrorInfo),
     #[error(
@@ -166,7 +167,7 @@ impl From<ManifestError> for InodeError {
 /// key and bucket rather than just the inode number.
 #[derive(Debug, Clone)]
 pub struct InodeErrorInfo {
-    pub ino: InodeNo,
+    pub ino: INodeNo,
     pub key: Box<str>,
     pub bucket: Option<Box<str>>,
 }

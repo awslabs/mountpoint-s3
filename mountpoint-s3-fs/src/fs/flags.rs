@@ -85,6 +85,12 @@ libc_flags! {
     }
 }
 
+impl From<fuser::OpenFlags> for OpenFlags {
+    fn from(flags: fuser::OpenFlags) -> Self {
+        flags.0.into()
+    }
+}
+
 impl OpenFlags {
     #[cfg(not(target_os = "linux"))]
     pub fn direct_io(&self) -> bool {
@@ -109,6 +115,12 @@ libc_flags! {
         RENAME_EXCHANGE,
         #[cfg(target_os = "linux")]
         RENAME_WHITEOUT,
+    }
+}
+
+impl From<fuser::RenameFlags> for RenameFlags {
+    fn from(flags: fuser::RenameFlags) -> Self {
+        flags.bits().into()
     }
 }
 

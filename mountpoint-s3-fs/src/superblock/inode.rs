@@ -7,8 +7,7 @@ use time::OffsetDateTime;
 use tracing::debug;
 
 use crate::metablock::{
-    InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, NEVER_EXPIRE_TTL, PendingUploadHook, ROOT_INODE_NO,
-    ValidKey,
+    INodeNo, InodeError, InodeErrorInfo, InodeKind, InodeStat, NEVER_EXPIRE_TTL, PendingUploadHook, ValidKey,
 };
 use crate::s3::Prefix;
 use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -21,7 +20,7 @@ pub struct Inode {
 /// Write-locked inode state with its inode number, ensuring other operations use the correct inode number.
 #[derive(Debug)]
 pub struct InodeLockedForWriting<'a> {
-    pub ino: InodeNo,
+    pub ino: INodeNo,
     pub state: RwLockWriteGuard<'a, InodeState>,
 }
 
@@ -42,7 +41,7 @@ impl DerefMut for InodeLockedForWriting<'_> {
 /// Read-locked inode state with its inode number, ensuring other operations use the correct inode number.
 #[derive(Debug)]
 pub struct InodeLockedForReading<'a> {
-    pub ino: InodeNo,
+    pub ino: INodeNo,
     pub state: RwLockReadGuard<'a, InodeState>,
 }
 
@@ -57,8 +56,8 @@ impl Deref for InodeLockedForReading<'_> {
 #[derive(Debug)]
 struct InodeInner {
     // Immutable inode state -- any changes to these requires a new inode
-    ino: InodeNo,
-    parent: InodeNo,
+    ino: INodeNo,
+    parent: INodeNo,
     valid_key: ValidKey,
     checksum: Crc32c,
 
@@ -69,10 +68,10 @@ struct InodeInner {
     /// we must always acquire the locks in the following order to avoid deadlock:
     ///
     /// - Any ancestors in descending order, if they need to be locked.
-    /// - Otherwise, ascending order by [InodeNo].
+    /// - Otherwise, ascending order by [INodeNo].
     ///   This reflects similar behavior in the Kernel's VFS named 'inode pointer order',
     ///   described in https://www.kernel.org/doc/html/next/filesystems/directory-locking.html
-    ///   Note that the kernel locks by the actual pointer address instead of [InodeNo].
+    ///   Note that the kernel locks by the actual pointer address instead of [INodeNo].
     ///   For rename operations, the destination parent is locked first if it is an ancestor of
     ///   the source parent; otherwise the two parents are locked in ascending order.
     /// - The inode map lock is always taken last: never take an inode's lock while holding it.
@@ -82,11 +81,11 @@ struct InodeInner {
 }
 
 impl Inode {
-    pub fn ino(&self) -> InodeNo {
+    pub fn ino(&self) -> INodeNo {
         self.inner.ino
     }
 
-    pub fn parent(&self) -> InodeNo {
+    pub fn parent(&self) -> INodeNo {
         self.inner.parent
     }
 
@@ -136,7 +135,7 @@ impl Inode {
     }
 
     /// Create a new inode.
-    pub fn new(ino: InodeNo, parent: InodeNo, key: ValidKey, prefix: &Prefix, state: InodeState) -> Self {
+    pub fn new(ino: INodeNo, parent: INodeNo, key: ValidKey, prefix: &Prefix, state: InodeState) -> Self {
         let checksum = Self::compute_checksum(ino, prefix, key.as_ref());
         let sync = RwLock::new(state);
         let inner = InodeInner {
@@ -152,8 +151,8 @@ impl Inode {
     /// Create the root inode.
     pub fn new_root(prefix: &Prefix, mount_time: OffsetDateTime) -> Self {
         Self::new(
-            ROOT_INODE_NO,
-            ROOT_INODE_NO,
+            INodeNo::ROOT,
+            INodeNo::ROOT,
             ValidKey::root(),
             prefix,
             InodeState {
@@ -174,7 +173,7 @@ impl Inode {
         new_key: ValidKey,
         prefix: &Prefix,
         new_validity: Duration,
-        new_parent: InodeNo,
+        new_parent: INodeNo,
     ) -> Result<Inode, InodeError> {
         if self.kind() != InodeKind::File {
             debug!("Cannot re-create an inode of kind != InodeKind::File");
@@ -199,7 +198,7 @@ impl Inode {
     }
 
     /// Verify [Inode] has the expected inode number and the inode content is valid for its checksum.
-    pub fn verify_inode(&self, expected_ino: InodeNo, prefix: &Prefix) -> Result<(), InodeError> {
+    pub fn verify_inode(&self, expected_ino: INodeNo, prefix: &Prefix) -> Result<(), InodeError> {
         let computed = Self::compute_checksum(self.ino(), prefix, self.key());
         if computed == self.inner.checksum && self.ino() == expected_ino {
             Ok(())
@@ -212,7 +211,7 @@ impl Inode {
     /// and the inode's content is valid for its checksum.
     pub fn verify_child(
         &self,
-        expected_parent: InodeNo,
+        expected_parent: INodeNo,
         expected_name: &str,
         prefix: &Prefix,
     ) -> Result<(), InodeError> {
@@ -224,9 +223,9 @@ impl Inode {
         }
     }
 
-    fn compute_checksum(ino: InodeNo, prefix: &Prefix, key: &str) -> Crc32c {
+    fn compute_checksum(ino: INodeNo, prefix: &Prefix, key: &str) -> Crc32c {
         let mut hasher = crc32c::Hasher::new();
-        hasher.update(ino.to_be_bytes().as_ref());
+        hasher.update(ino.0.to_be_bytes().as_ref());
         hasher.update(prefix.as_str().as_bytes());
         hasher.update(key.as_bytes());
         hasher.finalize()
@@ -276,7 +275,7 @@ pub enum InodeKindData {
 
         /// A set of inode numbers that have been opened for write but not completed yet.
         /// This should be a subset of the [children](Self::Directory::children) field.
-        writing_children: HashSet<InodeNo>,
+        writing_children: HashSet<INodeNo>,
 
         /// True if this directory has been deleted (`rmdir`) from its parent
         deleted: bool,
@@ -336,11 +335,11 @@ mod tests {
             S3Path::new(bucket, Default::default()),
             Default::default(),
         );
-        let ino = 42;
+        let ino = INodeNo(42);
         let inode_name = "made-up-inode";
         let inode = Inode::new(
             ino,
-            ROOT_INODE_NO,
+            INodeNo::ROOT,
             ValidKey::root()
                 .new_child(inode_name.try_into().unwrap(), InodeKind::File)
                 .unwrap(),
@@ -393,7 +392,7 @@ mod tests {
             Default::default(),
         );
 
-        let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let lookup = superblock.lookup(INodeNo::ROOT, name.as_ref()).await.unwrap();
         let ino = lookup.ino();
         let lookup_count = superblock.get_lookup_count(ino);
         assert_eq!(lookup_count, 1);
@@ -409,7 +408,7 @@ mod tests {
             .expect_err("Inode should not be valid");
         assert!(matches!(err, InodeError::InodeDoesNotExist(_)));
 
-        let lookup_count = superblock.get_lookup_count(ROOT_INODE_NO);
+        let lookup_count = superblock.get_lookup_count(INodeNo::ROOT);
         assert_eq!(lookup_count, 1);
     }
 
@@ -432,8 +431,8 @@ mod tests {
             Default::default(),
         );
 
-        let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
-        let lookup_count = superblock.get_lookup_count(ROOT_INODE_NO);
+        let lookup = superblock.lookup(INodeNo::ROOT, name.as_ref()).await.unwrap();
+        let lookup_count = superblock.get_lookup_count(INodeNo::ROOT);
         assert_eq!(lookup_count, 1);
         let ino = lookup.ino();
         drop(lookup);
@@ -441,13 +440,13 @@ mod tests {
         client.add_object(&format!("{name}/bar"), b"bar".into());
 
         // Should be a directory now, so a different inode
-        let new_lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let new_lookup = superblock.lookup(INodeNo::ROOT, name.as_ref()).await.unwrap();
         assert_ne!(ino, new_lookup.ino());
 
         superblock.forget(ino, 1).await;
 
         // Lookup still works after forgetting the old inode
-        let new_lookup2 = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let new_lookup2 = superblock.lookup(INodeNo::ROOT, name.as_ref()).await.unwrap();
         assert_eq!(new_lookup.ino(), new_lookup2.ino());
     }
 
@@ -471,11 +470,11 @@ mod tests {
 
         // Create an inode with "corrupted" metadata, i.e.
         // checksum not matching ino + full key.
-        let parent_ino = ROOT_INODE_NO;
+        let parent_ino = INodeNo::ROOT;
         let bad_checksum = Crc32c::new(42);
         let inode = Inode {
             inner: Arc::new(InodeInner {
-                ino: 42,
+                ino: INodeNo(42),
                 parent: parent_ino,
                 valid_key: ValidKey::root()
                     .new_child(file_name.try_into().unwrap(), InodeKind::File)
@@ -530,17 +529,17 @@ mod tests {
             Default::default(),
         );
 
-        let ino: u64 = 42;
+        let ino = INodeNo(42);
         let inode_name = "made-up-inode";
         let mut hasher = crc32c::Hasher::new();
-        hasher.update(ino.to_be_bytes().as_ref());
+        hasher.update(ino.0.to_be_bytes().as_ref());
         hasher.update(superblock.inner.s3_path.prefix.as_str().as_bytes());
         hasher.update(inode_name.as_bytes());
         let checksum = hasher.finalize();
         let inode = Inode {
             inner: Arc::new(InodeInner {
                 ino,
-                parent: ROOT_INODE_NO,
+                parent: INodeNo::ROOT,
                 valid_key: ValidKey::root()
                     .new_child(inode_name.try_into().unwrap(), InodeKind::File)
                     .unwrap(),
@@ -576,7 +575,7 @@ mod tests {
     #[cfg(feature = "shuttle")]
     mod shuttle_tests {
         use super::*;
-        use crate::fs::FUSE_ROOT_INODE;
+        use crate::fs::INodeNo;
         use crate::superblock::InMemoryMetadata;
         use mountpoint_s3_client::mock_client::MockBucket;
         use shuttle::{check_dfs, check_pct, check_random, thread};
@@ -609,7 +608,7 @@ mod tests {
                     S3Path::new(bucket.clone(), Default::default()),
                     Default::default(),
                 ));
-                let dir = superblock.lookup(ROOT_INODE_NO, "dir".as_ref()).await.unwrap().ino();
+                let dir = superblock.lookup(INodeNo::ROOT, "dir".as_ref()).await.unwrap().ino();
                 superblock.lookup(dir, "a".as_ref()).await.unwrap();
                 let c = superblock.lookup(dir, "c".as_ref()).await.unwrap().ino();
 
@@ -641,7 +640,7 @@ mod tests {
                     S3Path::new(bucket.clone(), Default::default()),
                     Default::default(),
                 ));
-                let dir = superblock.lookup(ROOT_INODE_NO, "dir".as_ref()).await.unwrap().ino();
+                let dir = superblock.lookup(INodeNo::ROOT, "dir".as_ref()).await.unwrap().ino();
                 let local = superblock
                     .create(dir, "local".as_ref(), InodeKind::File)
                     .await
@@ -676,7 +675,7 @@ mod tests {
                     S3Path::new(bucket.clone(), Default::default()),
                     Default::default(),
                 ));
-                let dir = superblock.lookup(ROOT_INODE_NO, "dir".as_ref()).await.unwrap().ino();
+                let dir = superblock.lookup(INodeNo::ROOT, "dir".as_ref()).await.unwrap().ino();
                 let c = superblock.lookup(dir, "c".as_ref()).await.unwrap().ino();
 
                 let superblock_clone = superblock.clone();
@@ -708,7 +707,7 @@ mod tests {
                     S3Path::new(bucket.clone(), Default::default()),
                     Default::default(),
                 ));
-                let dir = superblock.lookup(ROOT_INODE_NO, "dir".as_ref()).await.unwrap().ino();
+                let dir = superblock.lookup(INodeNo::ROOT, "dir".as_ref()).await.unwrap().ino();
                 let c = superblock.lookup(dir, "c".as_ref()).await.unwrap().ino();
 
                 let superblock_clone = superblock.clone();
@@ -737,7 +736,7 @@ mod tests {
                     Default::default(),
                 ));
                 let dir = superblock
-                    .create(ROOT_INODE_NO, "dir".as_ref(), InodeKind::Directory)
+                    .create(INodeNo::ROOT, "dir".as_ref(), InodeKind::Directory)
                     .await
                     .unwrap()
                     .ino();
@@ -751,15 +750,15 @@ mod tests {
                 let forget_child_task = thread::spawn(move || block_on(superblock_clone.forget(child, 1)));
                 let superblock_clone = superblock.clone();
                 let forget_dir_task = thread::spawn(move || block_on(superblock_clone.forget(dir, 1)));
-                let _ = superblock.lookup(ROOT_INODE_NO, "dir".as_ref()).await;
+                let _ = superblock.lookup(INodeNo::ROOT, "dir".as_ref()).await;
                 forget_child_task.join().unwrap();
                 forget_dir_task.join().unwrap();
 
                 // Unless the directory is gone, it no longer holds the forgotten child.
-                if let Ok(looked_up) = superblock.lookup(ROOT_INODE_NO, "dir".as_ref()).await {
+                if let Ok(looked_up) = superblock.lookup(INodeNo::ROOT, "dir".as_ref()).await {
                     assert_eq!(looked_up.ino(), dir);
                     superblock
-                        .rmdir(ROOT_INODE_NO, "dir".as_ref())
+                        .rmdir(INodeNo::ROOT, "dir".as_ref())
                         .await
                         .expect("the directory should be empty");
                 }
@@ -789,7 +788,7 @@ mod tests {
                     Default::default(),
                 ));
 
-                let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
+                let lookup = superblock.lookup(INodeNo::ROOT, name.as_ref()).await.unwrap();
                 let ino = lookup.ino();
                 let lookup_count = superblock.get_lookup_count(ino);
                 assert_eq!(lookup_count, 1);
@@ -801,7 +800,7 @@ mod tests {
 
                 let file_name = "bar";
                 superblock
-                    .create(ROOT_INODE_NO, file_name.as_ref(), InodeKind::File)
+                    .create(INodeNo::ROOT, file_name.as_ref(), InodeKind::File)
                     .await
                     .unwrap();
 
@@ -841,10 +840,10 @@ mod tests {
                 client.bucket().add_object("dirtwo/source", b"content".into());
 
                 // Lookup directories to get inodes
-                let dir_lookup = superblock.lookup(ROOT_INODE_NO, dir.as_ref()).await.unwrap();
+                let dir_lookup = superblock.lookup(INodeNo::ROOT, dir.as_ref()).await.unwrap();
                 let dir_ino = dir_lookup.ino();
 
-                let dirtwo_lookup = superblock.lookup(ROOT_INODE_NO, dirtwo.as_ref()).await.unwrap();
+                let dirtwo_lookup = superblock.lookup(INodeNo::ROOT, dirtwo.as_ref()).await.unwrap();
                 let dirtwo_ino = dirtwo_lookup.ino();
 
                 // Verify source files exist before rename
@@ -930,18 +929,18 @@ mod tests {
                 ));
                 // Create two threads, one that renames and one that tries to open the destination
                 let superblock_clone1 = superblock.clone();
-                let dest_lookup = superblock.lookup(ROOT_INODE_NO, dest_name.as_ref()).await.unwrap();
+                let dest_lookup = superblock.lookup(INodeNo::ROOT, dest_name.as_ref()).await.unwrap();
                 let _dest_ino = dest_lookup.ino();
-                let src_lookup = superblock.lookup(ROOT_INODE_NO, source_name.as_ref()).await.unwrap();
+                let src_lookup = superblock.lookup(INodeNo::ROOT, source_name.as_ref()).await.unwrap();
                 let _src_ino = src_lookup.ino();
 
                 let rename_task1 = thread::spawn(move || {
                     block_on(async {
                         superblock_clone1
                             .rename(
-                                FUSE_ROOT_INODE,
+                                INodeNo::ROOT,
                                 source_name.as_ref(),
-                                FUSE_ROOT_INODE,
+                                INodeNo::ROOT,
                                 dest_name.as_ref(),
                                 true,
                             )
@@ -954,7 +953,7 @@ mod tests {
                 let lookup_task = thread::spawn(move || {
                     block_on(async {
                         let lookup = superblock_clone2
-                            .lookup(ROOT_INODE_NO, dest_name.as_ref())
+                            .lookup(INodeNo::ROOT, dest_name.as_ref())
                             .await
                             .expect("should succeed as object will be in S3");
                         lookup.ino()

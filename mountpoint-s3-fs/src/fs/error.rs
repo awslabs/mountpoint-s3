@@ -10,11 +10,11 @@ use crate::upload::UploadError;
 
 pub use fuser::Errno;
 
-/// Generate an error that includes a conversion to a libc errno for use in replies to FUSE.
+/// Generate an error that includes an [Errno] for use in replies to FUSE.
 ///
 /// `mountpoint-s3` is an application, so we'd be happy to just use the [anyhow] crate directly,
-/// except that we need to be able to convert every error into a C integer for use as an errno to
-/// give FUSE the right reply. This macro builds a little wrapper around an [anyhow::Error] that
+/// except that we need to be able to convert every error into an [Errno] to give FUSE the right
+/// reply. This macro builds a little wrapper around an [anyhow::Error] that
 /// includes an errno. We also want to preserve the source information for errors whenever possible,
 /// so we optionally allow providing a `source:` argument that will chain an error together with
 /// this new one.
@@ -26,7 +26,7 @@ pub use fuser::Errno;
 ///
 /// ```ignore
 /// let err = client.head_object("amzn-s3-demo-bucket", "mykey").await.expect_err("failed");
-/// return Err(err!(libc::ENOENT, source:err, "file does not exist"));
+/// return Err(err!(Errno::ENOENT, source:err, "file does not exist"));
 /// ```
 /// will print "file does not exist: service error: ...".
 ///
@@ -34,14 +34,14 @@ pub use fuser::Errno;
 /// Otherwise, build a new error with no source:
 ///
 /// ```ignore
-/// return Err(err!(libc::EINVAL, "cannot use O_SYNC on file handle {:?}", fh));
+/// return Err(err!(Errno::EINVAL, "cannot use O_SYNC on file handle {:?}", fh));
 /// ```
 #[macro_export]
 macro_rules! err {
     // Base case -- don't use directly
     ($errno:expr, __source:$source:expr, $level:expr, $metadata:expr, $message:literal, $($args:tt)*) => {
         Error {
-            errno: fuser::Errno::from_i32($errno),
+            errno: $errno,
             message: format!($message, $($args)*),
             source: $source,
             level: $level,
@@ -130,17 +130,17 @@ impl<E: std::error::Error + Send + Sync + 'static> From<PrefetchReadError<E>> fo
             PrefetchReadError::GetRequestFailed {
                 source: source @ ObjectClientError::ServiceError(GetObjectError::PreconditionFailed(_)),
                 metadata,
-            } => err!(libc::ESTALE, source:source, Level::WARN, metadata:metadata, "object was mutated remotely"),
+            } => err!(Errno::ESTALE, source:source, Level::WARN, metadata:metadata, "object was mutated remotely"),
             PrefetchReadError::GetRequestFailed { source, metadata } => {
-                err!(libc::EIO, source:source, Level::WARN, metadata:metadata, "get request failed")
+                err!(Errno::EIO, source:source, Level::WARN, metadata:metadata, "get request failed")
             }
-            PrefetchReadError::Integrity(e) => err!(libc::EIO, source:e, "integrity error"),
-            PrefetchReadError::PartReadFailed(e) => err!(libc::EIO, source:e, "part read failed"),
+            PrefetchReadError::Integrity(e) => err!(Errno::EIO, source:e, "integrity error"),
+            PrefetchReadError::PartReadFailed(e) => err!(Errno::EIO, source:e, "part read failed"),
             PrefetchReadError::GetRequestTerminatedUnexpectedly
             | PrefetchReadError::GetRequestReturnedWrongOffset { .. }
             | PrefetchReadError::BackpressurePreconditionFailed
             | PrefetchReadError::ReadWindowIncrement => {
-                err!(libc::EIO, source:err, "get request failed")
+                err!(Errno::EIO, source:err, "get request failed")
             }
         }
     }
@@ -159,57 +159,55 @@ impl ToErrno for Error {
 
 impl ToErrno for InodeError {
     fn to_errno(&self) -> Errno {
-        let errno = match self {
-            InodeError::ClientError { .. } => libc::EIO,
-            InodeError::FileDoesNotExist(_, _) => libc::ENOENT,
-            InodeError::InodeDoesNotExist(_) => libc::ENOENT,
-            InodeError::InvalidFileName(_) => libc::EINVAL,
-            InodeError::NotADirectory(_) => libc::ENOTDIR,
-            InodeError::IsDirectory(_) => libc::EISDIR,
-            InodeError::FileAlreadyExists(_) => libc::EEXIST,
+        match self {
+            InodeError::ClientError { .. } => Errno::EIO,
+            InodeError::FileDoesNotExist(_, _) => Errno::ENOENT,
+            InodeError::InodeDoesNotExist(_) => Errno::ENOENT,
+            InodeError::InvalidFileName(_) => Errno::EINVAL,
+            InodeError::NotADirectory(_) => Errno::ENOTDIR,
+            InodeError::IsDirectory(_) => Errno::EISDIR,
+            InodeError::FileAlreadyExists(_) => Errno::EEXIST,
             // Not obvious what InodeNotWritable, InodeAlreadyWriting, InodeNotReadableWhileWriting should be.
             // EINVAL or EROFS would also be reasonable -- but we'll treat them like sealed files.
-            InodeError::InodeNotWritable(_) => libc::EPERM,
-            InodeError::ReadOnlyMount() => libc::EROFS,
-            InodeError::InodeInvalidWriteStatus(_) => libc::EPERM,
-            InodeError::InodeAlreadyWriting(_) => libc::EPERM,
-            InodeError::InodeNotReadableWhileWriting(_) => libc::EPERM,
-            InodeError::InodeNotWritableWhileReading(_) => libc::EPERM,
-            InodeError::CannotRemoveRemoteDirectory(_) => libc::EPERM,
-            InodeError::DirectoryNotEmpty(_) => libc::ENOTEMPTY,
-            InodeError::UnlinkNotPermittedWhileWriting(_) => libc::EPERM,
-            InodeError::CorruptedMetadata(_) => libc::EIO,
-            InodeError::SetAttrNotPermittedOnRemoteInode(_) => libc::EPERM,
-            InodeError::StaleInode { .. } => libc::ESTALE,
-            InodeError::CannotRenameDirectory(_) => libc::EPERM,
-            InodeError::RenameDestinationExists { .. } => libc::EEXIST,
-            InodeError::RenameNotPermittedWhileWriting(_) => libc::EPERM,
-            InodeError::RenameNotSupported() => libc::ENOSYS,
-            InodeError::NameTooLong(_) => libc::ENAMETOOLONG,
+            InodeError::InodeNotWritable(_) => Errno::EPERM,
+            InodeError::ReadOnlyMount() => Errno::EROFS,
+            InodeError::InodeInvalidWriteStatus(_) => Errno::EPERM,
+            InodeError::InodeAlreadyWriting(_) => Errno::EPERM,
+            InodeError::InodeNotReadableWhileWriting(_) => Errno::EPERM,
+            InodeError::InodeNotWritableWhileReading(_) => Errno::EPERM,
+            InodeError::CannotRemoveRemoteDirectory(_) => Errno::EPERM,
+            InodeError::DirectoryNotEmpty(_) => Errno::ENOTEMPTY,
+            InodeError::UnlinkNotPermittedWhileWriting(_) => Errno::EPERM,
+            InodeError::CorruptedMetadata(_) => Errno::EIO,
+            InodeError::SetAttrNotPermittedOnRemoteInode(_) => Errno::EPERM,
+            InodeError::StaleInode { .. } => Errno::ESTALE,
+            InodeError::CannotRenameDirectory(_) => Errno::EPERM,
+            InodeError::RenameDestinationExists { .. } => Errno::EEXIST,
+            InodeError::RenameNotPermittedWhileWriting(_) => Errno::EPERM,
+            InodeError::RenameNotSupported() => Errno::ENOSYS,
+            InodeError::NameTooLong(_) => Errno::ENAMETOOLONG,
             #[cfg(feature = "manifest")]
-            InodeError::ManifestError { .. } => libc::EIO,
-            InodeError::OperationNotSupportedOnSyntheticInode { .. } => libc::EIO,
-            InodeError::OutOfOrderReadDir { .. } => libc::EBADF,
-            InodeError::NoSuchDirHandle { .. } => libc::EINVAL,
-            InodeError::FlexibleRetrievalObjectNotAccessible(_) => libc::EACCES,
-            InodeError::WriteHandleLimitExceeded(_) => libc::ENOMEM,
-        };
-        Errno::from_i32(errno)
+            InodeError::ManifestError { .. } => Errno::EIO,
+            InodeError::OperationNotSupportedOnSyntheticInode { .. } => Errno::EIO,
+            InodeError::OutOfOrderReadDir { .. } => Errno::EBADF,
+            InodeError::NoSuchDirHandle { .. } => Errno::EINVAL,
+            InodeError::FlexibleRetrievalObjectNotAccessible(_) => Errno::EACCES,
+            InodeError::WriteHandleLimitExceeded(_) => Errno::ENOMEM,
+        }
     }
 }
 
 impl<E: std::error::Error> ToErrno for UploadError<E> {
     fn to_errno(&self) -> Errno {
-        let errno = match self {
-            UploadError::PutRequestFailed(_) => libc::EIO,
-            UploadError::UploadAlreadyTerminated => libc::EIO,
-            UploadError::SseCorruptedError(_) => libc::EIO,
-            UploadError::ChecksumComputationFailed(_) => libc::EIO,
-            UploadError::HeadObjectFailed(_) => libc::EIO,
-            UploadError::OutOfOrderWrite { .. } => libc::EINVAL,
-            UploadError::ObjectTooBig { .. } => libc::EFBIG,
-        };
-        Errno::from_i32(errno)
+        match self {
+            UploadError::PutRequestFailed(_) => Errno::EIO,
+            UploadError::UploadAlreadyTerminated => Errno::EIO,
+            UploadError::SseCorruptedError(_) => Errno::EIO,
+            UploadError::ChecksumComputationFailed(_) => Errno::EIO,
+            UploadError::HeadObjectFailed(_) => Errno::EIO,
+            UploadError::OutOfOrderWrite { .. } => Errno::EINVAL,
+            UploadError::ObjectTooBig { .. } => Errno::EFBIG,
+        }
     }
 }
 

@@ -6,7 +6,8 @@ members = [
 	"mountpoint-s3",
 	"mountpoint-s3-fs",
 ]
-# Vendored fork with its own workspace (see mountpoint-s3-fuser/README.md); built only as a path dependency.
+# The vendored fuser fork declares its own `[workspace]` in its Cargo.toml, so it can't be a member here.
+# It is built only as a path dependency.
 exclude = ["mountpoint-s3-fuser"]
 resolver = "2"
 

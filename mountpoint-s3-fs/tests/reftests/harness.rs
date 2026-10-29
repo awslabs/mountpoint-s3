@@ -13,11 +13,11 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use fuser::{FileHandle as FuseFileHandle, FileType, INodeNo, OpenFlags as FuseOpenFlags};
+use fuser::{FileHandle, FileType};
 use futures::future::{BoxFuture, FutureExt};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::mock_client::{MockClient, MockObject};
-use mountpoint_s3_fs::fs::{CacheConfig, FUSE_ROOT_INODE, InodeNo, OpenFlags, ToErrno};
+use mountpoint_s3_fs::fs::{CacheConfig, Errno, INodeNo, OpenFlags, ToErrno};
 use mountpoint_s3_fs::s3::Prefix;
 use mountpoint_s3_fs::{S3Filesystem, S3FilesystemConfig};
 use proptest::prelude::*;
@@ -138,9 +138,9 @@ pub struct InflightWriteIndex(usize);
 #[derive(Debug)]
 pub struct InflightWrite {
     path: PathBuf,
-    inode: InodeNo,
+    inode: INodeNo,
     /// Initially None until the file is opened by [Op::StartWriting]
-    file_handle: Option<u64>,
+    file_handle: Option<FileHandle>,
     /// Prepared bytes ready to be written to the file system by the test.
     object: MockObject,
     written: usize,
@@ -272,7 +272,7 @@ impl Harness {
     /// Walk the filesystem tree using `readdir` and `lookup` and check that at each level, contents match the reference.
     pub async fn compare_contents(&self) {
         let root = self.reference.root();
-        self.compare_contents_recursive(FUSE_ROOT_INODE, FUSE_ROOT_INODE, root)
+        self.compare_contents_recursive(INodeNo::ROOT, INodeNo::ROOT, root)
             .await;
     }
 
@@ -287,8 +287,8 @@ impl Harness {
         }
         let (path_components, node) = &ref_inodes[idx % ref_inodes.len()];
 
-        let mut parent = FUSE_ROOT_INODE;
-        let mut seen_inos = HashSet::from([FUSE_ROOT_INODE]);
+        let mut parent = INodeNo::ROOT;
+        let mut seen_inos = HashSet::from([INodeNo::ROOT]);
 
         let (leaf, ancestors) = path_components
             .split_last()
@@ -296,11 +296,11 @@ impl Harness {
         for name in ancestors {
             let lookup = self
                 .fs
-                .lookup(INodeNo(parent), name.as_ref())
+                .lookup(parent, name.as_ref())
                 .await
                 .expect("ancestor must exist in MP fs");
             assert_eq!(lookup.attr.kind, FileType::Directory);
-            let ino = lookup.attr.ino.into();
+            let ino = lookup.attr.ino;
             assert!(
                 seen_inos.insert(ino),
                 "should not have seen ancestor ino {ino} in MP fs before"
@@ -310,10 +310,10 @@ impl Harness {
 
         let lookup = self
             .fs
-            .lookup(INodeNo(parent), leaf.as_ref())
+            .lookup(parent, leaf.as_ref())
             .await
             .expect("directory entry at path should exist in MP fs");
-        let ino = lookup.attr.ino.into();
+        let ino = lookup.attr.ino;
         assert!(seen_inos.insert(ino), "should not have seen ino {ino} before");
         match node {
             Node::Directory { .. } => {
@@ -323,27 +323,20 @@ impl Harness {
                 assert_eq!(lookup.attr.kind, FileType::RegularFile);
                 match content {
                     File::Local => (),
-                    File::Remote(object) => self.compare_file(lookup.attr.ino.into(), object).await,
+                    File::Remote(object) => self.compare_file(lookup.attr.ino, object).await,
                 }
             }
         }
     }
 
     /// Resolve an absolute path to an inode in the actual filesystem by recursively calling lookup
-    async fn lookup(&self, path: &Path) -> Result<InodeNo, libc::c_int> {
+    async fn lookup(&self, path: &Path) -> Result<INodeNo, Errno> {
         let mut components = path.components();
         assert_eq!(components.next(), Some(Component::RootDir));
-        let mut inode = FUSE_ROOT_INODE;
+        let mut inode = INodeNo::ROOT;
         for component in components {
             if let Component::Normal(folder) = component {
-                inode = self
-                    .fs
-                    .lookup(INodeNo(inode), folder)
-                    .await
-                    .map_err(|e| e.to_errno())?
-                    .attr
-                    .ino
-                    .into();
+                inode = self.fs.lookup(inode, folder).await.map_err(|e| e.to_errno())?.attr.ino;
             } else {
                 panic!("unexpected path component {component:?}");
             }
@@ -379,10 +372,7 @@ impl Harness {
         // existing inode. The existing node could be either a file or directory; we should fail the
         // same way in both cases.
         let reference_lookup = self.reference.lookup(&full_path);
-        let mknod = self
-            .fs
-            .mknod(INodeNo(dir_inode), name.as_ref(), libc::S_IFREG, 0, 0)
-            .await;
+        let mknod = self.fs.mknod(dir_inode, name.as_ref(), libc::S_IFREG, 0, 0).await;
         if reference_lookup.is_some() {
             assert!(
                 matches!(mknod, Err(e) if i32::from(e.to_errno()) == libc::EEXIST),
@@ -396,7 +386,7 @@ impl Harness {
 
             let index = self.inflight_writes.insert(InflightWrite {
                 path: full_path,
-                inode: mknod.attr.ino.into(),
+                inode: mknod.attr.ino,
                 file_handle: None,
                 object: contents.to_mock_object(),
                 written: 0,
@@ -412,14 +402,7 @@ impl Harness {
             return;
         };
 
-        let open = self
-            .fs
-            .open(
-                INodeNo(inflight_write.inode),
-                FuseOpenFlags(OpenFlags::O_WRONLY.bits()),
-                0,
-            )
-            .await;
+        let open = self.fs.open(inflight_write.inode, OpenFlags::O_WRONLY, 0).await;
         if inflight_write.file_handle.is_some() {
             assert!(
                 matches!(open, Err(e) if i32::from(e.to_errno()) == libc::EPERM),
@@ -428,7 +411,7 @@ impl Harness {
         } else {
             let open = open.expect("open should succeed");
             let inflight_write = self.inflight_writes.get_mut(index).unwrap();
-            inflight_write.file_handle = Some(open.fh.0);
+            inflight_write.file_handle = Some(open.fh);
         }
     }
 
@@ -463,11 +446,11 @@ impl Harness {
         let write = self
             .fs
             .write(
-                INodeNo(inflight_write.inode),
-                FuseFileHandle(file_handle),
-                inflight_write.written as i64,
+                inflight_write.inode,
+                file_handle,
+                inflight_write.written as u64,
                 &bytes_to_write,
-                0,
+                fuser::WriteFlags::empty(),
                 0,
                 None,
             )
@@ -502,13 +485,7 @@ impl Harness {
         assert_eq!(inflight_write.written, inflight_write.object.len());
 
         self.fs
-            .release(
-                INodeNo(inflight_write.inode),
-                FuseFileHandle(file_handle),
-                0,
-                None,
-                false,
-            )
+            .release(inflight_write.inode, file_handle, 0, None, false)
             .await
             .unwrap();
 
@@ -534,7 +511,7 @@ impl Harness {
         let parent_ino = self.lookup(parent_path.as_ref()).await.expect("parent should exist");
         drop(parent_path);
 
-        let unlink = self.fs.unlink(INodeNo(parent_ino), name.as_ref()).await;
+        let unlink = self.fs.unlink(parent_ino, name.as_ref()).await;
         match node {
             Node::Directory { .. } => {
                 assert!(
@@ -569,7 +546,7 @@ impl Harness {
         // existing inode. The existing node could be either a file or directory; we should fail the
         // same way in both cases.
         let reference_lookup = self.reference.lookup(&full_path);
-        let mkdir = self.fs.mkdir(INodeNo(dir_inode), name.as_ref(), libc::S_IFDIR, 0).await;
+        let mkdir = self.fs.mkdir(dir_inode, name.as_ref(), libc::S_IFDIR, 0).await;
         if reference_lookup.is_some() {
             assert!(
                 matches!(mkdir, Err(e) if i32::from(e.to_errno()) == libc::EEXIST),
@@ -601,7 +578,7 @@ impl Harness {
 
         // Only empty local directories can be removed
         let dir_name = full_path.file_name().expect("directory must have a name");
-        let rmdir = self.fs.rmdir(INodeNo(parent_inode), dir_name).await;
+        let rmdir = self.fs.rmdir(parent_inode, dir_name).await;
         if *is_local && children.is_empty() {
             rmdir.expect("should be able to remove empty local directory");
             self.reference.remove_local_directory(&full_path);
@@ -673,20 +650,17 @@ impl Harness {
     /// comparing the [Self::reference] expected state to the system under test ([Self::fs]).
     fn compare_contents_recursive<'a>(
         &'a self,
-        fs_parent: InodeNo,
-        fs_dir: InodeNo,
+        fs_parent: INodeNo,
+        fs_dir: INodeNo,
         ref_dir: &'a Node,
     ) -> BoxFuture<'a, ()> {
         async move {
-            let dir_handle = self.fs.opendir(INodeNo(fs_dir), FuseOpenFlags(0)).await.unwrap().fh.0;
+            let dir_handle = self.fs.opendir(fs_dir, OpenFlags::empty()).await.unwrap().fh;
             let ref_children = ref_dir.children();
             let mut unvisited_ref_children = ref_children.keys().cloned().collect::<HashSet<_>>();
 
             let mut reply = DirectoryReply::new(self.readdir_limit);
-            self.fs
-                .readdir(INodeNo(fs_dir), FuseFileHandle(dir_handle), 0, &mut reply)
-                .await
-                .unwrap();
+            self.fs.readdir(fs_dir, dir_handle, 0, &mut reply).await.unwrap();
 
             // TODO `stat` on these needs to work
             let e0 = reply
@@ -699,10 +673,7 @@ impl Harness {
 
             if reply.entries.is_empty() {
                 reply.clear();
-                self.fs
-                    .readdir(INodeNo(fs_dir), FuseFileHandle(dir_handle), offset, &mut reply)
-                    .await
-                    .unwrap();
+                self.fs.readdir(fs_dir, dir_handle, offset, &mut reply).await.unwrap();
             }
 
             let e1 = reply
@@ -715,10 +686,7 @@ impl Harness {
 
             if reply.entries.is_empty() {
                 reply.clear();
-                self.fs
-                    .readdir(INodeNo(fs_dir), FuseFileHandle(dir_handle), offset, &mut reply)
-                    .await
-                    .unwrap();
+                self.fs.readdir(fs_dir, dir_handle, offset, &mut reply).await.unwrap();
             }
 
             while !reply.entries.is_empty() {
@@ -728,7 +696,7 @@ impl Harness {
                     let name = &reply.name.as_os_str().to_str().unwrap().to_string();
                     let fs_kind = reply.attr.kind;
 
-                    let lkup = self.fs.lookup(INodeNo(fs_dir), &reply.name).await.unwrap();
+                    let lkup = self.fs.lookup(fs_dir, &reply.name).await.unwrap();
                     let attr = lkup.attr;
 
                     match ref_children.get(name) {
@@ -739,12 +707,9 @@ impl Harness {
                                 "for readdir entry {name:?}, expecting {ref_kind:?} but found {fs_kind:?}",
                             );
                             assert_eq!(
-                                u64::from(attr.ino),
-                                reply.ino,
+                                attr.ino, reply.ino,
                                 "for file {:?} readdir ino {:?} lookup ino {:?}",
-                                name,
-                                reply.ino,
-                                attr.ino
+                                name, reply.ino, attr.ino
                             );
                             if let Node::File(ref_object) = node {
                                 assert_eq!(attr.kind, FileType::RegularFile);
@@ -766,10 +731,7 @@ impl Harness {
                     }
                 }
                 reply.clear();
-                self.fs
-                    .readdir(INodeNo(fs_dir), FuseFileHandle(dir_handle), offset, &mut reply)
-                    .await
-                    .unwrap();
+                self.fs.readdir(fs_dir, dir_handle, offset, &mut reply).await.unwrap();
             }
 
             assert!(
@@ -777,19 +739,16 @@ impl Harness {
                 "reference contained elements not in the filesystem in dir inode {fs_dir}: {unvisited_ref_children:?}"
             );
 
-            self.fs
-                .releasedir(INodeNo(fs_dir), FuseFileHandle(dir_handle), 0)
-                .await
-                .unwrap();
+            self.fs.releasedir(fs_dir, dir_handle, 0).await.unwrap();
         }
         .boxed()
     }
 
     /// Compare the contents of a given reference file to the system under test (SUT),
     /// by opening and reading the file from the SUT.
-    async fn compare_file<'a>(&'a self, fs_ino: InodeNo, ref_file: &'a MockObject) {
-        let fh = match self.fs.open(INodeNo(fs_ino), FuseOpenFlags(0), 0).await {
-            Ok(ret) => ret.fh.0,
+    async fn compare_file<'a>(&'a self, fs_ino: INodeNo, ref_file: &'a MockObject) {
+        let fh = match self.fs.open(fs_ino, OpenFlags::empty(), 0).await {
+            Ok(ret) => ret.fh,
             Err(e) => panic!("failed to open ino {fs_ino} for content comparison: {e:?}"),
         };
         let mut offset = 0;
@@ -801,14 +760,7 @@ impl Harness {
             assert_eq!(ref_bytes.len(), num_bytes, "number of bytes did not match");
             let bytes_from_read = self
                 .fs
-                .read(
-                    INodeNo(fs_ino),
-                    FuseFileHandle(fh),
-                    offset as i64,
-                    num_bytes as u32,
-                    0,
-                    None,
-                )
+                .read(fs_ino, fh, offset as u64, num_bytes as u32, 0, None)
                 .await
                 .expect("read should succeed");
             assert_eq!(&ref_bytes[..], &bytes_from_read, "read bytes did not match");
@@ -818,9 +770,9 @@ impl Harness {
 
     /// Local files are in the process of being written, and so should be stat-able, but not
     /// readable (open should fail).
-    async fn check_local_file(&self, inode: InodeNo) {
-        let _stat = self.fs.getattr(INodeNo(inode)).await.expect("stat should succeed");
-        let open = self.fs.open(INodeNo(inode), FuseOpenFlags(0), 0).await;
+    async fn check_local_file(&self, inode: INodeNo) {
+        let _stat = self.fs.getattr(inode).await.expect("stat should succeed");
+        let open = self.fs.open(inode, OpenFlags::empty(), 0).await;
         assert!(matches!(open, Err(e) if i32::from(e.to_errno()) == libc::EPERM));
     }
 }

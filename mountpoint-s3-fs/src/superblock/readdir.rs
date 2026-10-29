@@ -45,9 +45,9 @@ use std::collections::VecDeque;
 use std::ffi::OsString;
 
 use super::{InodeKindData, LookedUpInode, MetadataClient, RemoteLookup, SuperblockInner};
-use crate::metablock::{InodeError, InodeKind, InodeNo, InodeStat};
+use crate::metablock::{INodeNo, InodeError, InodeKind, InodeStat};
 use crate::superblock::ValidName;
-use crate::sync::atomic::{AtomicI64, Ordering};
+use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{AsyncMutex, Mutex};
 use mountpoint_s3_client::types::RestoreStatus;
 use time::OffsetDateTime;
@@ -56,8 +56,8 @@ use tracing::{error, trace, warn};
 /// Handle for an inflight directory listing
 #[derive(Debug)]
 pub struct ReaddirHandle {
-    dir_ino: InodeNo,
-    parent_ino: InodeNo,
+    dir_ino: INodeNo,
+    parent_ino: INodeNo,
     iter: AsyncMutex<ReaddirIter>,
     readded: Mutex<Option<LookedUpInode>>,
 }
@@ -65,8 +65,8 @@ pub struct ReaddirHandle {
 impl ReaddirHandle {
     pub(super) fn new<OC: MetadataClient>(
         inner: &SuperblockInner<OC>,
-        dir_ino: InodeNo,
-        parent_ino: InodeNo,
+        dir_ino: INodeNo,
+        parent_ino: INodeNo,
         full_path: String,
         page_size: usize,
     ) -> Result<Self, InodeError> {
@@ -167,7 +167,7 @@ impl ReaddirHandle {
     }
 
     /// Return the inode number of the parent directory of this directory handle
-    pub fn parent(&self) -> InodeNo {
+    pub fn parent(&self) -> INodeNo {
         self.parent_ino
     }
 
@@ -618,7 +618,7 @@ mod unordered {
 #[derive(Debug, Clone)]
 pub struct DirectoryEntryReaddir {
     pub lookup: LookedUpInode,
-    pub offset: i64,
+    pub offset: u64,
     pub name: OsString,
     pub generation: u64,
 }
@@ -626,22 +626,22 @@ pub struct DirectoryEntryReaddir {
 #[derive(Debug)]
 pub struct DirHandle {
     #[allow(unused)]
-    ino: InodeNo,
+    ino: INodeNo,
     pub handle: AsyncMutex<ReaddirHandle>,
-    offset: AtomicI64,
-    pub last_response: AsyncMutex<Option<(i64, Vec<DirectoryEntryReaddir>)>>,
+    offset: AtomicU64,
+    pub last_response: AsyncMutex<Option<(u64, Vec<DirectoryEntryReaddir>)>>,
 }
 
 impl DirHandle {
-    pub fn new(ino: InodeNo, readdir_handle: ReaddirHandle) -> Self {
+    pub fn new(ino: INodeNo, readdir_handle: ReaddirHandle) -> Self {
         Self {
             ino,
             handle: AsyncMutex::new(readdir_handle),
-            offset: AtomicI64::new(0),
+            offset: AtomicU64::new(0),
             last_response: AsyncMutex::new(None),
         }
     }
-    pub fn offset(&self) -> i64 {
+    pub fn offset(&self) -> u64 {
         self.offset.load(Ordering::SeqCst)
     }
 
@@ -655,7 +655,7 @@ impl DirHandle {
 }
 #[cfg(test)]
 mod tests {
-    use crate::fs::{FUSE_ROOT_INODE, OpenFlags};
+    use crate::fs::{INodeNo, OpenFlags};
     use crate::metablock::{AddDirEntryResult, InodeKind, Metablock};
     use crate::s3::{Bucket, S3Path};
     use crate::superblock::Superblock;
@@ -679,10 +679,10 @@ mod tests {
         );
 
         let filename = "test_file.txt";
-        let write_file_handle = 1;
+        let write_file_handle = fuser::FileHandle(1);
 
         let lookup = superblock
-            .create(FUSE_ROOT_INODE, filename.as_ref(), InodeKind::File)
+            .create(INodeNo::ROOT, filename.as_ref(), InodeKind::File)
             .await
             .expect("Create failed");
 
@@ -698,7 +698,7 @@ mod tests {
             .expect("Start writing failed");
 
         let readdir_handle = superblock
-            .new_readdir_handle(FUSE_ROOT_INODE)
+            .new_readdir_handle(INodeNo::ROOT)
             .await
             .expect("Failed to create readdir handle");
 
@@ -709,7 +709,7 @@ mod tests {
 
         superblock
             .readdir(
-                FUSE_ROOT_INODE,
+                INodeNo::ROOT,
                 readdir_handle,
                 0,
                 false,
@@ -731,7 +731,7 @@ mod tests {
         );
 
         let dir = superblock
-            .create(FUSE_ROOT_INODE, "dir".as_ref(), InodeKind::Directory)
+            .create(INodeNo::ROOT, "dir".as_ref(), InodeKind::Directory)
             .await
             .expect("Create dir failed")
             .ino();

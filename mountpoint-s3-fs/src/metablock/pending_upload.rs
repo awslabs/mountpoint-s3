@@ -37,7 +37,11 @@ impl std::fmt::Debug for PendingUploadHookState {
 }
 
 impl PendingUploadHook {
-    pub(crate) fn new<Client>(metablock: Arc<dyn Metablock>, handle: Arc<FileHandle<Client>>, fh: u64) -> Self
+    pub(crate) fn new<Client>(
+        metablock: Arc<dyn Metablock>,
+        handle: Arc<FileHandle<Client>>,
+        fh: fuser::FileHandle,
+    ) -> Self
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
