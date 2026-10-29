@@ -632,13 +632,8 @@ mod tests {
         #[test]
         fn test_opendir_and_forget_race_condition() {
             async fn test_helper(bucket: &Bucket) {
-                let client = Arc::new(
-                    MockClient::config()
-                        .bucket(bucket.to_string())
-                        .part_size(1024 * 1024)
-                        .build(),
-                );
-                client.add_object("dir/c", b"c".into());
+                let client = in_memory_metadata(bucket, false);
+                client.bucket().add_object("dir/c", b"c".into());
                 let superblock = Arc::new(Superblock::new(
                     client,
                     S3Path::new(bucket.clone(), Default::default()),
@@ -672,13 +667,8 @@ mod tests {
         #[test]
         fn test_lookup_and_forget_race_condition() {
             async fn test_helper(bucket: &Bucket) {
-                let client = Arc::new(
-                    MockClient::config()
-                        .bucket(bucket.to_string())
-                        .part_size(1024 * 1024)
-                        .build(),
-                );
-                client.add_object("dir/c", b"c".into());
+                let client = in_memory_metadata(bucket, false);
+                client.bucket().add_object("dir/c", b"c".into());
                 let superblock = Arc::new(Superblock::new(
                     client,
                     S3Path::new(bucket.clone(), Default::default()),
@@ -709,13 +699,8 @@ mod tests {
         #[test]
         fn test_forget_child_and_parent_race_condition() {
             async fn test_helper(bucket: &Bucket) {
-                let client = Arc::new(
-                    MockClient::config()
-                        .bucket(bucket.to_string())
-                        .part_size(1024 * 1024)
-                        .build(),
-                );
-                client.add_object("dir/c", b"c".into());
+                let client = in_memory_metadata(bucket, false);
+                client.bucket().add_object("dir/c", b"c".into());
                 let superblock = Arc::new(Superblock::new(
                     client,
                     S3Path::new(bucket.clone(), Default::default()),
