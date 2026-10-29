@@ -1799,6 +1799,16 @@ mod tests {
 
     // run with rusty_fork to avoid issues with other tests and their env variables.
     rusty_fork_test! {
+        /// More than 64 attempts (63 retries) is a valid configuration.
+        #[test]
+        fn client_new_with_many_max_attempts() {
+            // SAFETY: This test is run in a forked process, so won't affect any other concurrently running tests.
+            unsafe { std::env::remove_var("AWS_MAX_ATTEMPTS"); }
+
+            let config = S3ClientConfig::default().max_attempts(NonZeroUsize::new(100).unwrap());
+            S3CrtClient::new(config).expect("creating a new client should succeed");
+        }
+
         #[test]
         fn test_endpoint_favors_parameter_over_env_variable() {
             let endpoint_uri = Uri::new_from_str(&Allocator::default(), "https://s3.us-west-2.amazonaws.com").unwrap();

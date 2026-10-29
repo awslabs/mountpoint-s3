@@ -1012,8 +1012,13 @@ pub struct BufferPoolUsageStats {
 
 impl Client {
     /// Create a new S3 [Client].
-    pub fn new(allocator: &Allocator, config: ClientConfig) -> Result<Self, Error> {
+    pub fn new(allocator: &Allocator, mut config: ClientConfig) -> Result<Self, Error> {
         s3_library_init(allocator);
+
+        // The CRT client starts threads for meta requests that upload from or download to a file
+        // (up to 8 by default, and at least 1). These bindings don't support such requests, so
+        // keep the minimum.
+        config.inner.num_file_io_threads = 1;
 
         // SAFETY: `config` is moved into the [Client] on success, so `config.inner` (and the values
         // inside) are guaranteed to live at least as long as this [Client] does. `allocator` is
@@ -1930,11 +1935,15 @@ impl UploadReviewPart {
 mod tests {
     use test_case::test_case;
 
+    use crate::auth::credentials::CredentialsProvider;
     use crate::aws_s3_request_type;
     use crate::common::allocator::Allocator;
+    use crate::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
+    use crate::io::event_loop::EventLoopGroup;
+    use crate::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
     use crate::io::tls::{TlsConnectionOptions, TlsContext, TlsContextOptions};
-    use crate::s3::client::{ClientConfig, RequestType};
-    use mountpoint_s3_crt_sys::aws_s3_meta_request_tls_mode;
+    use crate::s3::client::{Client, ClientConfig, RequestType, init_signing_config};
+    use mountpoint_s3_crt_sys::{aws_event_loop_group_get_loop_count, aws_s3_meta_request_tls_mode};
 
     #[test_case(aws_s3_request_type::AWS_S3_REQUEST_TYPE_UNKNOWN, RequestType::Unknown)]
     #[test_case(aws_s3_request_type::AWS_S3_REQUEST_TYPE_HEAD_OBJECT, RequestType::HeadObject)]
@@ -1958,5 +1967,33 @@ mod tests {
         config.tls_connection_options(conn_opts);
         assert!(!config.inner.tls_connection_options.is_null());
         assert_eq!(config.inner.tls_mode, aws_s3_meta_request_tls_mode::AWS_MR_TLS_ENABLED);
+    }
+
+    /// The client starts a single file I/O thread, whatever the size of its event loop group.
+    #[test]
+    fn client_starts_one_file_io_thread() {
+        let allocator = Allocator::default();
+        let mut event_loop_group = EventLoopGroup::new_default(&allocator, Some(4), || {}).unwrap();
+        let resolver_options = HostResolverDefaultOptions {
+            max_entries: 8,
+            event_loop_group: &mut event_loop_group,
+        };
+        let mut host_resolver = HostResolver::new_default(&allocator, &resolver_options).unwrap();
+        let bootstrap_options = ClientBootstrapOptions {
+            event_loop_group: &mut event_loop_group,
+            host_resolver: &mut host_resolver,
+        };
+        let client_bootstrap = ClientBootstrap::new(&allocator, &bootstrap_options).unwrap();
+        let credentials_provider = CredentialsProvider::new_anonymous(&allocator).unwrap();
+
+        let mut config = ClientConfig::new();
+        config
+            .client_bootstrap(client_bootstrap)
+            .signing_config(init_signing_config("us-east-1", credentials_provider, None, None, None));
+        let client = Client::new(&allocator, config).unwrap();
+
+        // SAFETY: `client.inner` points to a live client, which creates `file_io_elg` on creation.
+        let num_file_io_threads = unsafe { aws_event_loop_group_get_loop_count((*client.inner.as_ptr()).file_io_elg) };
+        assert_eq!(num_file_io_threads, 1);
     }
 }
