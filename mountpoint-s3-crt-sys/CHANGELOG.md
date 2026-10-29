@@ -1,6 +1,6 @@
 ## Unreleased (v0.18.0)
 
-* Build s2n-tls and aws-c-cal against the aws-lc library of the `aws-lc-sys` crate, a new dependency, instead of an aws-lc submodule. A binary that also uses `aws-lc-rs`, for example through rustls, then links a single aws-lc. A pre-built CRT (`MOUNTPOINT_CRT_LIB_DIR`) is still linked with its own libcrypto.
+* Build s2n-tls and aws-c-cal against the aws-lc library of the `aws-lc-sys` crate, a new dependency, instead of an aws-lc submodule. A binary that also uses `aws-lc-rs`, for example through rustls, then links a single aws-lc. A pre-built CRT (`MOUNTPOINT_CRT_LIB_DIR`) is still linked with its own libcrypto. ([#2012](https://github.com/awslabs/mountpoint-s3/pull/2012))
 * Update to latest CRT dependencies.
 
 ## v0.17.1 (September 24, 2026)
