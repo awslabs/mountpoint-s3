@@ -166,6 +166,12 @@ impl ClientConfig {
         self
     }
 
+    /// Attempt each request exactly once. Takes effect only without a [Self::retry_strategy].
+    pub fn disable_retries(&mut self) -> &mut Self {
+        self.inner.retry_config.retry_mode = aws_s3_retry_mode::AWS_S3_RETRY_MODE_NONE;
+        self
+    }
+
     /// Default signing config for the requests.
     pub fn signing_config(&mut self, signing_config: SigningConfig) -> &mut Self {
         self.inner.signing_config = signing_config.to_inner_ptr() as *mut aws_signing_config_aws;

@@ -259,6 +259,7 @@ For example, if an application generates high request rates (typically sustained
 Mountpoint automatically retries these requests up to a total of 10 attempts, using jittered exponential backoff between attempts.
 If these attempts are exhausted, Mountpoint will return an error to your application (usually `EIO`).
 If you need to modify the maximum number of attempts, set the `AWS_MAX_ATTEMPTS` environment variable.
+The value must be a positive integer, otherwise Mountpoint fails to start. Set it to `1` to disable retries.
 
 ## File system configuration
 

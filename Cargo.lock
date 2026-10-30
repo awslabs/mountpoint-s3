@@ -2785,7 +2785,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3"
-version = "1.24.1"
+version = "1.25.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2869,6 +2869,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "wiremock",
  "xmltree",
 ]
 

@@ -58,6 +58,7 @@ tikv-jemallocator = "0.7.0"
 tokio = { version = "1.52.3", features = ["rt", "rt-multi-thread", "macros", "net", "io-util"] }
 tokio-rustls = "0.26.4"
 tracing-subscriber = { version = "0.3.23", features = ["fmt", "env-filter"] }
+wiremock = "0.6.5"
 
 # HACK: we want our own tests to use the mock client, but don't want to enable it for consumers by
 # default, so we take a dev-dependency on ourself with that feature enabled.

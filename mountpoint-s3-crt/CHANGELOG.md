@@ -1,5 +1,6 @@
 ## Unreleased (v0.17.0)
 
+* Add `ClientConfig::disable_retries`, which makes the S3 client attempt each request exactly once. The CRT's retry strategies treat zero retries as "use the default".
 * Update to latest CRT dependencies.
 
 ## v0.16.2 (October 6, 2026)
