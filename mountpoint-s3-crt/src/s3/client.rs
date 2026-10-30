@@ -1744,7 +1744,7 @@ pub fn init_signing_config(
 ///
 /// **Lifetime contract (full-object mode only):** `inner.user_data` is a raw pointer derived from
 /// `full_object_state`, the [`Arc`] this struct holds in that field. `inner` is **private** and
-/// only escapes via [`Self::to_inner_ptr`], whose returned `*const` is borrow-bound to `&self` —
+/// only escapes via `to_inner_ptr`, whose returned `*const` is borrow-bound to `&self` —
 /// meaning the CRT cannot observe the pointer without an outstanding borrow of the whole
 /// `ChecksumConfig`. The struct is intentionally non-`Clone` to keep the (`inner`,
 /// `full_object_state`) pair from being split apart.
