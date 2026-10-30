@@ -1,6 +1,6 @@
 ## Unreleased (v0.23.0)
 
-* Fix `S3ClientConfig::max_attempts` and `AWS_MAX_ATTEMPTS` set to 1 still retrying failed requests up to 3 times. `S3CrtClient::new` now fails with `NewClientError::InvalidConfiguration` when `AWS_MAX_ATTEMPTS` is not a positive integer,. Previously 0 selected the CRT's default of 4 attempts and other invalid values were silently ignored.
+* Fix `S3ClientConfig::max_attempts` and `AWS_MAX_ATTEMPTS` set to 1 still retrying failed requests up to 3 times. `S3CrtClient::new` now fails with `NewClientError::InvalidConfiguration` when `AWS_MAX_ATTEMPTS` is not a positive integer,. Previously 0 selected the CRT's default of 4 attempts and other invalid values were silently ignored. ([#1996](https://github.com/awslabs/mountpoint-s3/pull/1996))
 * Update to latest CRT dependencies.
 * Fix `S3CrtClient::new` panicking when the maximum number of attempts (`max_attempts` or `AWS_MAX_ATTEMPTS`) is more than 64. ([#2010](https://github.com/awslabs/mountpoint-s3/pull/2010))
 * Add `MockBucket`, the in-memory bucket model behind `MockClient`, so that other in-memory test backends can share a bucket with a `MockClient`. A bucket is configured with `MockBucketConfig`, and a client over an existing bucket with `MockDataConfig` (`MockClient::with_bucket`). `MockClientConfig` is unchanged and combines both. ([#1989](https://github.com/awslabs/mountpoint-s3/pull/1989))
