@@ -1,5 +1,5 @@
 use super::path::S3Location;
-use super::{InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat};
+use super::{INodeNo, InodeError, InodeErrorInfo, InodeKind, InodeStat};
 
 use std::time::Duration;
 
@@ -15,7 +15,7 @@ pub struct Lookup {
 
 impl Lookup {
     /// Creates a new Lookup instance
-    pub fn new(ino: InodeNo, stat: InodeStat, kind: InodeKind, location: Option<S3Location>) -> Self {
+    pub fn new(ino: INodeNo, stat: InodeStat, kind: InodeKind, location: Option<S3Location>) -> Self {
         Self::new_from_info_and_loc(InodeInformation::new(ino, stat, kind), location)
     }
 
@@ -38,7 +38,7 @@ impl Lookup {
         self.information.stat()
     }
 
-    pub fn ino(&self) -> InodeNo {
+    pub fn ino(&self) -> INodeNo {
         self.information.ino()
     }
 
@@ -82,13 +82,13 @@ impl Lookup {
 /// Does not include the location in S3, see [`Lookup`] for that.
 #[derive(Debug, Clone)]
 pub struct InodeInformation {
-    ino: InodeNo,
+    ino: INodeNo,
     stat: InodeStat,
     kind: InodeKind,
 }
 
 impl InodeInformation {
-    pub fn new(ino: InodeNo, stat: InodeStat, kind: InodeKind) -> Self {
+    pub fn new(ino: INodeNo, stat: InodeStat, kind: InodeKind) -> Self {
         InodeInformation { ino, stat, kind }
     }
 
@@ -100,7 +100,7 @@ impl InodeInformation {
         &self.stat
     }
 
-    pub fn ino(&self) -> InodeNo {
+    pub fn ino(&self) -> INodeNo {
         self.ino
     }
 

@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use crate::checksums::Crc32cBase64;
 use crate::fs::InodeKind;
-use crate::metablock::{ROOT_INODE_NO, ValidKey, ValidKeyError, ValidName};
+use crate::metablock::{INodeNo, ValidKey, ValidKeyError, ValidName};
 use crate::s3::{Bucket, Prefix, PrefixError, S3Path, S3PathError};
 
 use super::{
@@ -236,7 +236,7 @@ impl ManifestBuilder {
         Ok(Self {
             db,
             dir_ids: Default::default(),
-            next_id: ROOT_INODE_NO + 1,
+            next_id: INodeNo::ROOT.0 + 1,
             insert_buffer: Vec::with_capacity(batch_size),
             batch_size,
         })
@@ -279,7 +279,7 @@ impl ManifestBuilder {
                 .map_err(|_| InputManifestError::InvalidChannel(channel_manifest.directory_name.clone()))?;
             self.insert_buffer.push(DbEntry::new(
                 channel_root_id,
-                ROOT_INODE_NO,
+                INodeNo::ROOT.0,
                 channel_id,
                 None,
                 channel_directory_name,

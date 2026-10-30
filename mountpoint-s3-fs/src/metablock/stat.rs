@@ -5,7 +5,7 @@ use time::OffsetDateTime;
 
 use super::Expiry;
 
-pub type InodeNo = u64;
+pub use fuser::INodeNo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InodeKind {

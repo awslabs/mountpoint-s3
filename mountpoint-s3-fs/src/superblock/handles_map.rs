@@ -1,5 +1,6 @@
-use crate::metablock::InodeNo;
+use crate::metablock::INodeNo;
 use crate::sync::Mutex;
+use fuser::FileHandle;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
@@ -11,13 +12,13 @@ use super::InodeLockedForWriting;
 /// Ensures that the inodes are locked for writing while performing any operation.
 #[derive(Debug, Default)]
 pub struct InodeHandleMap {
-    handles: Mutex<HashMap<InodeNo, InodeHandles>>,
+    handles: Mutex<HashMap<INodeNo, InodeHandles>>,
 }
 
 #[derive(Debug, Default)]
 struct InodeHandles {
-    readers: HashMap<u64, HandleState>,
-    writer: Option<(u64, HandleState)>,
+    readers: HashMap<FileHandle, HandleState>,
+    writer: Option<(FileHandle, HandleState)>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -36,7 +37,7 @@ impl InodeHandleMap {
     /// Add a new active reader.
     ///
     /// Will fail if there is an active writer.
-    pub fn try_add_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
+    pub fn try_add_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: FileHandle) -> bool {
         let mut handles = self.handles.lock().unwrap();
         let entry = handles.entry(locked_inode.ino).or_default();
         if entry
@@ -54,7 +55,7 @@ impl InodeHandleMap {
     /// Set an existing reader to inactive.
     ///
     /// This is a no-op if the reader is already marked inactive or does not exist in the map.
-    pub fn deactivate_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) {
+    pub fn deactivate_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: FileHandle) {
         let mut handles = self.handles.lock().unwrap();
         if let Some(entry) = handles.get_mut(&locked_inode.ino)
             && let Some(reader) = entry.readers.get_mut(&fh)
@@ -66,7 +67,7 @@ impl InodeHandleMap {
     /// Set an existing reader to active.
     ///
     /// Return `false` if the reader does not exist.
-    pub fn try_activate_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
+    pub fn try_activate_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: FileHandle) -> bool {
         let mut handles = self.handles.lock().unwrap();
         if let Some(entry) = handles.get_mut(&locked_inode.ino)
             && let Some(reader) = entry.readers.get_mut(&fh)
@@ -78,7 +79,7 @@ impl InodeHandleMap {
     }
 
     /// Remove an existing reader.
-    pub fn remove_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) {
+    pub fn remove_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: FileHandle) {
         let mut handles = self.handles.lock().unwrap();
         if let Entry::Occupied(mut entry) = handles.entry(locked_inode.ino) {
             entry.get_mut().readers.remove(&fh);
@@ -91,7 +92,7 @@ impl InodeHandleMap {
     /// Set the current writer and removes inactive readers and writer.
     ///
     ///  Will fail if there is another active writer or any active readers.
-    pub fn set_writer(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> Result<(), SetWriterError> {
+    pub fn set_writer(&self, locked_inode: &InodeLockedForWriting<'_>, fh: FileHandle) -> Result<(), SetWriterError> {
         let mut handles = self.handles.lock().unwrap();
         let entry = handles.entry(locked_inode.ino).or_default();
         if entry.readers.iter().any(|(_, state)| *state == HandleState::Active) {
@@ -112,7 +113,7 @@ impl InodeHandleMap {
     /// Set the current writer to active.
     ///
     /// Return `false` if `fh` is not the current writer.
-    pub fn try_activate_writer(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
+    pub fn try_activate_writer(&self, locked_inode: &InodeLockedForWriting<'_>, fh: FileHandle) -> bool {
         let mut handles = self.handles.lock().unwrap();
         if let Some(entry) = handles.get_mut(&locked_inode.ino)
             && let Some((writer, state)) = &mut entry.writer
@@ -127,7 +128,7 @@ impl InodeHandleMap {
     /// Set the current writer to inactive.
     ///
     /// Return `false` if `fh` is not the current writer.
-    pub fn try_deactivate_writer(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
+    pub fn try_deactivate_writer(&self, locked_inode: &InodeLockedForWriting<'_>, fh: FileHandle) -> bool {
         let mut handles = self.handles.lock().unwrap();
         if let Some(entry) = handles.get_mut(&locked_inode.ino)
             && let Some((writer, state)) = &mut entry.writer
@@ -142,7 +143,7 @@ impl InodeHandleMap {
     /// Remove the current writer.
     ///
     /// Return `false` if `fh` is not the current writer.
-    pub fn try_remove_writer(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
+    pub fn try_remove_writer(&self, locked_inode: &InodeLockedForWriting<'_>, fh: FileHandle) -> bool {
         let mut handles = self.handles.lock().unwrap();
         if let Entry::Occupied(mut entry) = handles.entry(locked_inode.ino)
             && let Some((writer, _)) = &entry.get().writer
@@ -159,7 +160,7 @@ impl InodeHandleMap {
 
     /// Stop tracking the handle information for this inode, and return `true` if there were any
     /// open handles for the inode.
-    pub fn remove_inode(&self, ino: u64) -> bool {
+    pub fn remove_inode(&self, ino: INodeNo) -> bool {
         let mut handles = self.handles.lock().unwrap();
         handles.remove(&ino).is_some()
     }

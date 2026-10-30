@@ -1,10 +1,10 @@
 use std::ffi::OsStr;
-use std::fs::{File, ReadDir};
+use std::fs::ReadDir;
 use std::os::fd::AsFd;
 use std::path::Path;
 use std::sync::Arc;
 
-use fuser::{Mount, MountOption, Session};
+use fuser::{DevFuse, Mount, MountOption, Session};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::checksums::crc32c;
 use mountpoint_s3_client::config::S3ClientAuthConfig;
@@ -266,7 +266,7 @@ where
         MountOption::FSName("mountpoint-s3".to_string()),
         MountOption::NoAtime,
     ];
-    // Without `MountOption::AllowOther` or `MountOption::AllowRoot`, `Session::new` uses `SessionACL::Owner`.
+    // `SessionACL::Owner` mounts without `allow_other`, as `mount-s3` does without `--allow-other`/`--allow-root`.
     let session_acl = fuser::SessionACL::Owner;
 
     let fs = create_filesystem(
@@ -280,17 +280,24 @@ where
         test_config.manifest,
     );
     let fs = S3FuseFilesystem::new(fs, test_config.error_logger);
+    let mut config = fuser::Config::default();
+    config.mount_options = options.clone();
+    config.acl = session_acl;
+    config.clone_fd = false;
     let (session, mount) = if test_config.pass_fuse_fd {
         let (fd, mount) = mount_for_passing_fuse_fd(mount_dir.path(), &options);
         let owned_fd = fd.as_fd().try_clone_to_owned().unwrap();
-        (Session::from_fd(fs, owned_fd, session_acl), Some(mount))
+        (
+            Session::from_fd(fs, owned_fd, session_acl, config.clone()).unwrap(),
+            Some(mount),
+        )
     } else {
-        (Session::new(fs, mount_dir.path(), &options).unwrap(), None)
+        (Session::new(fs, mount_dir.path(), &config).unwrap(), None)
     };
 
     MountedSession {
         mount_dir,
-        session: Some(FuseSession::from_session(session, test_config.max_worker_threads, false).unwrap()),
+        session: Some(FuseSession::from_session(session, test_config.max_worker_threads).unwrap()),
         mount,
     }
 }
@@ -298,8 +305,8 @@ where
 /// Open `/dev/fuse` and call `mount` syscall with given `mount_point`.
 ///
 /// The mount is automatically unmounted when the returned [Mount] is dropped.
-pub fn mount_for_passing_fuse_fd(mount_point: &Path, options: &[MountOption]) -> (Arc<File>, Mount) {
-    let (file, mount) = Mount::new(mount_point, options).unwrap();
+pub fn mount_for_passing_fuse_fd(mount_point: &Path, options: &[MountOption]) -> (Arc<DevFuse>, Mount) {
+    let (file, mount) = Mount::new(mount_point, options, fuser::SessionACL::Owner).unwrap();
 
     // fuser sets `FD_CLOEXEC` (i.e., close-on-exec) flag on the file descriptor in its libfuse3 implementation.
     // Since we're forking the process in some of our test cases, this prevents child process to inherit the FUSE fd and causes our tests to fail.

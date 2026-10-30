@@ -5,8 +5,7 @@ use std::ffi::{OsStr, OsString};
 use std::time::{Duration, UNIX_EPOCH};
 
 use bytes::Bytes;
-use fuser::consts::FOPEN_DIRECT_IO;
-use fuser::{FileAttr, KernelConfig};
+use fuser::{BsdFileFlags, FileAttr, FopenFlags, Generation, InitFlags, KernelConfig, LockOwner, WriteFlags};
 use mountpoint_s3_client::ObjectClient;
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -19,7 +18,7 @@ use crate::memory::WriteHandleLimiter;
 use crate::metablock::{
     AddDirEntry, AddDirEntryResult, InodeInformation, Metablock, NewHandle, PendingUploadHook, ReadWriteMode,
 };
-pub use crate::metablock::{InodeError, InodeKind, InodeNo};
+pub use crate::metablock::{INodeNo, InodeError, InodeKind};
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
@@ -30,7 +29,7 @@ pub use config::{CacheConfig, S3FilesystemConfig, UploadChecksumAlgorithm};
 
 #[macro_use]
 mod error;
-pub use error::{Error, ToErrno};
+pub use error::{Errno, Error, ToErrno};
 
 pub mod error_metadata;
 use error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
@@ -47,8 +46,6 @@ pub use sse::{ServerSideEncryption, SseCorruptedError};
 mod time_to_live;
 pub use time_to_live::TimeToLive;
 
-pub const FUSE_ROOT_INODE: InodeNo = 1u64;
-
 pub struct S3Filesystem<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
@@ -59,7 +56,7 @@ where
     uploader: Uploader<Client>,
     write_handle_limiter: Option<WriteHandleLimiter>,
     next_handle: AtomicU64,
-    file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client>>>>,
+    file_handles: AsyncRwLock<HashMap<fuser::FileHandle, Arc<FileHandle<Client>>>>,
 }
 
 /// Reply to a `lookup` call
@@ -67,7 +64,7 @@ where
 pub struct Entry {
     pub ttl: Duration,
     pub attr: FileAttr,
-    pub generation: u64,
+    pub generation: Generation,
 }
 
 /// Reply to a `getattr` call
@@ -80,8 +77,8 @@ pub struct Attr {
 /// Reply to a `open` or `opendir` call
 #[derive(Debug)]
 pub struct Opened {
-    pub fh: u64,
-    pub flags: u32,
+    pub fh: fuser::FileHandle,
+    pub flags: FopenFlags,
 }
 
 /// Reply to a `readdir` or `readdirplus` call
@@ -93,11 +90,11 @@ pub trait DirectoryReplier {
 
 #[derive(Debug, Clone)]
 pub struct DirectoryEntry {
-    pub ino: u64,
-    pub offset: i64,
+    pub ino: INodeNo,
+    pub offset: u64,
     pub name: OsString,
     pub attr: FileAttr,
-    pub generation: u64,
+    pub generation: Generation,
     pub ttl: Duration,
 }
 
@@ -178,8 +175,8 @@ where
         }
     }
 
-    fn next_handle(&self) -> u64 {
-        self.next_handle.fetch_add(1, Ordering::SeqCst)
+    fn next_handle(&self) -> fuser::FileHandle {
+        fuser::FileHandle(self.next_handle.fetch_add(1, Ordering::SeqCst))
     }
 
     /// The error to fail an operation that unconditionally modifies the file system with, if this
@@ -192,8 +189,8 @@ where
         self.config.read_only.then(|| InodeError::ReadOnlyMount().into())
     }
 
-    pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
-        let _ = config.add_capabilities(fuser::consts::FUSE_DO_READDIRPLUS);
+    pub async fn init(&self, config: &mut KernelConfig) -> std::io::Result<()> {
+        let _ = config.add_capabilities(InitFlags::FUSE_DO_READDIRPLUS);
         // Set max_background FUSE parameter to 64 by default, may be overridden with config setting or by an environment variable.
         if let Some(max_background) = self.config.max_background_fuse_requests() {
             let old = config
@@ -234,7 +231,7 @@ where
             // This should makes it clear to users that they cannot enable overwrite on their host
             // rather than silently disable it and let users find out later when their writes fail.
             config
-                .add_capabilities(fuser::consts::FUSE_ATOMIC_O_TRUNC)
+                .add_capabilities(InitFlags::FUSE_ATOMIC_O_TRUNC)
                 .expect("The host must support FUSE_ATOMIC_O_TRUNC capability in order to allow overwrites");
         }
         Ok(())
@@ -281,7 +278,7 @@ where
         }
     }
 
-    pub async fn lookup(&self, parent: InodeNo, name: &OsStr) -> Result<Entry, Error> {
+    pub async fn lookup(&self, parent: INodeNo, name: &OsStr) -> Result<Entry, Error> {
         trace!("fs:lookup with parent {:?} name {:?}", parent, name);
 
         let lookup = self
@@ -291,7 +288,7 @@ where
             .map_err(|err| match err {
                 InodeError::FileDoesNotExist(_, _) => {
                     // Lookup returning ENOENT is common case, and we dont want to warn in case `FileDoesNotExist` within ENOENT
-                    err!(libc::ENOENT, source: err, Level::DEBUG, metadata: Box::new(ErrorMetadata{error_code: Some(MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT.to_string()), ..Default::default()}), "file does not exist")
+                    err!(Errno::ENOENT, source: err, Level::DEBUG, metadata: Box::new(ErrorMetadata{error_code: Some(MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT.to_string()), ..Default::default()}), "file does not exist")
                 }
                 _ => err.into(),
             })?;
@@ -300,11 +297,11 @@ where
         Ok(Entry {
             ttl,
             attr,
-            generation: 0,
+            generation: Generation(0),
         })
     }
 
-    pub async fn getattr(&self, ino: InodeNo) -> Result<Attr, Error> {
+    pub async fn getattr(&self, ino: INodeNo) -> Result<Attr, Error> {
         trace!("fs:getattr with ino {:?}", ino);
 
         let lookup = self.metablock.getattr(ino, false).await?;
@@ -316,11 +313,11 @@ where
 
     pub async fn setattr(
         &self,
-        ino: InodeNo,
+        ino: INodeNo,
         atime: Option<OffsetDateTime>,
         mtime: Option<OffsetDateTime>,
         size: Option<u64>,
-        _flags: Option<u32>,
+        _flags: Option<BsdFileFlags>,
     ) -> Result<Attr, Error> {
         tracing::debug!(
             "fs:setattr with ino {:?} flags {:?} atime {:?} mtime {:?} size {:?}",
@@ -341,7 +338,7 @@ where
                 // Instead of complex logic to match `setattr` truncation only, we just check for the error and if the size was set in the request.
                 // If so, we assume its probably a truncation.
                 return Err(err!(
-                    libc::EPERM,
+                    Errno::EPERM,
                     "file overwrite is disabled by default, you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it"
                 ));
             }
@@ -353,12 +350,12 @@ where
         Ok(Attr { ttl, attr })
     }
 
-    pub async fn forget(&self, ino: InodeNo, n: u64) {
+    pub async fn forget(&self, ino: INodeNo, n: u64) {
         trace!("fs:forget with ino {:?} n {:?}", ino, n);
         self.metablock.forget(ino, n).await;
     }
 
-    pub async fn open(&self, ino: InodeNo, flags: OpenFlags, pid: u32) -> Result<Opened, Error> {
+    pub async fn open(&self, ino: INodeNo, flags: OpenFlags, pid: u32) -> Result<Opened, Error> {
         trace!("open with ino {:?} flags {} pid {:?}", ino, flags, pid);
 
         // Refuse any open asking for write access on a read-only mount, which is what the kernel does
@@ -375,7 +372,7 @@ where
         // We can't support O_SYNC writes because they require the data to go to stable storage
         // at `write` time, but we only commit a PUT at `close` time.
         if flags.intersects(OpenFlags::O_SYNC | OpenFlags::O_DSYNC) {
-            return Err(err!(libc::EINVAL, "O_SYNC and O_DSYNC are not supported"));
+            return Err(err!(Errno::EINVAL, "O_SYNC and O_DSYNC are not supported"));
         }
 
         let fh = self.next_handle(); // TODO: can we delay obtaining the next handle until we know we are creating a new file handle?
@@ -395,21 +392,25 @@ where
             open_pid: pid,
             state: AsyncMutex::new(state),
         };
-        debug!(fh, ino, "new {:?} file handle created", mode);
+        debug!(%fh, %ino, "new {:?} file handle created", mode);
         self.file_handles.write().await.insert(fh, Arc::new(handle));
-        let reply_flags = if flags.direct_io() { FOPEN_DIRECT_IO } else { 0 };
+        let reply_flags = if flags.direct_io() {
+            FopenFlags::FOPEN_DIRECT_IO
+        } else {
+            FopenFlags::empty()
+        };
         Ok(Opened { fh, flags: reply_flags })
     }
 
     #[allow(clippy::too_many_arguments)] // We don't get to choose this interface
     pub async fn read(
         &self,
-        ino: InodeNo,
-        fh: u64,
-        offset: i64,
+        ino: INodeNo,
+        fh: fuser::FileHandle,
+        offset: u64,
         size: u32,
         _flags: i32,
-        _lock: Option<u64>,
+        _lock: Option<LockOwner>,
     ) -> Result<Bytes, Error> {
         trace!(
             "fs:read with ino {:?} fh {:?} offset {:?} size {:?}",
@@ -427,7 +428,7 @@ where
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
                 Some(handle) => handle.clone(),
-                None => return Err(err!(libc::EBADF, "invalid file handle")),
+                None => return Err(err!(Errno::EBADF, "invalid file handle")),
             }
         };
         logging::record_name(handle.file_name());
@@ -435,7 +436,7 @@ where
         let mut state = handle.state.lock().await;
         let (request, flushed) = match &mut *state {
             FileHandleState::Read { request, flushed } => (request, flushed),
-            FileHandleState::Write { .. } => return Err(err!(libc::EBADF, "file handle is not open for reads")),
+            FileHandleState::Write { .. } => return Err(err!(Errno::EBADF, "file handle is not open for reads")),
         };
 
         // If the handle has been flushed, check if it has been overridden by a newer handle opened for the inode.
@@ -447,22 +448,22 @@ where
                 .await?
             {
                 return Err(err!(
-                    libc::EBADF,
+                    Errno::EBADF,
                     "file handle has been invalidated by a newer handle opened"
                 ));
             }
             *flushed = false;
         }
         request
-            .read(offset as u64, size as usize)
+            .read(offset, size as usize)
             .await?
             .into_bytes()
-            .map_err(|e| err!(libc::EIO, source:e, "integrity error"))
+            .map_err(|e| err!(Errno::EIO, source:e, "integrity error"))
     }
 
     pub async fn mknod(
         &self,
-        parent: InodeNo,
+        parent: INodeNo,
         name: &OsStr,
         mode: libc::mode_t,
         _umask: u32,
@@ -473,24 +474,24 @@ where
         }
         if mode & libc::S_IFMT != libc::S_IFREG {
             return Err(err!(
-                libc::EINVAL,
+                Errno::EINVAL,
                 "invalid mknod type {}; only regular files are supported",
                 mode & libc::S_IFMT
             ));
         }
 
         let lookup = self.metablock.create(parent, name, InodeKind::File).await?;
-        debug!(ino = lookup.ino(), "new inode created");
+        debug!(ino = %lookup.ino(), "new inode created");
         let ttl = lookup.validity();
         let attr = self.make_attr(&lookup.into());
         Ok(Entry {
             ttl,
             attr,
-            generation: 0,
+            generation: Generation(0),
         })
     }
 
-    pub async fn mkdir(&self, parent: InodeNo, name: &OsStr, _mode: libc::mode_t, _umask: u32) -> Result<Entry, Error> {
+    pub async fn mkdir(&self, parent: INodeNo, name: &OsStr, _mode: libc::mode_t, _umask: u32) -> Result<Entry, Error> {
         if let Some(err) = self.read_only_error() {
             return Err(err);
         }
@@ -500,20 +501,20 @@ where
         Ok(Entry {
             ttl,
             attr,
-            generation: 0,
+            generation: Generation(0),
         })
     }
 
     #[allow(clippy::too_many_arguments)] // We don't get to choose this interface
     pub async fn write(
         &self,
-        ino: InodeNo,
-        fh: u64,
-        offset: i64,
+        ino: INodeNo,
+        fh: fuser::FileHandle,
+        offset: u64,
         data: &[u8],
-        _write_flags: u32,
+        _write_flags: WriteFlags,
         _flags: i32,
-        _lock_owner: Option<u64>,
+        _lock_owner: Option<LockOwner>,
     ) -> Result<u32, Error> {
         let len = data.len();
         trace!(
@@ -525,7 +526,7 @@ where
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
                 Some(handle) => handle.clone(),
-                None => return Err(err!(libc::EBADF, "invalid file handle")),
+                None => return Err(err!(Errno::EBADF, "invalid file handle")),
             }
         };
         logging::record_name(handle.file_name());
@@ -533,7 +534,7 @@ where
         let len = {
             let mut state = handle.state.lock().await;
             let (request, flushed) = match &mut *state {
-                FileHandleState::Read { .. } => return Err(err!(libc::EBADF, "file handle is not open for writes")),
+                FileHandleState::Read { .. } => return Err(err!(Errno::EBADF, "file handle is not open for writes")),
                 FileHandleState::Write { state, flushed, .. } => (state, flushed),
             };
 
@@ -546,7 +547,7 @@ where
                     .await?
                 {
                     return Err(err!(
-                        libc::EBADF,
+                        Errno::EBADF,
                         "file handle has been invalidated by a newer handle opened"
                     ));
                 }
@@ -559,26 +560,26 @@ where
     }
 
     /// Creates a new ReaddirHandle for the provided parent and default page size
-    async fn readdir_handle(&self, parent: InodeNo) -> Result<u64, InodeError> {
+    async fn readdir_handle(&self, parent: INodeNo) -> Result<fuser::FileHandle, InodeError> {
         self.metablock.new_readdir_handle(parent).await
     }
 
-    pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, Error> {
-        trace!("fs:opendir with parent {:?} flags {:#b}", parent, _flags);
+    pub async fn opendir(&self, parent: INodeNo, _flags: OpenFlags) -> Result<Opened, Error> {
+        trace!("fs:opendir with parent {:?} flags {:?}", parent, _flags);
 
         let readdir_handle = self.readdir_handle(parent).await?;
-        trace!(fh = readdir_handle, "Opened new directory handle");
+        trace!(fh = %readdir_handle, "Opened new directory handle");
         Ok(Opened {
             fh: readdir_handle,
-            flags: 0,
+            flags: FopenFlags::empty(),
         })
     }
 
     pub async fn readdir<R: DirectoryReplier + Send + Sync>(
         &self,
-        parent: InodeNo,
-        fh: u64,
-        offset: i64,
+        parent: INodeNo,
+        fh: fuser::FileHandle,
+        offset: u64,
         reply: R,
     ) -> Result<(), Error> {
         trace!("fs:readdir with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
@@ -587,9 +588,9 @@ where
 
     pub async fn readdirplus<R: DirectoryReplier + Send + Sync>(
         &self,
-        parent: InodeNo,
-        fh: u64,
-        offset: i64,
+        parent: INodeNo,
+        fh: fuser::FileHandle,
+        offset: u64,
         reply: R,
     ) -> Result<(), Error> {
         trace!("fs:readdirplus with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
@@ -598,9 +599,9 @@ where
 
     async fn readdir_impl<R: DirectoryReplier + Send + Sync>(
         &self,
-        parent: InodeNo,
-        fh: u64,
-        offset: i64,
+        parent: INodeNo,
+        fh: fuser::FileHandle,
+        offset: u64,
         is_readdirplus: bool,
         mut reply: R,
     ) -> Result<(), Error> {
@@ -610,7 +611,7 @@ where
                 offset,
                 name,
                 attr: self.make_attr(&information),
-                generation,
+                generation: Generation(generation),
                 ttl: information.validity(),
             }) {
                 AddDirEntryResult::ReplyBufferFull
@@ -625,12 +626,12 @@ where
         Ok(())
     }
 
-    pub async fn fsync(&self, _ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), Error> {
+    pub async fn fsync(&self, _ino: INodeNo, fh: fuser::FileHandle, _datasync: bool) -> Result<(), Error> {
         let file_handle = {
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
                 Some(handle) => handle.clone(),
-                None => return Err(err!(libc::EBADF, "invalid file handle")),
+                None => return Err(err!(Errno::EBADF, "invalid file handle")),
             }
         };
         logging::record_name(file_handle.file_name());
@@ -643,14 +644,20 @@ where
                 state.commit(self, file_handle.clone(), fh).await.map_err(|e|
                     // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
                     // space-related failure.
-                    if e.to_errno() == libc::EFBIG { err!(libc::ENOSPC, source:e, "object too big") } else { e }
+                    if e.to_errno().code() == Errno::EFBIG.code() { err!(Errno::ENOSPC, source:e, "object too big") } else { e }
                 )?;
             }
         };
         Ok(())
     }
 
-    pub async fn flush(&self, ino: InodeNo, fh: u64, _lock_owner: u64, pid: u32) -> Result<(), Error> {
+    pub async fn flush(
+        &self,
+        ino: INodeNo,
+        fh: fuser::FileHandle,
+        _lock_owner: LockOwner,
+        pid: u32,
+    ) -> Result<(), Error> {
         // For read-handles:
         // Flush simply records the handle's state as flushed, and is functionally
         // no-op if called more than once.
@@ -679,7 +686,7 @@ where
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
                 Some(handle) => handle.clone(),
-                None => return Err(err!(libc::EBADF, "invalid file handle")),
+                None => return Err(err!(Errno::EBADF, "invalid file handle")),
             }
         };
         logging::record_name(file_handle.file_name());
@@ -705,10 +712,10 @@ where
     /// but will still be returned here and logged by [`S3FuseFilesystem`].
     pub async fn release(
         &self,
-        ino: InodeNo,
-        fh: u64,
+        ino: INodeNo,
+        fh: fuser::FileHandle,
         _flags: i32,
-        _lock_owner: Option<u64>,
+        _lock_owner: Option<LockOwner>,
         _flush: bool,
     ) -> Result<(), Error> {
         trace!("fs:release with ino {:?} fh {:?}", ino, fh);
@@ -716,7 +723,7 @@ where
             let mut file_handles = self.file_handles.write().await;
             file_handles
                 .remove(&fh)
-                .ok_or_else(|| err!(libc::EBADF, "invalid file handle"))?
+                .ok_or_else(|| err!(Errno::EBADF, "invalid file handle"))?
         };
         logging::record_name(file_handle.file_name());
 
@@ -748,7 +755,7 @@ where
         Ok(())
     }
 
-    pub async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), Error> {
+    pub async fn rmdir(&self, parent_ino: INodeNo, name: &OsStr) -> Result<(), Error> {
         if let Some(err) = self.read_only_error() {
             return Err(err);
         }
@@ -756,25 +763,25 @@ where
         Ok(())
     }
 
-    pub async fn releasedir(&self, _ino: InodeNo, fh: u64, _flags: i32) -> Result<(), Error> {
+    pub async fn releasedir(&self, _ino: INodeNo, fh: fuser::FileHandle, _flags: i32) -> Result<(), Error> {
         self.metablock.releasedir(fh).await?;
         Ok(())
     }
 
-    pub async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), Error> {
+    pub async fn unlink(&self, parent_ino: INodeNo, name: &OsStr) -> Result<(), Error> {
         if let Some(err) = self.read_only_error() {
             return Err(err);
         }
         if !self.config.allow_delete {
             return Err(err!(
-                libc::EPERM,
+                Errno::EPERM,
                 "Deletes are disabled. Use '--allow-delete' mount option to enable it."
             ));
         }
         Ok(self.metablock.unlink(parent_ino, name).await?)
     }
 
-    pub async fn statfs(&self, _ino: InodeNo) -> Result<StatFs, Error> {
+    pub async fn statfs(&self, _ino: INodeNo) -> Result<StatFs, Error> {
         const FREE_BLOCKS: u64 = u64::MAX / 1024;
         const FREE_INODES: u64 = u64::MAX / 1024;
 
@@ -791,16 +798,16 @@ where
 
     pub async fn rename(
         &self,
-        old_parent_ino: InodeNo,
+        old_parent_ino: INodeNo,
         old_name: &OsStr,
-        new_parent_ino: InodeNo,
+        new_parent_ino: INodeNo,
         new_name: &OsStr,
         flags: RenameFlags,
     ) -> Result<(), Error> {
         trace!(
-            old_parent_ino,
+            %old_parent_ino,
             ?old_name,
-            new_parent_ino,
+            %new_parent_ino,
             ?new_name,
             "fs:rename with flags {:#b}",
             flags,
@@ -813,10 +820,10 @@ where
         #[cfg(target_os = "linux")]
         {
             if flags.contains(RenameFlags::RENAME_EXCHANGE) {
-                return Err(err!(libc::EINVAL, "flag RENAME_EXCHANGE is not supported"));
+                return Err(err!(Errno::EINVAL, "flag RENAME_EXCHANGE is not supported"));
             }
             if flags.contains(RenameFlags::RENAME_WHITEOUT) {
-                return Err(err!(libc::EINVAL, "flag RENAME_WHITEOUT is not supported"));
+                return Err(err!(Errno::EINVAL, "flag RENAME_WHITEOUT is not supported"));
             }
             // Allow overwriting rename if a) allow_overwrites is set [tested before] and b) the RENAME_NOREPLACE flag is not set
             overwrites_allowed = self.config.allow_overwrite && !flags.contains(RenameFlags::RENAME_NOREPLACE);
@@ -886,7 +893,7 @@ mod tests {
         let mut fs = S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config);
 
         // Lookup inode of the dir1 directory
-        let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
+        let entry = fs.lookup(INodeNo::ROOT, "dir1".as_ref()).await.unwrap();
         assert_eq!(entry.attr.kind, FileType::Directory);
         let dir_ino = entry.attr.ino;
 
@@ -912,7 +919,7 @@ mod tests {
             .open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
             .await
             .expect_err("open after the corruption should fail");
-        assert_eq!(err.errno, libc::EIO);
+        assert_eq!(i32::from(err.errno), libc::EIO);
         assert_eq!(
             format!("{err}"),
             "put failed to start: SSE settings corrupted: Checksum mismatch. expected: Crc32c(752912206), actual: Crc32c(1265531471)"
@@ -939,7 +946,7 @@ mod tests {
             .await
             .expect_err("open for writing again should fail if file is already open for writing");
 
-        fs.flush(dentry.attr.ino, fd.fh, 0, 123)
+        fs.flush(dentry.attr.ino, fd.fh, fuser::LockOwner(0), 123)
             .await
             .expect("flush should succeed");
 
@@ -968,7 +975,7 @@ mod tests {
             .await
             .expect_err("open for writing again should fail if file is already open for writing");
 
-        fs.flush(dentry.attr.ino, fd.fh, 0, 123)
+        fs.flush(dentry.attr.ino, fd.fh, fuser::LockOwner(0), 123)
             .await
             .expect("flush should succeed");
 
@@ -988,10 +995,10 @@ mod tests {
             .await
             .expect("open a local file should succeed");
 
-        fs.flush(dentry.attr.ino, fd.fh, 0, 123)
+        fs.flush(dentry.attr.ino, fd.fh, fuser::LockOwner(0), 123)
             .await
             .expect("flush should succeed");
-        fs.release(dentry.attr.ino, fd.fh, 0, Some(0), false)
+        fs.release(dentry.attr.ino, fd.fh, 0, Some(fuser::LockOwner(0)), false)
             .await
             .expect("release for a flushed handle should succeed");
 
@@ -1012,7 +1019,7 @@ mod tests {
             .await
             .expect("open a local file should succeed");
 
-        fs.flush(dentry.attr.ino, fd.fh, 0, 123)
+        fs.flush(dentry.attr.ino, fd.fh, fuser::LockOwner(0), 123)
             .await
             .expect("flush should succeed");
 
@@ -1022,7 +1029,7 @@ mod tests {
 
         let (fd2_result, release_result) = tokio::join!(
             tokio::spawn(async move { fs1.open(ino2, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123).await }),
-            tokio::spawn(async move { fs2.release(ino1, fh, 0, Some(0), false).await })
+            tokio::spawn(async move { fs2.release(ino1, fh, 0, Some(fuser::LockOwner(0)), false).await })
         );
 
         release_result
@@ -1042,7 +1049,7 @@ mod tests {
             .await
             .expect("open a local file should succeed");
 
-        fs.release(dentry.attr.ino, fd.fh, 0, Some(0), false)
+        fs.release(dentry.attr.ino, fd.fh, 0, Some(fuser::LockOwner(0)), false)
             .await
             .expect("release for a flushed handle should succeed");
 
@@ -1061,10 +1068,18 @@ mod tests {
             .open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
             .await
             .expect("open for a local file should succeed");
-        fs.write(dentry.attr.ino, fd.fh, 0, "hello world".as_ref(), 0, 0, Some(0))
-            .await
-            .expect("write should succeed");
-        fs.flush(dentry.attr.ino, fd.fh, 0, 123)
+        fs.write(
+            dentry.attr.ino,
+            fd.fh,
+            0,
+            "hello world".as_ref(),
+            fuser::WriteFlags::empty(),
+            0,
+            Some(fuser::LockOwner(0)),
+        )
+        .await
+        .expect("write should succeed");
+        fs.flush(dentry.attr.ino, fd.fh, fuser::LockOwner(0), 123)
             .await
             .expect("flush should succeed");
 
@@ -1083,9 +1098,17 @@ mod tests {
             .open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
             .await
             .expect("open for a local file should succeed");
-        fs.write(dentry.attr.ino, fd.fh, 0, "hello world".as_ref(), 0, 0, Some(0))
-            .await
-            .expect("write should succeed");
+        fs.write(
+            dentry.attr.ino,
+            fd.fh,
+            0,
+            "hello world".as_ref(),
+            fuser::WriteFlags::empty(),
+            0,
+            Some(fuser::LockOwner(0)),
+        )
+        .await
+        .expect("write should succeed");
         fs.fsync(dentry.attr.ino, fd.fh, true)
             .await
             .expect("fsync should succeed");
@@ -1125,17 +1148,17 @@ mod tests {
     async fn assert_close_reports_failure(
         fs: &S3Filesystem<MockClient>,
         client: &MockClient,
-        ino: InodeNo,
-        fh: u64,
+        ino: INodeNo,
+        fh: fuser::FileHandle,
         key: &str,
     ) {
         let err = fs
-            .flush(ino, fh, 0, 0)
+            .flush(ino, fh, fuser::LockOwner(0), 0)
             .await
             .expect_err("flush should keep reporting the failed upload");
-        assert_eq!(err.to_errno(), libc::EIO);
+        assert_eq!(i32::from(err.to_errno()), libc::EIO);
 
-        fs.release(ino, fh, 0, Some(0), false)
+        fs.release(ino, fh, 0, Some(fuser::LockOwner(0)), false)
             .await
             .expect("release should tear the handle down");
 
@@ -1157,7 +1180,7 @@ mod tests {
         let name = format!("{test_name}-empty.txt");
         let key = format!("dir1/{name}");
         client.add_object(&key, MockObject::from([]));
-        let dir_ino = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap().attr.ino;
+        let dir_ino = fs.lookup(INodeNo::ROOT, "dir1".as_ref()).await.unwrap().attr.ino;
         let file_ino = fs.lookup(dir_ino, name.as_ref()).await.unwrap().attr.ino;
 
         // Open for append without `O_TRUNC`, so the handle keeps the object's ETag.
@@ -1170,14 +1193,22 @@ mod tests {
         client.add_object(&key, MockObject::from(RACING_CONTENT));
 
         // The write is buffered locally, so the precondition is only evaluated on the flush.
-        fs.write(file_ino, fd.fh, 0, APPENDED_CONTENT, 0, 0, None)
-            .await
-            .expect("buffering a write should succeed");
+        fs.write(
+            file_ino,
+            fd.fh,
+            0,
+            APPENDED_CONTENT,
+            fuser::WriteFlags::empty(),
+            0,
+            None,
+        )
+        .await
+        .expect("buffering a write should succeed");
         let err = fs
             .fsync(file_ino, fd.fh, false)
             .await
             .expect_err("appending to a replaced object should fail");
-        assert_eq!(err.to_errno(), libc::EIO);
+        assert_eq!(i32::from(err.to_errno()), libc::EIO);
 
         assert_close_reports_failure(&fs, &client, file_ino, fd.fh, &key).await;
     }
@@ -1213,14 +1244,22 @@ mod tests {
         // Replace the object behind the file system's back, invalidating that ETag.
         client.add_object(&key, MockObject::from(RACING_CONTENT));
 
-        fs.write(file_ino, fd.fh, 0, APPENDED_CONTENT, 0, 0, None)
-            .await
-            .expect("buffering a write should succeed");
+        fs.write(
+            file_ino,
+            fd.fh,
+            0,
+            APPENDED_CONTENT,
+            fuser::WriteFlags::empty(),
+            0,
+            None,
+        )
+        .await
+        .expect("buffering a write should succeed");
         let err = fs
             .fsync(file_ino, fd.fh, false)
             .await
             .expect_err("writing after the truncation was flushed should fail");
-        assert_eq!(err.to_errno(), libc::EIO);
+        assert_eq!(i32::from(err.to_errno()), libc::EIO);
 
         assert_close_reports_failure(&fs, &client, file_ino, fd.fh, &key).await;
     }
@@ -1261,23 +1300,31 @@ mod tests {
         }
 
         // The write is buffered locally, so the precondition is only evaluated on the flush.
-        fs.write(dentry.attr.ino, fd.fh, 0, APPENDED_CONTENT, 0, 0, None)
-            .await
-            .expect("buffering a write should succeed");
+        fs.write(
+            dentry.attr.ino,
+            fd.fh,
+            0,
+            APPENDED_CONTENT,
+            fuser::WriteFlags::empty(),
+            0,
+            None,
+        )
+        .await
+        .expect("buffering a write should succeed");
         let result = fs.fsync(dentry.attr.ino, fd.fh, false).await;
 
         if racing_writer {
             let err = result.expect_err("writing to a replaced object should fail");
-            assert_eq!(err.to_errno(), libc::EIO);
+            assert_eq!(i32::from(err.to_errno()), libc::EIO);
 
             assert_close_reports_failure(&fs, &client, dentry.attr.ino, fd.fh, &key).await;
         } else {
             result.expect("appending after a flush should succeed");
 
-            fs.flush(dentry.attr.ino, fd.fh, 0, 0)
+            fs.flush(dentry.attr.ino, fd.fh, fuser::LockOwner(0), 0)
                 .await
                 .expect("flush should succeed");
-            fs.release(dentry.attr.ino, fd.fh, 0, Some(0), false)
+            fs.release(dentry.attr.ino, fd.fh, 0, Some(fuser::LockOwner(0)), false)
                 .await
                 .expect("release should succeed");
 
@@ -1287,7 +1334,7 @@ mod tests {
 
     async fn setup_file(test_name: &str, fs: &S3Filesystem<MockClient>) -> Entry {
         // Lookup inode of the dir1 directory
-        let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
+        let entry = fs.lookup(INodeNo::ROOT, "dir1".as_ref()).await.unwrap();
         assert_eq!(entry.attr.kind, FileType::Directory);
         let dir_ino = entry.attr.ino;
 
@@ -1383,8 +1430,8 @@ mod tests {
     }
 
     /// Resolve `dir1` and the object inside it that `setup_mock_fs_with_config` creates.
-    async fn lookup_dir_and_file(test_name: &str, fs: &S3Filesystem<MockClient>) -> (InodeNo, InodeNo) {
-        let dir_ino = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap().attr.ino;
+    async fn lookup_dir_and_file(test_name: &str, fs: &S3Filesystem<MockClient>) -> (INodeNo, INodeNo) {
+        let dir_ino = fs.lookup(INodeNo::ROOT, "dir1".as_ref()).await.unwrap().attr.ino;
         let file_ino = fs
             .lookup(dir_ino, format!("{test_name}1.txt").as_ref())
             .await
@@ -1425,7 +1472,7 @@ mod tests {
             .open(file_ino, flags, 0)
             .await
             .expect_err("open for write should fail on a read-only mount");
-        assert_eq!(err.to_errno(), libc::EROFS);
+        assert_eq!(i32::from(err.to_errno()), libc::EROFS);
     }
 
     #[test_case("setattr")]
@@ -1449,7 +1496,7 @@ mod tests {
                 .map(|_| ()),
             "mkdir" => fs.mkdir(dir_ino, "new-dir".as_ref(), 0o755, 0).await.map(|_| ()),
             "unlink" => fs.unlink(dir_ino, file_name.as_ref()).await,
-            "rmdir" => fs.rmdir(FUSE_ROOT_INODE, "dir1".as_ref()).await,
+            "rmdir" => fs.rmdir(INodeNo::ROOT, "dir1".as_ref()).await,
             "rename" => {
                 fs.rename(
                     dir_ino,
@@ -1464,7 +1511,7 @@ mod tests {
         };
 
         let err = result.expect_err("operation should fail on a read-only mount");
-        assert_eq!(err.to_errno(), libc::EROFS);
+        assert_eq!(i32::from(err.to_errno()), libc::EROFS);
 
         // Whatever was rejected must have left the tree alone.
         fs.lookup(dir_ino, file_name.as_ref())
@@ -1532,7 +1579,7 @@ mod tests {
         assert_eq!(cap, EXPECTED_CAP);
 
         // Resolve the directory inode for mknod calls below.
-        let dir_entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
+        let dir_entry = fs.lookup(INodeNo::ROOT, "dir1".as_ref()).await.unwrap();
         let read_dir_ino = dir_entry.attr.ino;
 
         // Create more files than the write cap, then prove the cap holds.
@@ -1566,7 +1613,7 @@ mod tests {
             .open(files[cap].attr.ino, OpenFlags::O_WRONLY, 0)
             .await
             .expect_err("opening past the cap should return ENOMEM");
-        assert_eq!(err.errno, libc::ENOMEM);
+        assert_eq!(i32::from(err.errno), libc::ENOMEM);
         let msg = format!("{err}");
         assert!(
             msg.contains("cannot open file for writing"),
@@ -1583,7 +1630,7 @@ mod tests {
             .open(files[cap].attr.ino, OpenFlags::O_WRONLY, 0)
             .await
             .expect_err("re-opening the rejected file while cap is full should still return ENOMEM");
-        assert_eq!(err.errno, libc::ENOMEM);
+        assert_eq!(i32::from(err.errno), libc::ENOMEM);
 
         // Locks in the fail-fast check order: when the cap is exhausted AND the target file
         // already has an active writer (open_handles[0] is still live for files[0]), the user
@@ -1595,14 +1642,14 @@ mod tests {
             .await
             .expect_err("opening an already-writing file at cap should return an error");
         assert_eq!(
-            err.errno,
+            i32::from(err.errno),
             libc::ENOMEM,
             "limiter check should fire before inode-conflict check (got errno {})",
-            err.errno
+            i32::from(err.errno)
         );
 
         // Closing one of the open handles releases a slot.
-        fs.flush(files[0].attr.ino, open_handles[0].fh, 0, 0)
+        fs.flush(files[0].attr.ino, open_handles[0].fh, fuser::LockOwner(0), 0)
             .await
             .expect("flush should succeed");
         fs.release(files[0].attr.ino, open_handles[0].fh, 0, None, true)

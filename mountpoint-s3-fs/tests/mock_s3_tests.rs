@@ -7,7 +7,7 @@ use mountpoint_s3_client::config::{
 };
 use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
 use mountpoint_s3_fs::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-use mountpoint_s3_fs::fs::{FUSE_ROOT_INODE, OpenFlags, ToErrno};
+use mountpoint_s3_fs::fs::{INodeNo, OpenFlags, ToErrno};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -78,7 +78,7 @@ async fn test_lookup_empty_list_pages(directory_exists: bool, file_exists: bool)
             .await;
     }
 
-    let result = fs.lookup(FUSE_ROOT_INODE, key.as_ref()).await;
+    let result = fs.lookup(INodeNo::ROOT, key.as_ref()).await;
     if directory_exists || file_exists {
         let entry = result.expect("lookup should find an existing entry after empty pages");
         let expected_kind = if directory_exists {
@@ -89,7 +89,7 @@ async fn test_lookup_empty_list_pages(directory_exists: bool, file_exists: bool)
         assert_eq!(entry.attr.kind, expected_kind);
     } else {
         let err = result.expect_err("lookup should fail after exhausting the listing");
-        assert_eq!(err.to_errno(), libc::ENOENT);
+        assert_eq!(i32::from(err.to_errno()), libc::ENOENT);
     }
 }
 
@@ -151,10 +151,10 @@ async fn test_lookup_throttled_mock(head_object_throttled: bool, list_object_thr
 
     // perform a lookup
     let err = fs
-        .lookup(FUSE_ROOT_INODE, key.as_ref())
+        .lookup(INodeNo::ROOT, key.as_ref())
         .await
         .expect_err("lookup must fail");
-    let actual_errno = nix::errno::Errno::from_raw(err.to_errno());
+    let actual_errno = nix::errno::Errno::from_raw(i32::from(err.to_errno()));
     let expected_errno = nix::errno::Errno::EIO;
     assert_eq!(
         actual_errno, expected_errno,
@@ -195,7 +195,7 @@ async fn test_lookup_unhandled_error_mock() {
         .await;
     // perform a lookup
     let err = fs
-        .lookup(FUSE_ROOT_INODE, key.as_ref())
+        .lookup(INodeNo::ROOT, key.as_ref())
         .await
         .expect_err("lookup must fail");
     let metadata = err.meta();
@@ -255,7 +255,7 @@ async fn test_read_unhandled_error_mock() {
 
     // perform a read
     let entry = fs
-        .lookup(FUSE_ROOT_INODE, key.as_ref())
+        .lookup(INodeNo::ROOT, key.as_ref())
         .await
         .expect("lookup must succeed");
     let fh = fs

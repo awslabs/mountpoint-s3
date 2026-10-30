@@ -150,7 +150,7 @@ async fn upload_test_object_with_uploader(
         let remaining = size as u64 - offset;
         let chunk = remaining.min(part_size as u64) as usize;
         let written = request
-            .write(offset as i64, &buf[..chunk])
+            .write(offset, &buf[..chunk])
             .await
             .unwrap_or_else(|e| panic!("write failed at offset {offset} for s3://{bucket}/{full_key}: {e:?}"));
         offset += written as u64;

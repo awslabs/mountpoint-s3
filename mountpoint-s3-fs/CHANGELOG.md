@@ -1,5 +1,6 @@
 ## Unreleased (v0.12.0)
 
+* Align with fuser 0.17. `S3Filesystem` now uses fuser's types, such as `INodeNo`, `FileHandle` and `Errno`, instead of raw integers. `InodeNo` and `FUSE_ROOT_INODE` are replaced by `INodeNo` and `INodeNo::ROOT`. ([#2005](https://github.com/awslabs/mountpoint-s3/pull/2005))
 * Update to latest S3 client.
 * `Superblock` now issues its S3 requests through the new `MetadataClient` trait, which covers the HeadObject, ListObjectsV2, DeleteObject and RenameObject requests it makes, with errors classified by `MetadataError`. Every `ObjectClient` implements `MetadataClient`, so existing uses of `Superblock` are unchanged. The new `mock` feature adds `InMemoryMetadata`, an in-memory `MetadataClient` over a `MockBucket` for tests. ([#1998](https://github.com/awslabs/mountpoint-s3/pull/1998))
 * Incremental uploads now send an `If-Match` precondition whenever the ETag of the object being written is known, including when the write starts at offset 0. Previously, appending to an existing *empty* object issued an unconditional `PutObject`, which could silently overwrite a concurrent modification. ([#1970](https://github.com/awslabs/mountpoint-s3/pull/1970))

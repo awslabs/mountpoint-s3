@@ -4,9 +4,11 @@ members = [
 	"mountpoint-s3-crt-sys",
 	"mountpoint-s3-client",
 	"mountpoint-s3",
-	"mountpoint-s3-fuser",
 	"mountpoint-s3-fs",
 ]
+# The vendored fuser fork declares its own `[workspace]` in its Cargo.toml, so it can't be a member here.
+# It is built only as a path dependency.
+exclude = ["mountpoint-s3-fuser"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -14,7 +16,7 @@ mountpoint-s3-fs = { version = "0.12.0", path = "./mountpoint-s3-fs" }
 mountpoint-s3-client = { version = "0.23.0", path = "./mountpoint-s3-client" }
 mountpoint-s3-crt = { version = "0.17.0", path = "./mountpoint-s3-crt" }
 mountpoint-s3-crt-sys = { version = "0.18.0", path = "./mountpoint-s3-crt-sys" }
-mountpoint-s3-fuser = { version = "0.1.1", path = "./mountpoint-s3-fuser", features = ["abi-7-28", "libfuse"] }
+mountpoint-s3-fuser = { version = "0.2.0", path = "./mountpoint-s3-fuser", features = ["abi-7-28", "libfuse"] }
 
 [profile.release]
 debug = 2

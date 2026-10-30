@@ -9,8 +9,8 @@ use tracing::error;
 use super::db::{Db, DbEntry};
 
 use crate::metablock::{
-    InodeInformation, InodeKind, InodeStat, Lookup, NEVER_EXPIRE_TTL, ROOT_INODE_NO, S3Location, ValidKey,
-    ValidKeyError, ValidName,
+    INodeNo, InodeInformation, InodeKind, InodeStat, Lookup, NEVER_EXPIRE_TTL, S3Location, ValidKey, ValidKeyError,
+    ValidName,
 };
 use crate::s3::S3Path;
 use crate::sync::Arc;
@@ -56,8 +56,8 @@ pub struct ManifestEntry {
 
 impl ManifestEntry {
     /// Returns identifier of the parent of this entry.
-    pub fn parent_id(&self) -> u64 {
-        self.parent_id
+    pub fn parent_id(&self) -> INodeNo {
+        INodeNo(self.parent_id)
     }
 
     /// Converts this entry into a `Lookup` object.
@@ -72,7 +72,7 @@ impl ManifestEntry {
         let s3_location = self
             .parent_partial_key
             .map(move |_| S3Location::new(s3_path, partial_key));
-        Ok(Lookup::new(id, stat, inode_kind, s3_location))
+        Ok(Lookup::new(INodeNo(id), stat, inode_kind, s3_location))
     }
 
     /// Converts this entry into inode information and name. Used in readdir.
@@ -86,7 +86,7 @@ impl ManifestEntry {
         let stat = Self::stat(entry_kind, mount_time);
         let inode_kind = partial_key.kind();
         let name = partial_key.name();
-        Ok((InodeInformation::new(id, stat, inode_kind), name.to_string()))
+        Ok((InodeInformation::new(INodeNo(id), stat, inode_kind), name.to_string()))
     }
 
     fn channel(&self, channels: &[Arc<S3Path>]) -> Result<Arc<S3Path>, ManifestError> {
@@ -163,7 +163,7 @@ impl TryFrom<DbEntry> for ManifestEntry {
 
     fn try_from(db_entry: DbEntry) -> Result<Self, Self::Error> {
         let parent_partial_key = db_entry.parent_partial_key.map(ValidKey::try_from).transpose()?;
-        if parent_partial_key.is_none() && db_entry.parent_id != ROOT_INODE_NO {
+        if parent_partial_key.is_none() && db_entry.parent_id != INodeNo::ROOT.0 {
             error!("only channel directories may have no parent_key, id: {}", db_entry.id);
             return Err(ManifestError::InvalidRow(db_entry.id));
         }
@@ -269,9 +269,9 @@ impl Manifest {
     ///
     /// This method searches for a file or directory with the given name
     /// within the specified parent directory.
-    pub fn manifest_lookup(&self, parent_id: u64, name: &str) -> Result<Option<ManifestEntry>, ManifestError> {
+    pub fn manifest_lookup(&self, parent_id: INodeNo, name: &str) -> Result<Option<ManifestEntry>, ManifestError> {
         // search for an entry and validate it
-        let db_entry = self.db.select_entry(parent_id, name)?;
+        let db_entry = self.db.select_entry(parent_id.0, name)?;
         match db_entry {
             Some(db_entry) => Ok(Some(db_entry.try_into()?)),
             None => Ok(None),
@@ -279,9 +279,9 @@ impl Manifest {
     }
 
     /// Looks up an entry in the manifest by its unique ID (inode number).
-    pub fn manifest_lookup_by_id(&self, ino: u64) -> Result<Option<ManifestEntry>, ManifestError> {
+    pub fn manifest_lookup_by_id(&self, ino: INodeNo) -> Result<Option<ManifestEntry>, ManifestError> {
         // search for an entry and validate it
-        let db_entry = self.db.select_entry_by_id(ino)?;
+        let db_entry = self.db.select_entry_by_id(ino.0)?;
         match db_entry {
             Some(db_entry) => Ok(Some(db_entry.try_into()?)),
             None => Ok(None),
@@ -292,8 +292,8 @@ impl Manifest {
     ///
     /// This method returns an iterator that can be used to list
     /// all files and subdirectories within the specified directory.
-    pub fn dir_iter(&self, parent_id: u64) -> ManifestDirIter {
-        ManifestDirIter::new(self.db.clone(), parent_id)
+    pub fn dir_iter(&self, parent_id: INodeNo) -> ManifestDirIter {
+        ManifestDirIter::new(self.db.clone(), parent_id.0)
     }
 
     /// Loads all S3 channels from the manifest database.

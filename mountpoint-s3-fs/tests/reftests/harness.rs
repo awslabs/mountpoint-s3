@@ -13,11 +13,11 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use fuser::FileType;
+use fuser::{FileHandle, FileType};
 use futures::future::{BoxFuture, FutureExt};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::mock_client::{MockClient, MockObject};
-use mountpoint_s3_fs::fs::{CacheConfig, FUSE_ROOT_INODE, InodeNo, OpenFlags, ToErrno};
+use mountpoint_s3_fs::fs::{CacheConfig, Errno, INodeNo, OpenFlags, ToErrno};
 use mountpoint_s3_fs::s3::Prefix;
 use mountpoint_s3_fs::{S3Filesystem, S3FilesystemConfig};
 use proptest::prelude::*;
@@ -138,9 +138,9 @@ pub struct InflightWriteIndex(usize);
 #[derive(Debug)]
 pub struct InflightWrite {
     path: PathBuf,
-    inode: InodeNo,
+    inode: INodeNo,
     /// Initially None until the file is opened by [Op::StartWriting]
-    file_handle: Option<u64>,
+    file_handle: Option<FileHandle>,
     /// Prepared bytes ready to be written to the file system by the test.
     object: MockObject,
     written: usize,
@@ -272,7 +272,7 @@ impl Harness {
     /// Walk the filesystem tree using `readdir` and `lookup` and check that at each level, contents match the reference.
     pub async fn compare_contents(&self) {
         let root = self.reference.root();
-        self.compare_contents_recursive(FUSE_ROOT_INODE, FUSE_ROOT_INODE, root)
+        self.compare_contents_recursive(INodeNo::ROOT, INodeNo::ROOT, root)
             .await;
     }
 
@@ -287,8 +287,8 @@ impl Harness {
         }
         let (path_components, node) = &ref_inodes[idx % ref_inodes.len()];
 
-        let mut parent = FUSE_ROOT_INODE;
-        let mut seen_inos = HashSet::from([FUSE_ROOT_INODE]);
+        let mut parent = INodeNo::ROOT;
+        let mut seen_inos = HashSet::from([INodeNo::ROOT]);
 
         let (leaf, ancestors) = path_components
             .split_last()
@@ -330,10 +330,10 @@ impl Harness {
     }
 
     /// Resolve an absolute path to an inode in the actual filesystem by recursively calling lookup
-    async fn lookup(&self, path: &Path) -> Result<InodeNo, libc::c_int> {
+    async fn lookup(&self, path: &Path) -> Result<INodeNo, Errno> {
         let mut components = path.components();
         assert_eq!(components.next(), Some(Component::RootDir));
-        let mut inode = FUSE_ROOT_INODE;
+        let mut inode = INodeNo::ROOT;
         for component in components {
             if let Component::Normal(folder) = component {
                 inode = self.fs.lookup(inode, folder).await.map_err(|e| e.to_errno())?.attr.ino;
@@ -375,7 +375,7 @@ impl Harness {
         let mknod = self.fs.mknod(dir_inode, name.as_ref(), libc::S_IFREG, 0, 0).await;
         if reference_lookup.is_some() {
             assert!(
-                matches!(mknod, Err(e) if e.to_errno() == libc::EEXIST),
+                matches!(mknod, Err(e) if i32::from(e.to_errno()) == libc::EEXIST),
                 "can't overwrite existing file/directory"
             );
             None
@@ -405,7 +405,7 @@ impl Harness {
         let open = self.fs.open(inflight_write.inode, OpenFlags::O_WRONLY, 0).await;
         if inflight_write.file_handle.is_some() {
             assert!(
-                matches!(open, Err(e) if e.to_errno() == libc::EPERM),
+                matches!(open, Err(e) if i32::from(e.to_errno()) == libc::EPERM),
                 "should not be able to open a file that's already open for writing",
             );
         } else {
@@ -448,9 +448,9 @@ impl Harness {
             .write(
                 inflight_write.inode,
                 file_handle,
-                inflight_write.written as i64,
+                inflight_write.written as u64,
                 &bytes_to_write,
-                0,
+                fuser::WriteFlags::empty(),
                 0,
                 None,
             )
@@ -515,13 +515,13 @@ impl Harness {
         match node {
             Node::Directory { .. } => {
                 assert!(
-                    matches!(unlink, Err(e) if e.to_errno() == libc::EISDIR),
+                    matches!(unlink, Err(e) if i32::from(e.to_errno()) == libc::EISDIR),
                     "unlink of directory should fail"
                 );
             }
             Node::File(File::Local) => {
                 assert!(
-                    matches!(unlink, Err(e) if e.to_errno() == libc::EPERM),
+                    matches!(unlink, Err(e) if i32::from(e.to_errno()) == libc::EPERM),
                     "unlink of local files not supported"
                 );
             }
@@ -549,7 +549,7 @@ impl Harness {
         let mkdir = self.fs.mkdir(dir_inode, name.as_ref(), libc::S_IFDIR, 0).await;
         if reference_lookup.is_some() {
             assert!(
-                matches!(mkdir, Err(e) if e.to_errno() == libc::EEXIST),
+                matches!(mkdir, Err(e) if i32::from(e.to_errno()) == libc::EEXIST),
                 "can't overwrite existing file/directory"
             );
         } else {
@@ -650,12 +650,12 @@ impl Harness {
     /// comparing the [Self::reference] expected state to the system under test ([Self::fs]).
     fn compare_contents_recursive<'a>(
         &'a self,
-        fs_parent: InodeNo,
-        fs_dir: InodeNo,
+        fs_parent: INodeNo,
+        fs_dir: INodeNo,
         ref_dir: &'a Node,
     ) -> BoxFuture<'a, ()> {
         async move {
-            let dir_handle = self.fs.opendir(fs_dir, 0).await.unwrap().fh;
+            let dir_handle = self.fs.opendir(fs_dir, OpenFlags::empty()).await.unwrap().fh;
             let ref_children = ref_dir.children();
             let mut unvisited_ref_children = ref_children.keys().cloned().collect::<HashSet<_>>();
 
@@ -746,7 +746,7 @@ impl Harness {
 
     /// Compare the contents of a given reference file to the system under test (SUT),
     /// by opening and reading the file from the SUT.
-    async fn compare_file<'a>(&'a self, fs_ino: InodeNo, ref_file: &'a MockObject) {
+    async fn compare_file<'a>(&'a self, fs_ino: INodeNo, ref_file: &'a MockObject) {
         let fh = match self.fs.open(fs_ino, OpenFlags::empty(), 0).await {
             Ok(ret) => ret.fh,
             Err(e) => panic!("failed to open ino {fs_ino} for content comparison: {e:?}"),
@@ -760,7 +760,7 @@ impl Harness {
             assert_eq!(ref_bytes.len(), num_bytes, "number of bytes did not match");
             let bytes_from_read = self
                 .fs
-                .read(fs_ino, fh, offset as i64, num_bytes as u32, 0, None)
+                .read(fs_ino, fh, offset as u64, num_bytes as u32, 0, None)
                 .await
                 .expect("read should succeed");
             assert_eq!(&ref_bytes[..], &bytes_from_read, "read bytes did not match");
@@ -770,10 +770,10 @@ impl Harness {
 
     /// Local files are in the process of being written, and so should be stat-able, but not
     /// readable (open should fail).
-    async fn check_local_file(&self, inode: InodeNo) {
+    async fn check_local_file(&self, inode: INodeNo) {
         let _stat = self.fs.getattr(inode).await.expect("stat should succeed");
         let open = self.fs.open(inode, OpenFlags::empty(), 0).await;
-        assert!(matches!(open, Err(e) if e.to_errno() == libc::EPERM));
+        assert!(matches!(open, Err(e) if i32::from(e.to_errno()) == libc::EPERM));
     }
 }
 

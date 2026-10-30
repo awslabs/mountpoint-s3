@@ -49,7 +49,6 @@ fn run_in_background() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .arg(format!("--region={region}"));
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
@@ -154,7 +153,6 @@ fn run_in_background_region_from_env() -> Result<(), Box<dyn std::error::Error>>
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .env("AWS_REGION", region.clone());
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
@@ -185,8 +183,7 @@ fn run_in_background_automatic_region_resolution() -> Result<(), Box<dyn std::er
     let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
-        .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount");
+        .arg(format!("--prefix={prefix}"));
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
     }
@@ -205,6 +202,54 @@ fn run_in_background_automatic_region_resolution() -> Result<(), Box<dyn std::er
     Ok(())
 }
 
+/// `--auto-unmount` without `--allow-root`/`--allow-other` should still mount: the kernel gets
+/// `allow_other` (required by fusermount for `auto_unmount`) while Mountpoint keeps the mount
+/// restricted to the owner, and the mount is removed when the process is killed.
+#[cfg(target_os = "linux")]
+#[test]
+fn run_in_foreground_with_auto_unmount() -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_run_in_foreground_with_auto_unmount");
+    let region = get_test_region();
+    let mount_point = assert_fs::TempDir::new()?;
+    let mount_point_str = mount_point.path().to_str().unwrap();
+
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
+    cmd.arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg(MOUNT_OPTION_AUTO_UNMOUNT)
+        .arg("--foreground")
+        .arg(format!("--region={region}"));
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
+
+    let mut child = cmd.spawn().expect("unable to spawn child");
+    wait_for_mount("mountpoint-s3", mount_point_str);
+
+    let mount_line = get_mount_from_source_and_mountpoint("mountpoint-s3", mount_point_str).unwrap();
+    assert!(
+        mount_line.contains("allow_other"),
+        "kernel mount options should include allow_other: {mount_line}"
+    );
+
+    test_read_files(&bucket, &prefix, &region, &mount_point.to_path_buf());
+
+    // Kill the process without unmounting: auto_unmount should remove the mount.
+    child.kill().expect("unable to kill child");
+    child.wait().expect("unable to wait for child");
+    let st = Instant::now();
+    while mount_exists("mountpoint-s3", mount_point_str) {
+        if st.elapsed() > MAX_WAIT_DURATION {
+            unmount(mount_point.path());
+            panic!("mount was not removed after the process was killed");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    Ok(())
+}
+
 #[test]
 fn run_in_foreground() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_run_in_foreground");
@@ -215,7 +260,6 @@ fn run_in_foreground() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .arg("--foreground")
         .arg(format!("--region={region}"));
     if let Some(endpoint_url) = get_test_endpoint_url() {
@@ -254,7 +298,6 @@ fn run_with_jemalloc_background_threads(foreground: bool) -> Result<(), Box<dyn 
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .arg(format!("--region={region}"))
         .env("UNSTABLE_MOUNTPOINT_PID_FILE", pid_file.path());
     if foreground {
@@ -427,7 +470,6 @@ fn run_in_background_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .arg(format!("--region={region}"));
     apply_creds_to_command(&mut cmd, &credentials);
     if let Some(endpoint_url) = get_test_endpoint_url() {
@@ -457,7 +499,6 @@ fn run_in_foreground_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .arg("--foreground")
         .arg(format!("--region={region}"));
     apply_creds_to_command(&mut cmd, &credentials);
@@ -485,7 +526,6 @@ fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .arg(format!("--region={region}"));
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
@@ -501,8 +541,7 @@ fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
-        .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount");
+        .arg(format!("--prefix={prefix}"));
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
     }
@@ -628,7 +667,6 @@ fn mount_readonly() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .arg("--foreground")
         .arg("--read-only")
         .arg(format!("--region={region}"));
@@ -668,7 +706,6 @@ fn mount_allow_delete(allow_delete: bool) -> Result<(), Box<dyn std::error::Erro
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .arg(format!("--region={region}"));
     if allow_delete {
         cmd.arg("--allow-delete");
@@ -710,7 +747,6 @@ fn mount_disable_checksums(disable_checksums: bool) -> Result<(), Box<dyn std::e
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .arg(format!("--region={region}"));
     if disable_checksums {
         cmd.arg("--upload-checksums=off");
@@ -785,7 +821,6 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .arg(format!("--region={region}"));
     apply_creds_to_command(&mut cmd, &credentials);
     if let Some(endpoint_url) = get_test_endpoint_url() {
@@ -804,7 +839,6 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={subprefix}"))
-        .arg("--auto-unmount")
         .arg(format!("--region={region}"));
     apply_creds_to_command(&mut cmd, &credentials);
     let child = cmd.spawn().expect("unable to spawn child");
@@ -839,7 +873,6 @@ fn mount_with_sse(
         .arg(format!("--prefix={prefix}"))
         .arg("--sse=aws:kms:dsse")
         .arg(format!("--sse-kms-key-id={key_id}"))
-        .arg("--auto-unmount")
         .arg("--foreground");
     if let Some(credentials) = credentials {
         apply_creds_to_command(&mut cmd, &credentials);
@@ -868,7 +901,6 @@ fn mount_with_assumed_role() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .arg(format!("--region={region}"))
         .env("AWS_CONFIG_FILE", config_file.path())
         .env("AWS_PROFILE", profile_name)
@@ -915,7 +947,6 @@ fn mount_with_assumed_role_in_other_region() -> Result<(), Box<dyn std::error::E
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .env("AWS_CONFIG_FILE", config_file.path())
         .env("AWS_PROFILE", profile_name)
         .env_remove("AWS_ACCESS_KEY_ID")
@@ -942,7 +973,6 @@ fn mount_with_assumed_role_in_other_region() -> Result<(), Box<dyn std::error::E
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .env("AWS_CONFIG_FILE", config_file.path())
         .env("AWS_PROFILE", profile_name)
         .env_remove("AWS_ACCESS_KEY_ID")
@@ -993,7 +1023,6 @@ fn mount_with_assumed_role_no_region() -> Result<(), Box<dyn std::error::Error>>
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .env("AWS_CONFIG_FILE", config_file.path())
         .env("AWS_PROFILE", profile_name)
         .env_remove("AWS_ACCESS_KEY_ID")
@@ -1035,7 +1064,6 @@ fn run_fail_when_assume_role_with_invalid_arn() -> Result<(), Box<dyn std::error
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .arg(format!("--region={region}"))
         .env("AWS_CONFIG_FILE", config_file.path())
         .env("AWS_PROFILE", "default")
@@ -1062,7 +1090,6 @@ fn run_fail_when_assume_role_with_invalid_arn() -> Result<(), Box<dyn std::error
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
         .arg(format!("--region={region}"))
         .env("AWS_CONFIG_FILE", config_file.path())
         .env("AWS_PROFILE", profile_with_bad_arn)
@@ -1223,7 +1250,6 @@ fn write_with_sse_kms_key_id_unsupported(key_id: &str) {
         .arg(format!("--prefix={prefix}"))
         .arg("--sse=aws:kms:dsse")
         .arg(format!("--sse-kms-key-id={key_id}"))
-        .arg("--auto-unmount")
         .arg("--foreground");
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));

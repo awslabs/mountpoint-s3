@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use linked_hash_map::LinkedHashMap;
 
-use crate::metablock::{Expiry, InodeNo};
+use crate::metablock::{Expiry, INodeNo};
 
 use crate::sync::RwLock;
 
@@ -20,7 +20,7 @@ pub struct NegativeCache {
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 struct Key {
-    parent_ino: InodeNo,
+    parent_ino: INodeNo,
     child_name: String,
 }
 
@@ -35,7 +35,7 @@ impl NegativeCache {
 
     /// Check whether the cache contains a **current** entry for the given
     /// (`parent_ino`, `child_name`) pair.
-    pub fn contains(&self, parent_ino: InodeNo, child_name: &str) -> bool {
+    pub fn contains(&self, parent_ino: INodeNo, child_name: &str) -> bool {
         let key = Key {
             parent_ino,
             child_name: child_name.to_owned(),
@@ -57,7 +57,7 @@ impl NegativeCache {
     }
 
     /// Remove an entry from the cache. If the entry was not present, this is a no-op.
-    pub fn remove(&self, parent_ino: InodeNo, child_name: &str) {
+    pub fn remove(&self, parent_ino: INodeNo, child_name: &str) {
         let key = Key {
             parent_ino,
             child_name: child_name.to_owned(),
@@ -78,7 +78,7 @@ impl NegativeCache {
     /// update its TTL.
     /// Upon insertion, remove entries that exceed the cache limit or
     /// that have already expired.
-    pub fn insert(&self, parent_ino: InodeNo, child_name: &str) {
+    pub fn insert(&self, parent_ino: INodeNo, child_name: &str) {
         let expiry = Expiry::from_now(self.ttl);
         let key = Key {
             parent_ino,
@@ -118,87 +118,88 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::NegativeCache;
+    use crate::metablock::INodeNo;
 
     #[test]
     fn test_contains() {
         let cache = NegativeCache::new(100, Duration::from_secs(60));
 
-        cache.insert(1, "child1");
-        assert!(cache.contains(1, "child1"));
-        assert!(!cache.contains(1, "child2"));
-        assert!(!cache.contains(2, "child1"));
+        cache.insert(INodeNo(1), "child1");
+        assert!(cache.contains(INodeNo(1), "child1"));
+        assert!(!cache.contains(INodeNo(1), "child2"));
+        assert!(!cache.contains(INodeNo(2), "child1"));
     }
 
     #[test]
     fn test_insert() {
         let cache = NegativeCache::new(100, Duration::from_secs(60));
 
-        cache.insert(1, "child1");
-        assert!(cache.contains(1, "child1"));
+        cache.insert(INodeNo(1), "child1");
+        assert!(cache.contains(INodeNo(1), "child1"));
 
-        cache.insert(1, "child2");
-        assert!(cache.contains(1, "child2"));
-        assert!(cache.contains(1, "child1"));
+        cache.insert(INodeNo(1), "child2");
+        assert!(cache.contains(INodeNo(1), "child2"));
+        assert!(cache.contains(INodeNo(1), "child1"));
 
-        cache.insert(2, "child1");
-        assert!(cache.contains(2, "child1"));
-        assert!(cache.contains(1, "child2"));
-        assert!(cache.contains(1, "child1"));
+        cache.insert(INodeNo(2), "child1");
+        assert!(cache.contains(INodeNo(2), "child1"));
+        assert!(cache.contains(INodeNo(1), "child2"));
+        assert!(cache.contains(INodeNo(1), "child1"));
     }
 
     #[test]
     fn test_remove() {
         let cache = NegativeCache::new(100, Duration::from_secs(60));
 
-        cache.insert(1, "child1");
-        cache.insert(1, "child2");
-        cache.insert(2, "child1");
-        assert!(cache.contains(1, "child1"));
-        assert!(cache.contains(1, "child2"));
-        assert!(cache.contains(2, "child1"));
+        cache.insert(INodeNo(1), "child1");
+        cache.insert(INodeNo(1), "child2");
+        cache.insert(INodeNo(2), "child1");
+        assert!(cache.contains(INodeNo(1), "child1"));
+        assert!(cache.contains(INodeNo(1), "child2"));
+        assert!(cache.contains(INodeNo(2), "child1"));
 
-        cache.remove(1, "child1");
-        assert!(!cache.contains(1, "child1"));
-        assert!(cache.contains(1, "child2"));
-        assert!(cache.contains(2, "child1"));
+        cache.remove(INodeNo(1), "child1");
+        assert!(!cache.contains(INodeNo(1), "child1"));
+        assert!(cache.contains(INodeNo(1), "child2"));
+        assert!(cache.contains(INodeNo(2), "child1"));
     }
 
     #[test]
     fn test_max_size() {
         let cache = NegativeCache::new(2, Duration::from_secs(60));
 
-        cache.insert(1, "child1");
-        assert!(cache.contains(1, "child1"));
+        cache.insert(INodeNo(1), "child1");
+        assert!(cache.contains(INodeNo(1), "child1"));
 
-        cache.insert(1, "child2");
-        assert!(cache.contains(1, "child2"));
-        assert!(cache.contains(1, "child1"));
+        cache.insert(INodeNo(1), "child2");
+        assert!(cache.contains(INodeNo(1), "child2"));
+        assert!(cache.contains(INodeNo(1), "child1"));
 
-        cache.insert(1, "child3");
-        assert!(cache.contains(1, "child3"));
-        assert!(cache.contains(1, "child2"));
-        assert!(!cache.contains(1, "child1"));
+        cache.insert(INodeNo(1), "child3");
+        assert!(cache.contains(INodeNo(1), "child3"));
+        assert!(cache.contains(INodeNo(1), "child2"));
+        assert!(!cache.contains(INodeNo(1), "child1"));
     }
 
     #[test]
     fn test_expiration() {
         let cache = NegativeCache::new(100, Duration::from_millis(1));
 
-        cache.insert(1, "child1");
+        cache.insert(INodeNo(1), "child1");
         sleep(Duration::from_millis(2));
-        assert!(!cache.contains(1, "child1"));
+        assert!(!cache.contains(INodeNo(1), "child1"));
     }
 
     #[test]
     fn test_insert_after_expiry() {
         let cache = NegativeCache::new(100, Duration::from_millis(50));
 
-        cache.insert(1, "child1");
+        cache.insert(INodeNo(1), "child1");
         sleep(Duration::from_millis(100));
-        assert!(!cache.contains(1, "child1"));
+        assert!(!cache.contains(INodeNo(1), "child1"));
 
-        cache.insert(1, "child1");
-        assert!(cache.contains(1, "child1"));
+        cache.insert(INodeNo(1), "child1");
+        assert!(cache.contains(INodeNo(1), "child1"));
     }
 
     #[test]
@@ -206,7 +207,7 @@ mod tests {
         let ttl = Duration::from_millis(100);
         let cache = NegativeCache::new(100, ttl);
 
-        cache.insert(1, "child1");
+        cache.insert(INodeNo(1), "child1");
         let inserted_time = Instant::now();
         // Wait for about half ttl, verify the entry has not expirted yet.
         let half_ttl = ttl / 2;
@@ -214,15 +215,15 @@ mod tests {
             sleep(Duration::from_millis(1));
         }
         assert!(Instant::now().saturating_duration_since(inserted_time) < ttl);
-        assert!(cache.contains(1, "child1"));
+        assert!(cache.contains(INodeNo(1), "child1"));
 
-        cache.insert(1, "child1");
+        cache.insert(INodeNo(1), "child1");
         let reset_time = Instant::now();
         // Wait until the initial insert has expired, but the reset has not.
         while Instant::now().saturating_duration_since(inserted_time) <= ttl {
             sleep(Duration::from_millis(1));
         }
         assert!(Instant::now().saturating_duration_since(reset_time) < ttl);
-        assert!(cache.contains(1, "child1"));
+        assert!(cache.contains(INodeNo(1), "child1"));
     }
 }

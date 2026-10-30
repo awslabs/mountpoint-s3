@@ -351,7 +351,7 @@ impl Executor {
                 break;
             }
 
-            let bytes_written = request.write(offset as i64, contents).await.map_err(|e| ErrorInfo {
+            let bytes_written = request.write(offset as u64, contents).await.map_err(|e| ErrorInfo {
                 error_type: "WriteError".to_string(),
                 message: format!("Write failed at offset {}: {}", offset, e),
             })?;

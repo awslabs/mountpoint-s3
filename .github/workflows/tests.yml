@@ -87,8 +87,8 @@ jobs:
           target/
         key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Run doc-tests
-      # Skip `mountpoint-s3-fuser` and `mountpoint-s3-crt-sys` (prevents C docs being interpreted as rustdoc tests).
-      run: cargo test --doc --workspace --exclude mountpoint-s3-crt-sys --exclude mountpoint-s3-fuser --features $RUST_FEATURES
+      # Skip `mountpoint-s3-crt-sys` (prevents C docs being interpreted as rustdoc tests).
+      run: cargo test --doc --workspace --exclude mountpoint-s3-crt-sys --features $RUST_FEATURES
 
   macos-test:
     name: Clippy & Tests (macOS)
@@ -133,8 +133,7 @@ jobs:
     - name: Build tests
       run: cargo nextest run --profile ci --no-run
     - name: Run tests
-      # Skip `mountpoint-s3-fuser` tests on macOS.
-      run: cargo nextest run --profile ci --workspace --exclude mountpoint-s3-fuser
+      run: cargo nextest run --profile ci --workspace
 
   check:
     name: Check all targets

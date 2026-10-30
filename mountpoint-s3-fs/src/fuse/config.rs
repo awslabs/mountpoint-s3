@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::os::fd::AsRawFd as _;
 
 use anyhow::anyhow;
-use fuser::MountOption;
+use fuser::{MountOption, SessionACL};
 use regex::Regex;
 
 /// Configuration for a FUSE background session.
@@ -13,6 +13,7 @@ use regex::Regex;
 pub struct FuseSessionConfig {
     pub(crate) mount_point: MountPoint,
     pub(crate) options: Vec<MountOption>,
+    pub(crate) acl: SessionACL,
     pub(crate) max_threads: usize,
     pub(crate) clone_fuse_fd: bool,
 }
@@ -44,14 +45,31 @@ impl FuseSessionConfig {
             options.push(MountOption::RO);
         }
         if fuse_options.auto_unmount {
-            options.push(MountOption::AutoUnmount);
+            if !fuse_options.allow_root && !fuse_options.allow_other {
+                // fuser 0.17 rejects AutoUnmount with an Owner ACL. Preserve the previous behavior:
+                // pass allow_other to the kernel (needed by fusermount for auto_unmount) while
+                // the Owner ACL keeps rejecting other users in userspace.
+                // This relies on the libfuse mount implementation (the `libfuse` feature), which
+                // passes CUSTOM options through to fusermount unchanged.
+                tracing::warn!(
+                    "Given auto_unmount without allow_root or allow_other; adding allow_other, with userspace permission handling"
+                );
+                options.push(MountOption::CUSTOM("auto_unmount".to_string()));
+                options.push(MountOption::CUSTOM("allow_other".to_string()));
+            } else {
+                options.push(MountOption::AutoUnmount);
+            }
         }
-        if fuse_options.allow_root {
-            options.push(MountOption::AllowRoot);
-        }
-        if fuse_options.allow_other {
-            options.push(MountOption::AllowOther);
-        }
+
+        // Determine SessionACL based on allow_root and allow_other. allow_root takes precedence,
+        // so that setting both restricts access to root and the owner.
+        let acl = if fuse_options.allow_root {
+            SessionACL::RootAndOwner
+        } else if fuse_options.allow_other {
+            SessionACL::All
+        } else {
+            SessionACL::Owner
+        };
 
         #[cfg(target_os = "linux")]
         if matches!(mount_point, MountPoint::FileDescriptor(_)) && fuse_options.auto_unmount {
@@ -64,6 +82,7 @@ impl FuseSessionConfig {
         Ok(Self {
             mount_point,
             options,
+            acl,
             max_threads,
             clone_fuse_fd: fuse_options.clone_fd,
         })
@@ -247,6 +266,64 @@ mod tests {
 
         assert_eq!(config.read_only(), read_only);
         assert_eq!(config.options.contains(&MountOption::RO), read_only);
+    }
+
+    #[test_case(false, false, SessionACL::Owner; "empty options")]
+    #[test_case(false, true, SessionACL::All; "only allows other")]
+    #[test_case(true, false, SessionACL::RootAndOwner; "only allows root")]
+    #[test_case(true, true, SessionACL::RootAndOwner; "allows root and other")]
+    fn test_session_acl_from_fuse_options(allow_root: bool, allow_other: bool, expected: SessionACL) {
+        let config = FuseSessionConfig::new(
+            MountPoint::Directory("/mnt/mountpoint-s3-test".into()),
+            FuseOptions {
+                allow_root,
+                allow_other,
+                ..Default::default()
+            },
+            1,
+        )
+        .expect("session config should be valid");
+
+        assert_eq!(config.acl, expected);
+    }
+
+    #[test_case(false, false, SessionACL::Owner, false; "auto_unmount only")]
+    #[test_case(true, false, SessionACL::RootAndOwner, true; "auto_unmount with allow_root")]
+    #[test_case(false, true, SessionACL::All, true; "auto_unmount with allow_other")]
+    fn test_auto_unmount_options(
+        allow_root: bool,
+        allow_other: bool,
+        expected_acl: SessionACL,
+        expect_auto_unmount_option: bool,
+    ) {
+        let config = FuseSessionConfig::new(
+            MountPoint::Directory("/mnt/mountpoint-s3-test".into()),
+            FuseOptions {
+                auto_unmount: true,
+                allow_root,
+                allow_other,
+                ..Default::default()
+            },
+            1,
+        )
+        .expect("session config should be valid");
+
+        assert_eq!(config.acl, expected_acl);
+        assert_eq!(
+            config.options.contains(&MountOption::AutoUnmount),
+            expect_auto_unmount_option
+        );
+        // Without allow_root/allow_other, auto_unmount and allow_other are passed through as raw
+        // mount options, while the Owner ACL keeps the mount restricted to the owner.
+        let custom = |s: &str| MountOption::CUSTOM(s.to_string());
+        assert_eq!(
+            config.options.contains(&custom("auto_unmount")),
+            !expect_auto_unmount_option
+        );
+        assert_eq!(
+            config.options.contains(&custom("allow_other")),
+            !expect_auto_unmount_option
+        );
     }
 
     #[test_case("/dev/fd/3", Some(3); "valid file descriptor")]

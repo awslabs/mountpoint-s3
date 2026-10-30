@@ -181,7 +181,7 @@ where
     let contents = vec![0xab; args.write_size];
     while total_bytes_written < target_size {
         let len = upload_request
-            .write(total_bytes_written as i64, &contents)
+            .write(total_bytes_written as u64, &contents)
             .await
             .unwrap();
         total_bytes_written += len;

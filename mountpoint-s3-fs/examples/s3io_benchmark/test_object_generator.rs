@@ -111,13 +111,14 @@ async fn upload_test_object(
         let remaining = size - offset;
         let chunk_size = remaining.min(write_size as u64) as usize;
 
-        let bytes_written = request
-            .write(offset as i64, &contents[..chunk_size])
-            .await
-            .map_err(|e| ObjectGenerationError::Upload {
-                key: key.to_string(),
-                reason: format!("Write failed at offset {}: {}", offset, e),
-            })?;
+        let bytes_written =
+            request
+                .write(offset, &contents[..chunk_size])
+                .await
+                .map_err(|e| ObjectGenerationError::Upload {
+                    key: key.to_string(),
+                    reason: format!("Write failed at offset {}: {}", offset, e),
+                })?;
 
         offset += bytes_written as u64;
     }
