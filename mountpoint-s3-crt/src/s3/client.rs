@@ -171,7 +171,8 @@ impl ClientConfig {
     pub fn retry_config(&mut self, retry_config: RetryConfig) -> &mut Self {
         let inner = &mut self.inner.retry_config;
         inner.retry_mode = retry_config.mode.into();
-        inner.max_retries = retry_config.max_retries;
+        // The S3 client stores max retries as a `uint32_t`.
+        inner.max_retries = retry_config.max_retries.min(u32::MAX as usize);
         inner.backoff_scale_factor_ms = retry_config.backoff_scale_factor.as_millis().min(u32::MAX as u128) as u32;
         inner.jitter_mode = retry_config.jitter_mode.into();
         self
