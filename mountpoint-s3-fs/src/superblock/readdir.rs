@@ -75,21 +75,29 @@ impl ReaddirHandle {
             let kind_data = &inode.get_inode_state()?.kind_data;
             let local_files = match kind_data {
                 InodeKindData::File { .. } => return Err(InodeError::NotADirectory(inode.err())),
-                InodeKindData::Directory { writing_children, .. } => writing_children.iter().map(|ino| {
-                    let inode = inner.get(*ino)?;
-                    let locked_inode = inode.get_inode_state()?;
-                    let stat = locked_inode.stat.clone();
-                    let write_status = locked_inode.write_status;
-                    drop(locked_inode);
-                    Ok(ReaddirEntry::LocalInode {
-                        lookup: LookedUpInode {
-                            inode,
-                            stat,
-                            path: inner.s3_path.clone(),
-                            write_status,
-                        },
+                InodeKindData::Directory { writing_children, .. } => writing_children
+                    .iter()
+                    .filter_map(|ino| match inner.get(*ino) {
+                        // Skip children that are not in the inode map, e.g. created but not yet
+                        // remembered.
+                        Err(InodeError::InodeDoesNotExist(_)) => None,
+                        result => Some(result),
                     })
-                }),
+                    .map(|inode| {
+                        let inode = inode?;
+                        let locked_inode = inode.get_inode_state()?;
+                        let stat = locked_inode.stat.clone();
+                        let write_status = locked_inode.write_status;
+                        drop(locked_inode);
+                        Ok(ReaddirEntry::LocalInode {
+                            lookup: LookedUpInode {
+                                inode,
+                                stat,
+                                path: inner.s3_path.clone(),
+                                write_status,
+                            },
+                        })
+                    }),
             };
 
             match local_files.collect::<Result<Vec<_>, _>>() {
@@ -709,5 +717,57 @@ mod tests {
             )
             .await
             .expect("Readdir failed");
+    }
+
+    /// Verifies that `readdir` skips local children that are not in the inode map.
+    #[tokio::test]
+    async fn test_readdir_skips_forgotten_local_children() {
+        let bucket = Bucket::new("test-bucket").unwrap();
+        let client = Arc::new(MockClient::config().bucket(bucket.to_string()).build());
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, Default::default()),
+            Default::default(),
+        );
+
+        let dir = superblock
+            .create(FUSE_ROOT_INODE, "dir".as_ref(), InodeKind::Directory)
+            .await
+            .expect("Create dir failed")
+            .ino();
+        let forgotten = superblock
+            .create(dir, "forgotten".as_ref(), InodeKind::File)
+            .await
+            .expect("Create forgotten failed")
+            .ino();
+        superblock
+            .create(dir, "kept".as_ref(), InodeKind::File)
+            .await
+            .expect("Create kept failed");
+
+        // Remove the inode from the map only, leaving it in the directory's local children.
+        let forgotten_result = superblock.inner.inodes.decrease_lookup_count(forgotten, 1);
+        assert!(matches!(forgotten_result, Ok(Some(_))));
+        assert!(superblock.inner.inodes.remove_if_forgotten(forgotten));
+
+        let readdir_handle = superblock
+            .new_readdir_handle(dir)
+            .await
+            .expect("Failed to create readdir handle");
+        let mut names = Vec::new();
+        superblock
+            .readdir(
+                dir,
+                readdir_handle,
+                0,
+                false,
+                Box::new(|_, name, _, _| {
+                    names.push(name);
+                    AddDirEntryResult::EntryAdded
+                }),
+            )
+            .await
+            .expect("Readdir failed");
+        assert_eq!(names, [".", "..", "kept"]);
     }
 }
