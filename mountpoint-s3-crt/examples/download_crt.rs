@@ -16,9 +16,11 @@ use mountpoint_s3_crt::http::request_response::{Header, Message};
 use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
-use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
+use mountpoint_s3_crt::io::retry_strategy::ExponentialBackoffJitterMode;
 use mountpoint_s3_crt::s3::buffer::Buffer;
-use mountpoint_s3_crt::s3::client::{Client, ClientConfig, MetaRequestOptions, MetaRequestType, init_signing_config};
+use mountpoint_s3_crt::s3::client::{
+    Client, ClientConfig, MetaRequestOptions, MetaRequestType, RetryConfig, RetryMode, init_signing_config,
+};
 use mountpoint_s3_crt::s3::endpoint_resolver::{RequestContext, RuleEngine};
 use tracing::trace;
 
@@ -102,13 +104,6 @@ impl CrtClient {
         };
         let mut client_bootstrap = ClientBootstrap::new(&allocator, &bootstrap_options).unwrap();
 
-        let mut retry_strategy_options = StandardRetryOptions::default(&mut event_loop_group);
-        // Match the SDK "legacy" retry strategies
-        retry_strategy_options.backoff_retry_options.max_retries = 3;
-        retry_strategy_options.backoff_retry_options.backoff_scale_factor = Duration::from_millis(500);
-        retry_strategy_options.backoff_retry_options.jitter_mode = ExponentialBackoffJitterMode::Full;
-        let retry_strategy = RetryStrategy::standard(&allocator, &retry_strategy_options).unwrap();
-
         let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
             bootstrap: &mut client_bootstrap,
             tls_ctx: None,
@@ -121,9 +116,14 @@ impl CrtClient {
         client_config.region(&config.region);
         client_config.express_support(true);
         client_config.signing_config(signing_config);
-        client_config
-            .client_bootstrap(client_bootstrap)
-            .retry_strategy(retry_strategy);
+        client_config.client_bootstrap(client_bootstrap);
+        // Match the SDK "legacy" retry strategies
+        client_config.retry_config(RetryConfig {
+            mode: RetryMode::Standard,
+            max_retries: 3,
+            backoff_scale_factor: Duration::from_millis(500),
+            jitter_mode: ExponentialBackoffJitterMode::Full,
+        });
         client_config.throughput_target_gbps(config.throughput_target_gbps);
         client_config.part_size(config.part_size);
         if let Some(ref network_interface_names) = config.network_interface_names {

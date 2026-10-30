@@ -1,5 +1,6 @@
 ## Unreleased (v0.17.0)
 
+* Add `ClientConfig::retry_config` to configure the S3 client's built-in retry strategy, including `RetryMode::None` to attempt each request exactly once. It replaces `ClientConfig::retry_strategy`, which is removed. ([#1996](https://github.com/awslabs/mountpoint-s3/pull/1996))
 * Update to latest CRT dependencies.
 
 ## v0.16.2 (October 6, 2026)

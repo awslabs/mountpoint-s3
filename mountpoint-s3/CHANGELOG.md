@@ -1,5 +1,12 @@
-## Unreleased (v1.24.1)
+## Unreleased (v1.25.0)
 
+### Breaking changes
+
+* Mountpoint now fails to start when `AWS_MAX_ATTEMPTS` is not a positive integer. Previously `0` selected 4 attempts and other invalid values were silently ignored. ([#1996](https://github.com/awslabs/mountpoint-s3/pull/1996))
+
+### Other changes
+
+* Fix `AWS_MAX_ATTEMPTS=1` still retrying failed S3 requests up to 3 times. ([#1996](https://github.com/awslabs/mountpoint-s3/pull/1996))
 * Fix Mountpoint failing to start when `AWS_MAX_ATTEMPTS` is set to more than 64. ([#2010](https://github.com/awslabs/mountpoint-s3/pull/2010))
 * Make `--incremental-upload` consistently check for concurrent writes when appending (i.e. without `O_TRUNC`), even at offset 0. Previously, appending to an existing empty object could silently overwrite another writer's changes instead of failing with `EIO`. ([#1970](https://github.com/awslabs/mountpoint-s3/pull/1970) by @yerzhan7)
 * Fix S3 CRT client metrics (`s3.client.*`) not updating on every metrics publication cycle for requests lasting longer than five seconds. These gauges are now sampled when metrics are published, rather than only when a new S3 request starts. ([#1957](https://github.com/awslabs/mountpoint-s3/pull/1957))

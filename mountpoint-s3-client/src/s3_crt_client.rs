@@ -25,12 +25,12 @@ use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError, M
 use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 pub use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
-use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
+use mountpoint_s3_crt::io::retry_strategy::ExponentialBackoffJitterMode;
 use mountpoint_s3_crt::io::tls::{TlsConnectionOptions, TlsContext, TlsContextOptions, TlsError as CrtTlsError};
 use mountpoint_s3_crt::s3::buffer::Buffer;
 use mountpoint_s3_crt::s3::client::{
     BufferPoolUsageStats, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions, MetaRequestResult,
-    MetaRequestType, RequestMetrics, init_signing_config,
+    MetaRequestType, RequestMetrics, RetryConfig, RetryMode, init_signing_config,
 };
 
 use async_trait::async_trait;
@@ -220,7 +220,8 @@ impl S3ClientConfig {
     }
 
     /// Set a maximum number of attempts for S3 requests. Will be overridden by the
-    /// `AWS_MAX_ATTEMPTS` environment variable if set.
+    /// `AWS_MAX_ATTEMPTS` environment variable if set. If that variable is not a positive integer,
+    /// [`S3CrtClient::new`] fails with [`NewClientError::InvalidConfiguration`].
     #[must_use = "S3ClientConfig follows a builder pattern"]
     pub fn max_attempts(mut self, max_attempts: NonZeroUsize) -> Self {
         self.max_attempts = Some(max_attempts);
@@ -410,6 +411,10 @@ pub struct S3CrtClient {
 
 impl S3CrtClient {
     /// Construct a new S3 client with the given configuration.
+    ///
+    /// # Errors
+    /// Fails with [`NewClientError::InvalidConfiguration`] if the configuration is invalid, including
+    /// when the `AWS_MAX_ATTEMPTS` environment variable is set but is not a positive integer.
     pub fn new(config: S3ClientConfig) -> Result<Self, NewClientError> {
         Ok(Self {
             inner: Arc::new(S3CrtClientInner::new(config)?),
@@ -448,6 +453,22 @@ struct S3CrtClientInner {
     telemetry_callback: Option<Arc<dyn OnTelemetry>>,
 }
 
+/// The maximum number of attempts set by the `AWS_MAX_ATTEMPTS` environment variable, if it is set.
+///
+/// # Errors
+/// Values that are not positive integers are rejected.
+fn max_attempts_from_env() -> Result<Option<NonZeroUsize>, NewClientError> {
+    let Some(value) = std::env::var_os("AWS_MAX_ATTEMPTS") else {
+        return Ok(None);
+    };
+    match value.to_str().and_then(|s| s.parse().ok()) {
+        Some(max_attempts) => Ok(Some(max_attempts)),
+        None => Err(NewClientError::InvalidConfiguration(format!(
+            "AWS_MAX_ATTEMPTS must be a positive integer, got {value:?}"
+        ))),
+    }
+}
+
 impl S3CrtClientInner {
     fn new(config: S3ClientConfig) -> Result<Self, NewClientError> {
         let allocator = Allocator::default();
@@ -470,20 +491,9 @@ impl S3CrtClientInner {
 
         let mut client_config = ClientConfig::new();
 
-        let retry_strategy = {
-            let mut retry_strategy_options = StandardRetryOptions::default(&mut event_loop_group);
-            let max_attempts = std::env::var("AWS_MAX_ATTEMPTS")
-                .ok()
-                .and_then(|s| s.parse::<usize>().ok())
-                .or_else(|| config.max_attempts.map(|m| m.get()))
-                .unwrap_or(3);
-            // Max *attempts* includes the initial attempt, the CRT's max *retries* does not, so
-            // decrement by one
-            retry_strategy_options.backoff_retry_options.max_retries = max_attempts.saturating_sub(1);
-            retry_strategy_options.backoff_retry_options.backoff_scale_factor = Duration::from_millis(500);
-            retry_strategy_options.backoff_retry_options.jitter_mode = ExponentialBackoffJitterMode::Full;
-            RetryStrategy::standard(&allocator, &retry_strategy_options).unwrap()
-        };
+        let max_attempts = max_attempts_from_env()?
+            .or(config.max_attempts)
+            .map_or(3, NonZeroUsize::get);
 
         // Prepare a TLS context up front so it can be threaded into both the credentials chain
         // and the S3 client.
@@ -549,9 +559,21 @@ impl S3CrtClientInner {
         client_config.initial_read_window(config.initial_read_window);
         client_config.signing_config(signing_config);
 
-        client_config
-            .client_bootstrap(client_bootstrap)
-            .retry_strategy(retry_strategy);
+        client_config.client_bootstrap(client_bootstrap);
+        client_config.retry_config(RetryConfig {
+            // The S3 client treats zero retries as "use the default", so a single attempt needs
+            // the no-retry mode.
+            mode: if max_attempts == 1 {
+                RetryMode::None
+            } else {
+                RetryMode::Standard
+            },
+            // Max *attempts* includes the initial attempt, the CRT's max *retries* does not, so
+            // decrement by one
+            max_retries: max_attempts - 1,
+            backoff_scale_factor: Duration::from_millis(500),
+            jitter_mode: ExponentialBackoffJitterMode::Full,
+        });
 
         client_config.throughput_target_gbps(config.throughput_target_gbps);
         client_config.memory_limit_in_bytes(config.memory_limit_in_bytes);

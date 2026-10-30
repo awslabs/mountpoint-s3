@@ -8,7 +8,7 @@ use crate::common::thread::ThreadId;
 use crate::common::uri::Uri;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
-use crate::io::retry_strategy::RetryStrategy;
+use crate::io::retry_strategy::ExponentialBackoffJitterMode;
 use crate::io::tls::TlsConnectionOptions;
 use crate::{CrtError, ToAwsByteCursor, aws_byte_cursor_as_slice};
 use futures::Future;
@@ -54,11 +54,6 @@ pub struct ClientConfig {
 
     /// The [ClientBootstrap] to use to create connections to S3
     client_bootstrap: Option<ClientBootstrap>,
-
-    /// The [RetryStrategy] to use to reschedule failed requests to S3. This is reference counted,
-    /// so we only need to hold onto it until this [ClientConfig] is consumed, at which point the
-    /// client will take ownership.
-    retry_strategy: Option<RetryStrategy>,
 
     /// The default signing config for the CRT client.
     signing_config: Option<SigningConfig>,
@@ -159,10 +154,14 @@ impl ClientConfig {
         self
     }
 
-    /// Retry strategy used to reschedule failed requests
-    pub fn retry_strategy(&mut self, retry_strategy: RetryStrategy) -> &mut Self {
-        self.inner.retry_strategy = retry_strategy.inner.as_ptr();
-        self.retry_strategy = Some(retry_strategy);
+    /// Configuration of the S3 client's built-in retry strategy.
+    pub fn retry_config(&mut self, retry_config: RetryConfig) -> &mut Self {
+        let inner = &mut self.inner.retry_config;
+        inner.retry_mode = retry_config.mode.into();
+        // The S3 client stores max retries as a `uint32_t`.
+        inner.max_retries = retry_config.max_retries.min(u32::MAX as usize);
+        inner.backoff_scale_factor_ms = retry_config.backoff_scale_factor.as_millis().min(u32::MAX as u128) as u32;
+        inner.jitter_mode = retry_config.jitter_mode.into();
         self
     }
 
@@ -565,6 +564,44 @@ impl MetaRequestOptions {
 impl Default for MetaRequestOptions {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Configuration of the S3 client's built-in retry strategy (see [ClientConfig::retry_config]).
+#[derive(Debug, Clone, Copy)]
+pub struct RetryConfig {
+    /// Retry mode
+    pub mode: RetryMode,
+    /// Maximum number of retries per request. 0 means the S3 client's default (5); use
+    /// [RetryMode::None] to disable retries.
+    pub max_retries: usize,
+    /// Base delay for exponential backoff. 0 means the S3 client's default (500 ms).
+    pub backoff_scale_factor: Duration,
+    /// Jitter mode for the backoff
+    pub jitter_mode: ExponentialBackoffJitterMode,
+}
+
+/// Retry mode of the S3 client's built-in retry strategy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetryMode {
+    /// Exponential backoff with a token bucket per host
+    Standard,
+    /// [RetryMode::Standard] with client-side rate limiting
+    Adaptive,
+    /// Exponential backoff without a token bucket
+    ExponentialBackoff,
+    /// Each request is attempted exactly once
+    None,
+}
+
+impl From<RetryMode> for aws_s3_retry_mode {
+    fn from(mode: RetryMode) -> Self {
+        match mode {
+            RetryMode::Standard => aws_s3_retry_mode::AWS_S3_RETRY_MODE_STANDARD,
+            RetryMode::Adaptive => aws_s3_retry_mode::AWS_S3_RETRY_MODE_ADAPTIVE,
+            RetryMode::ExponentialBackoff => aws_s3_retry_mode::AWS_S3_RETRY_MODE_EXPONENTIAL_BACKOFF,
+            RetryMode::None => aws_s3_retry_mode::AWS_S3_RETRY_MODE_NONE,
+        }
     }
 }
 
@@ -1695,7 +1732,7 @@ pub fn init_signing_config(
 ///
 /// **Lifetime contract (full-object mode only):** `inner.user_data` is a raw pointer derived from
 /// `full_object_state`, the [`Arc`] this struct holds in that field. `inner` is **private** and
-/// only escapes via [`Self::to_inner_ptr`], whose returned `*const` is borrow-bound to `&self` —
+/// only escapes via `to_inner_ptr`, whose returned `*const` is borrow-bound to `&self` —
 /// meaning the CRT cannot observe the pointer without an outstanding borrow of the whole
 /// `ChecksumConfig`. The struct is intentionally non-`Clone` to keep the (`inner`,
 /// `full_object_state`) pair from being split apart.
