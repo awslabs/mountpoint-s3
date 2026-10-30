@@ -5,10 +5,11 @@ Summary:        Mountpoint for Amazon S3
 
 License:        Apache-2.0
 URL:            https://github.com/awslabs/mountpoint-s3 
+# Source0 and Source1 are named after the v{{ version }} git tag, matching the tarballs Amazon Linux generates from it
 Source0:        {% if use_github_source %}https://github.com/awslabs/mountpoint-s3/archive/refs/tags/mountpoint-s3-{{ version }}.tar.gz
-{% else %}mountpoint-s3-{{ version }}.tar.gz
+{% else %}mountpoint-s3-v{{ version }}.tar.gz
 {% endif %}
-Source1:        mountpoint-s3-{{ version }}-vendor.tar.gz
+Source1:        mountpoint-s3-v{{ version }}-vendor.tar.xz
 Source2:        LICENSE
 Source3:        NOTICE
 
@@ -52,7 +53,7 @@ access to the elastic storage and throughput of Amazon S3 through a file
 interface.
 
 %prep
-%autosetup -n mountpoint-s3 -a1
+%autosetup -n mountpoint-s3-%{version} -a1
 
 %cargo_prep -v vendor
 

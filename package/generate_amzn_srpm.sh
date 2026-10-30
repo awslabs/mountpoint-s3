@@ -25,14 +25,16 @@ RELEASE=$(rpmspec --query --srpm --queryformat="%{release}" ${SPECS_FILE})
 echo "spec version=${VERSION}"
 echo "spec release=${RELEASE}"
 
+# Tarballs mirror the ones Amazon Linux generates from the v${VERSION} git tag: named after the tag,
+# with the sources under mountpoint-s3-${VERSION}/ and the crates under vendor/
 echo Source tarball
 cd "${MOUNTPOINT_DIR}"/..
-tar -czf "${SOURCES_DIR}/mountpoint-s3-${VERSION}.tar.gz" mountpoint-s3
+tar --transform "s|^mountpoint-s3|mountpoint-s3-${VERSION}|" -czf "${SOURCES_DIR}/mountpoint-s3-v${VERSION}.tar.gz" mountpoint-s3
 
 echo Vendor tarball
 cd mountpoint-s3
 cargo vendor
-tar -czf "${SOURCES_DIR}/mountpoint-s3-${VERSION}-vendor.tar.gz" vendor
+tar -cJf "${SOURCES_DIR}/mountpoint-s3-v${VERSION}-vendor.tar.xz" vendor
 rm -rf vendor
 
 cp LICENSE NOTICE "${SOURCES_DIR}/"
