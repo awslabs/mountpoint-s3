@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 
-set -e
+# `-E` makes the ERR trap below fire inside functions too.
+set -eE -o pipefail
+
+# Report the command that failed: without this, a failure in one of the file
+# operations below gives no indication of where it happened.
+trap 'echo "FAILED (exit $?) in ${FUNCNAME[0]:-main}: ${BASH_COMMAND}" >&2' ERR
 
 OTEL_COLLECTOR_CONFIG="otel-config.yaml"
 OTEL_COLLECTOR_METRICS="/tmp/otel-collector-metrics"
@@ -109,7 +114,9 @@ trigger_metrics() {
   echo "Starting file operations."
   
   test_file="${MOUNT_DIR}/test_file.txt"
-  dd if=/dev/urandom of="${test_file}" bs=128k count=500 2>/dev/null
+  # `status=none` suppresses the transfer summary but keeps error messages, which we
+  # need to diagnose failures in these operations.
+  dd if=/dev/urandom of="${test_file}" bs=128k count=500 status=none
   sync
 
   # Read from the file. Ensure that:
@@ -117,26 +124,26 @@ trigger_metrics() {
   # - At least one "skip" is large enough to reset the internal prefetcher
   {
     for skip in {0..5} 300; do
-      dd bs=128k skip=$skip count=1 iflag=direct 2>/dev/null
+      dd bs=128k skip=$skip count=1 iflag=direct status=none
     done
   } < "${test_file}" > /dev/null
 
   # Re-read some data to trigger cache hits
   {
     for skip in {1..5}; do
-      dd bs=128k skip=$skip count=1 2>/dev/null
+      dd bs=128k skip=$skip count=1 status=none
     done
   } < "${test_file}" > /dev/null
 
   # Create multiple large files
   for i in {1..10}; do
-    dd if=/dev/urandom of="${MOUNT_DIR}/evict_file_${i}.txt" bs=128k count=100 2>/dev/null
+    dd if=/dev/urandom of="${MOUNT_DIR}/evict_file_${i}.txt" bs=128k count=100 status=none
   done
   sync
 
   # Try reading all files to force cache eviction metrics
   for i in {1..10}; do
-    dd if="${MOUNT_DIR}/evict_file_${i}.txt" bs=128k count=10 2>/dev/null > /dev/null
+    dd if="${MOUNT_DIR}/evict_file_${i}.txt" bs=128k count=10 status=none > /dev/null
   done
 
   cat "${MOUNT_DIR}/nonexistent_file.txt" 2>/dev/null || true
@@ -187,8 +194,15 @@ setup_mount() {
 
 verify_otel_metrics() {
   local mode=$1
-  local found_metrics=$(jq -r '.resourceMetrics[].scopeMetrics[].metrics[].name' "${OTEL_COLLECTOR_METRICS}" 2>/dev/null | sort -u)
-  
+  # The collector writes nothing when OTLP export is disabled, so an empty or missing
+  # file just means no metrics were exported. It is also still running and may be
+  # part-way through a write, so report what we can parse and let the checks below
+  # decide, rather than failing on a torn last line.
+  local found_metrics=""
+  if [[ -s "${OTEL_COLLECTOR_METRICS}" ]]; then
+    found_metrics=$( { jq -r '.resourceMetrics[].scopeMetrics[].metrics[].name' "${OTEL_COLLECTOR_METRICS}" || true; } | sort -u)
+  fi
+
   if [[ "${mode}" == "with_logs" ]]; then
     if [[ -n "${found_metrics}" ]]; then
       echo "Found OTel metrics when none expected"
@@ -197,7 +211,8 @@ verify_otel_metrics() {
     echo "Found no OTel metrics"
   else
     for expected in "${EXPECTED_METRICS[@]}"; do
-      if ! echo "${found_metrics}" | grep -q "^${expected}$"; then
+      # Match the whole line, literally: metric names contain dots.
+      if ! grep -qxF -- "${expected}" <<< "${found_metrics}"; then
         echo "${expected} metric not found"
         exit 1
       fi
