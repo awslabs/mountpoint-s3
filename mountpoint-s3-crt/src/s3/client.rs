@@ -8,7 +8,7 @@ use crate::common::thread::ThreadId;
 use crate::common::uri::Uri;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
-use crate::io::retry_strategy::RetryStrategy;
+use crate::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy};
 use crate::io::tls::TlsConnectionOptions;
 use crate::{CrtError, ToAwsByteCursor, aws_byte_cursor_as_slice};
 use futures::Future;
@@ -166,9 +166,14 @@ impl ClientConfig {
         self
     }
 
-    /// Attempt each request exactly once. Takes effect only without a [Self::retry_strategy].
-    pub fn disable_retries(&mut self) -> &mut Self {
-        self.inner.retry_config.retry_mode = aws_s3_retry_mode::AWS_S3_RETRY_MODE_NONE;
+    /// Configuration of the S3 client's built-in retry strategy. Ignored if a
+    /// [retry strategy](Self::retry_strategy) is set.
+    pub fn retry_config(&mut self, retry_config: RetryConfig) -> &mut Self {
+        let inner = &mut self.inner.retry_config;
+        inner.retry_mode = retry_config.mode.into();
+        inner.max_retries = retry_config.max_retries;
+        inner.backoff_scale_factor_ms = retry_config.backoff_scale_factor.as_millis().min(u32::MAX as u128) as u32;
+        inner.jitter_mode = retry_config.jitter_mode.into();
         self
     }
 
@@ -571,6 +576,44 @@ impl MetaRequestOptions {
 impl Default for MetaRequestOptions {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Configuration of the S3 client's built-in retry strategy (see [ClientConfig::retry_config]).
+#[derive(Debug, Clone, Copy)]
+pub struct RetryConfig {
+    /// Retry mode
+    pub mode: RetryMode,
+    /// Maximum number of retries per request. 0 means the S3 client's default (5); use
+    /// [RetryMode::None] to disable retries.
+    pub max_retries: usize,
+    /// Base delay for exponential backoff. 0 means the S3 client's default (500 ms).
+    pub backoff_scale_factor: Duration,
+    /// Jitter mode for the backoff
+    pub jitter_mode: ExponentialBackoffJitterMode,
+}
+
+/// Retry mode of the S3 client's built-in retry strategy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetryMode {
+    /// Exponential backoff with a token bucket per host
+    Standard,
+    /// [RetryMode::Standard] with client-side rate limiting
+    Adaptive,
+    /// Exponential backoff without a token bucket
+    ExponentialBackoff,
+    /// Each request is attempted exactly once
+    None,
+}
+
+impl From<RetryMode> for aws_s3_retry_mode {
+    fn from(mode: RetryMode) -> Self {
+        match mode {
+            RetryMode::Standard => aws_s3_retry_mode::AWS_S3_RETRY_MODE_STANDARD,
+            RetryMode::Adaptive => aws_s3_retry_mode::AWS_S3_RETRY_MODE_ADAPTIVE,
+            RetryMode::ExponentialBackoff => aws_s3_retry_mode::AWS_S3_RETRY_MODE_EXPONENTIAL_BACKOFF,
+            RetryMode::None => aws_s3_retry_mode::AWS_S3_RETRY_MODE_NONE,
+        }
     }
 }
 

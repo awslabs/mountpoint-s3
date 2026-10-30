@@ -25,12 +25,12 @@ use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError, M
 use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 pub use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
-use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
+use mountpoint_s3_crt::io::retry_strategy::ExponentialBackoffJitterMode;
 use mountpoint_s3_crt::io::tls::{TlsConnectionOptions, TlsContext, TlsContextOptions, TlsError as CrtTlsError};
 use mountpoint_s3_crt::s3::buffer::Buffer;
 use mountpoint_s3_crt::s3::client::{
     BufferPoolUsageStats, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions, MetaRequestResult,
-    MetaRequestType, RequestMetrics, init_signing_config,
+    MetaRequestType, RequestMetrics, RetryConfig, RetryMode, init_signing_config,
 };
 
 use async_trait::async_trait;
@@ -560,19 +560,20 @@ impl S3CrtClientInner {
         client_config.signing_config(signing_config);
 
         client_config.client_bootstrap(client_bootstrap);
-        if max_attempts == 1 {
-            // The CRT's retry strategies treat zero retries as "use the default", so a single
-            // attempt needs the S3 client's no-retry mode.
-            client_config.disable_retries();
-        } else {
-            let mut retry_strategy_options = StandardRetryOptions::default(&mut event_loop_group);
+        client_config.retry_config(RetryConfig {
+            // The S3 client treats zero retries as "use the default", so a single attempt needs
+            // the no-retry mode.
+            mode: if max_attempts == 1 {
+                RetryMode::None
+            } else {
+                RetryMode::Standard
+            },
             // Max *attempts* includes the initial attempt, the CRT's max *retries* does not, so
             // decrement by one
-            retry_strategy_options.backoff_retry_options.max_retries = max_attempts - 1;
-            retry_strategy_options.backoff_retry_options.backoff_scale_factor = Duration::from_millis(500);
-            retry_strategy_options.backoff_retry_options.jitter_mode = ExponentialBackoffJitterMode::Full;
-            client_config.retry_strategy(RetryStrategy::standard(&allocator, &retry_strategy_options).unwrap());
-        }
+            max_retries: max_attempts - 1,
+            backoff_scale_factor: Duration::from_millis(500),
+            jitter_mode: ExponentialBackoffJitterMode::Full,
+        });
 
         client_config.throughput_target_gbps(config.throughput_target_gbps);
         client_config.memory_limit_in_bytes(config.memory_limit_in_bytes);
