@@ -8,7 +8,7 @@ use crate::common::thread::ThreadId;
 use crate::common::uri::Uri;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
-use crate::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy};
+use crate::io::retry_strategy::ExponentialBackoffJitterMode;
 use crate::io::tls::TlsConnectionOptions;
 use crate::{CrtError, ToAwsByteCursor, aws_byte_cursor_as_slice};
 use futures::Future;
@@ -54,11 +54,6 @@ pub struct ClientConfig {
 
     /// The [ClientBootstrap] to use to create connections to S3
     client_bootstrap: Option<ClientBootstrap>,
-
-    /// The [RetryStrategy] to use to reschedule failed requests to S3. This is reference counted,
-    /// so we only need to hold onto it until this [ClientConfig] is consumed, at which point the
-    /// client will take ownership.
-    retry_strategy: Option<RetryStrategy>,
 
     /// The default signing config for the CRT client.
     signing_config: Option<SigningConfig>,
@@ -159,15 +154,7 @@ impl ClientConfig {
         self
     }
 
-    /// Retry strategy used to reschedule failed requests
-    pub fn retry_strategy(&mut self, retry_strategy: RetryStrategy) -> &mut Self {
-        self.inner.retry_strategy = retry_strategy.inner.as_ptr();
-        self.retry_strategy = Some(retry_strategy);
-        self
-    }
-
-    /// Configuration of the S3 client's built-in retry strategy. Ignored if a
-    /// [retry strategy](Self::retry_strategy) is set.
+    /// Configuration of the S3 client's built-in retry strategy.
     pub fn retry_config(&mut self, retry_config: RetryConfig) -> &mut Self {
         let inner = &mut self.inner.retry_config;
         inner.retry_mode = retry_config.mode.into();
