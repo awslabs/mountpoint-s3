@@ -10,6 +10,10 @@ trap 'echo "FAILED (exit $?) in ${FUNCNAME[0]:-main}: ${BASH_COMMAND}" >&2' ERR
 OTEL_COLLECTOR_CONFIG="otel-config.yaml"
 OTEL_COLLECTOR_METRICS="/tmp/otel-collector-metrics"
 OTLP_ENDPOINT="http://127.0.0.1:4318"
+# Directory to copy the Mountpoint logs of a failed test to, so that CI can keep them
+# after the temporary directory holding them is deleted. Logs are only printed if unset.
+FAILED_LOGS_DIR="${FAILED_LOGS_DIR:-}"
+FAILURE_LOG_LINES=200
 EXPECTED_METRICS=(
   "experimental.cache.evict_latency"
   "experimental.cache.get_latency"
@@ -48,6 +52,22 @@ if ! command -v jq &> /dev/null; then
   exit 1
 fi
 
+# Print the tail of the Mountpoint logs of the failed test and, if FAILED_LOGS_DIR is
+# set, copy them there, since the log directory itself is about to be deleted.
+save_mountpoint_logs() {
+  echo "Last ${FAILURE_LOG_LINES} lines of the Mountpoint logs:"
+  tail -n "${FAILURE_LOG_LINES}" "${MOUNTPOINT_LOGS}"/*.log || true
+
+  if [[ -n "${FAILED_LOGS_DIR}" ]]; then
+    local archive_dir="${FAILED_LOGS_DIR}/${TEST_MODE:-unknown}"
+    if mkdir -p "${archive_dir}" && cp "${MOUNTPOINT_LOGS}"/*.log "${archive_dir}/"; then
+      echo "Copied Mountpoint logs to ${archive_dir}"
+    else
+      echo "Failed to copy Mountpoint logs to ${archive_dir}"
+    fi
+  fi
+}
+
 cleanup() {
   local exit_code=$?
 
@@ -58,7 +78,19 @@ cleanup() {
   if [[ -n "${TMP_DIR}" ]]; then
     # Best-effort unmount.
     ! mountpoint -q "${MOUNT_DIR}" || sudo umount "${MOUNT_DIR}" || true
-    rm -rf "${TMP_DIR}"
+
+    # Save the logs after the unmount and a moment for Mountpoint to write what it
+    # logs while shutting down, but before the directory holding them is deleted
+    # below. Mountpoint may still be running: the unmount doesn't wait for it, and may
+    # itself have failed.
+    if [[ ${exit_code} -ne 0 && -d "${MOUNTPOINT_LOGS:-}" ]]; then
+      sleep 1
+      save_mountpoint_logs
+    fi
+
+    # Stay on this file system: if the unmount above failed, recursing into the mount
+    # would delete the test's objects from S3, and would block on a wedged file system.
+    rm -rf --one-file-system "${TMP_DIR}" || true
     TMP_DIR=""
   fi
 
@@ -246,7 +278,10 @@ verify_log_metrics() {
 
 run_test() {
   local mode=$1
-  
+
+  # Used by cleanup to label the logs it saves on failure.
+  TEST_MODE="${mode}"
+
   echo "Running test ${mode}"
   
   start_collector
