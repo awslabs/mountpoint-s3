@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793397598880,
+  "lastUpdate": 1793406264164,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard, Memory-Limited)": [
-      {
-        "commit": {
-          "author": {
-            "email": "20302932+yerzhan7@users.noreply.github.com",
-            "name": "Yerzhan Mazhkenov",
-            "username": "yerzhan7"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1f1c0c523e09b1fb2e460e5cfa6d55dccda493d8",
-          "message": "Send If-Match on incremental upload at offset 0 (#1970)\n\nFix inconsistency when during incremental upload we do not attach\n`If-Match` ETag header (when ETag is known) at offset 0.\n\n### Does this change impact existing behavior?\n\nYes. If there was concurrent modification file operation will fail with\nEIO. This now matches behaviour for `offset > 0`.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Yerzhan Mazhkenov <20302932+yerzhan7@users.noreply.github.com>",
-          "timestamp": "2026-10-07T09:38:56Z",
-          "tree_id": "2eb04ccdd5ac2df67b8acc94aaefd2a84bda81fa",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/1f1c0c523e09b1fb2e460e5cfa6d55dccda493d8"
-        },
-        "date": 1791375017936,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 467.86328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 482.10546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 463.44140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 55.10546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 89.3203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 56.77734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 89.1953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 45.859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 59.40234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 47.5078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 59.09765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 434.28515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 84.921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 434.4453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 86.23828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 332.52734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 53.18359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 333.7890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 332.79296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 53.37890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 436.421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 388.83203125,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 384.48828125,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "20302932+yerzhan7@users.noreply.github.com",
+            "name": "Yerzhan Mazhkenov",
+            "username": "yerzhan7"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "75b9f7ee92ac92be333a2fbd815e6d68776234fe",
+          "message": "Name Amazon Linux source tarballs after the release tag (#2015)\n\nThe source and vendor tarballs used to build the Amazon Linux 2023 and\n2027 packages will be using `v<version>` release tag. They are named\nafter the tag and differ from the tarballs we build today:\n\n| | Before | After |\n|---|---|---|\n| `Source0` | `mountpoint-s3-<version>.tar.gz`, unpacking into\n`mountpoint-s3/` | `mountpoint-s3-v<version>.tar.gz`, unpacking into\n`mountpoint-s3-<version>/` |\n| `Source1` | `mountpoint-s3-<version>-vendor.tar.gz`, unpacking into\n`vendor/` | `mountpoint-s3-v<version>-vendor.tar.xz`, unpacking into\n`vendor/` |\n\nThis change updates the spec template to match, and updates\n`generate_amzn_srpm.sh` to build the CI tarballs with the same names and\nlayout, so the `Build SRPM` and `Test RPM` jobs keep testing the spec\nthat is submitted to Amazon Linux.\n\n### Does this change impact existing behavior?\n\nNo. It only changes the names and layout of the tarballs used to build\nthe Amazon Linux RPMs.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, this is a packaging-only change.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Yerzhan Mazhkenov <20302932+yerzhan7@users.noreply.github.com>",
+          "timestamp": "2026-10-30T22:01:00Z",
+          "tree_id": "140c752615ef45094631d955cf5a4eb1900ba576",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/75b9f7ee92ac92be333a2fbd815e6d68776234fe"
+        },
+        "date": 1793406264079,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 468.0390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 475.15234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 459.03125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 55.20703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 91.55078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 57.25390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 89.8125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 46.0703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 61.26953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 47.2265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 59.6796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 433.921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 84.3828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 435.07421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 86.890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 332.34375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 53.47265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 331.12890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 332.12890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 54.109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 435.82421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 391.99609375,
             "unit": "MiB"
           }
         ]
