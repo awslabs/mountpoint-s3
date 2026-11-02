@@ -1,5 +1,6 @@
 ## Unreleased (v0.12.0)
 
+* Remove `checksums::combine_checksums`. Use `mountpoint_s3_client::checksums::crc32c::combine` instead. ([#2019](https://github.com/awslabs/mountpoint-s3/pull/2019))
 * Align with fuser 0.17. `S3Filesystem` now uses fuser's types, such as `INodeNo`, `FileHandle` and `Errno`, instead of raw integers. `InodeNo` and `FUSE_ROOT_INODE` are replaced by `INodeNo` and `INodeNo::ROOT`. ([#2005](https://github.com/awslabs/mountpoint-s3/pull/2005))
 * Update to latest S3 client.
 * `Superblock` now issues its S3 requests through the new `MetadataClient` trait, which covers the HeadObject, ListObjectsV2, DeleteObject and RenameObject requests it makes, with errors classified by `MetadataError`. Every `ObjectClient` implements `MetadataClient`, so existing uses of `Superblock` are unchanged. The new `mock` feature adds `InMemoryMetadata`, an in-memory `MetadataClient` over a `MockBucket` for tests. ([#1998](https://github.com/awslabs/mountpoint-s3/pull/1998))

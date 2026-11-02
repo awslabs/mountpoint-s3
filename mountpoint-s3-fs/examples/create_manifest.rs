@@ -10,12 +10,9 @@ use aws_sdk_s3::{Client, config::Region, operation::list_objects_v2::ListObjects
 use clap::Parser;
 use csv::WriterBuilder;
 
-use mountpoint_s3_client::checksums::crc32c::{Crc32c, Hasher};
+use mountpoint_s3_client::checksums::crc32c::{self, Crc32c, Hasher};
 use mountpoint_s3_client::checksums::crc32c_to_base64;
-use mountpoint_s3_fs::{
-    checksums::{Crc32cBase64, combine_checksums},
-    manifest::CsvEntry,
-};
+use mountpoint_s3_fs::{checksums::Crc32cBase64, manifest::CsvEntry};
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -76,8 +73,8 @@ fn write_to_manifest<W: Write>(
             object.size().unwrap() as u64,
         );
 
-        // Update running_checksum using combine_checksums
-        *running_checksum = combine_checksums(*running_checksum, entry.checksum.value(), entry.total_size());
+        // Update running_checksum using crc32c::combine
+        *running_checksum = crc32c::combine(*running_checksum, entry.checksum.value(), entry.total_size());
 
         // Write the entry to the CSV writer
         writer.serialize(entry)?;

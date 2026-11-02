@@ -1,10 +1,10 @@
 use std::io::Read;
 
 use csv::{DeserializeRecordsIntoIter, ReaderBuilder};
-use mountpoint_s3_client::checksums::Crc32c;
+use mountpoint_s3_client::checksums::{Crc32c, crc32c};
 use serde::{Deserialize, Serialize};
 
-use crate::checksums::{Crc32cBase64, combine_checksums};
+use crate::checksums::Crc32cBase64;
 
 use super::InputManifestError;
 use super::builder::InputManifestEntry;
@@ -41,7 +41,7 @@ impl<R: Read> CsvReader<R> {
 
     fn update_running_checksum(&mut self, csv_entry: &CsvEntry) {
         let entry_size = csv_entry.total_size();
-        self.running_checksum = combine_checksums(self.running_checksum, csv_entry.checksum.value(), entry_size);
+        self.running_checksum = crc32c::combine(self.running_checksum, csv_entry.checksum.value(), entry_size);
     }
 }
 

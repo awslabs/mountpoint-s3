@@ -1,5 +1,6 @@
 ## Unreleased (v0.17.0)
 
+* Add `checksums::crc32c::combine`, which combines the CRC32C checksums of two consecutive blocks of data using the CRT's `aws_checksums_crc32c_combine`. ([#2019](https://github.com/awslabs/mountpoint-s3/pull/2019))
 * Add `ClientConfig::retry_config` to configure the S3 client's built-in retry strategy, including `RetryMode::None` to attempt each request exactly once. It replaces `ClientConfig::retry_strategy`, which is removed. ([#1996](https://github.com/awslabs/mountpoint-s3/pull/1996))
 * Update to latest CRT dependencies.
 

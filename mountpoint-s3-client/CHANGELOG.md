@@ -1,5 +1,6 @@
 ## Unreleased (v0.23.0)
 
+* Add `checksums::crc32c::combine`, which combines the CRC32C checksums of two consecutive blocks of data. ([#2019](https://github.com/awslabs/mountpoint-s3/pull/2019))
 * Fix `S3ClientConfig::max_attempts` and `AWS_MAX_ATTEMPTS` set to 1 still retrying failed requests up to 3 times. `S3CrtClient::new` now fails with `NewClientError::InvalidConfiguration` when `AWS_MAX_ATTEMPTS` is not a positive integer. Previously 0 selected the CRT's default of 4 attempts and other invalid values were silently ignored. ([#1996](https://github.com/awslabs/mountpoint-s3/pull/1996))
 * Update to latest CRT dependencies.
 * Fix `S3CrtClient::new` panicking when the maximum number of attempts (`max_attempts` or `AWS_MAX_ATTEMPTS`) is more than 64. ([#2010](https://github.com/awslabs/mountpoint-s3/pull/2010))
