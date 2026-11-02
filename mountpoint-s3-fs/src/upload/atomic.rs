@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use mountpoint_s3_client::checksums::{Crc32c, crc32c_from_base64, crc64nvme, crc64nvme_from_base64};
+use mountpoint_s3_client::checksums::{Crc32c, crc32c, crc32c_from_base64, crc64nvme, crc64nvme_from_base64};
 use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
     ChecksumAlgorithm, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, UploadChecksum, UploadReview,
@@ -11,7 +11,6 @@ use tracing::{error, trace};
 
 use crate::ServerSideEncryption;
 use crate::async_util::{RemoteResult, Runtime};
-use crate::checksums::combine_checksums;
 use crate::content_type::{ContentTypeDetection, infer_content_type};
 
 use super::UploadError;
@@ -231,7 +230,7 @@ fn verify_crc32c(review: &UploadReview, expected: &Crc32c) -> bool {
                 return false;
             }
         };
-        combined = combine_checksums(combined, part_checksum, part.size as usize);
+        combined = crc32c::combine(combined, part_checksum, part.size as usize);
     }
     if combined != *expected {
         error!(

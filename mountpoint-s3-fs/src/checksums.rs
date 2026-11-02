@@ -240,14 +240,14 @@ impl ChecksummedBytesBuilder {
             return Ok(());
         }
 
-        // Shrink to fit so `checksum` covers exactly `bytes`, as `combine_checksums` requires.
+        // Shrink to fit so `checksum` covers exactly `bytes`, as `crc32c::combine` requires.
         let (bytes, checksum) = bytes.into_inner()?;
 
         if self.buffer.is_empty() {
             self.buffer.reserve_exact(self.capacity);
         }
         self.buffer.extend_from_slice(&bytes);
-        self.checksum = combine_checksums(self.checksum, checksum, bytes.len());
+        self.checksum = crc32c::combine(self.checksum, checksum, bytes.len());
         Ok(())
     }
 
@@ -281,17 +281,6 @@ impl TryFrom<ChecksummedBytes> for Bytes {
     fn try_from(value: ChecksummedBytes) -> Result<Self, Self::Error> {
         value.into_bytes()
     }
-}
-
-/// Calculates the combined checksum for `AB` where `prefix_crc` is the checksum for `A`,
-/// `suffix_crc` is the checksum for `B`, and `suffix_len` is the length of `B`.
-pub fn combine_checksums(prefix_crc: Crc32c, suffix_crc: Crc32c, suffix_len: usize) -> Crc32c {
-    if is_integrity_validation_disabled() {
-        return Crc32c::new(0); // Dummy checksum when validation is disabled
-    }
-
-    let combined = ::crc32c::crc32c_combine(prefix_crc.value(), suffix_crc.value(), suffix_len);
-    Crc32c::new(combined)
 }
 
 #[derive(Debug, Error)]
@@ -612,16 +601,5 @@ mod tests {
         assert_eq!(slice.buffer_slice(), shrunken_bytes);
         assert_ne!(slice.buffer, shrunken_bytes);
         assert_ne!(slice.checksum, shrunken_checksum);
-    }
-
-    #[test]
-    fn test_combine_checksums() {
-        let buf: &[u8] = b"123456789";
-        let (buf1, buf2) = buf.split_at(4);
-        let crc = crc32c::checksum(buf);
-        let crc1 = crc32c::checksum(buf1);
-        let crc2 = crc32c::checksum(buf2);
-        let combined = combine_checksums(crc1, crc2, buf2.len());
-        assert_eq!(combined, crc);
     }
 }
