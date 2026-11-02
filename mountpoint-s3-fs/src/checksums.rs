@@ -247,7 +247,11 @@ impl ChecksummedBytesBuilder {
             self.buffer.reserve_exact(self.capacity);
         }
         self.buffer.extend_from_slice(&bytes);
-        self.checksum = crc32c::combine(self.checksum, checksum, bytes.len());
+        self.checksum = if is_integrity_validation_disabled() {
+            Crc32c::new(0) // Dummy checksum when validation is disabled
+        } else {
+            crc32c::combine(self.checksum, checksum, bytes.len())
+        };
         Ok(())
     }
 
