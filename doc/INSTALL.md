@@ -206,7 +206,7 @@ To verify the authenticity and integrity of a downloaded Mountpoint for Amazon S
 
 To use Mountpoint for Amazon S3 with applications running in a Kubernetes cluster,
 we recommend installing and using the [Mountpoint for Amazon S3 CSI driver](https://docs.aws.amazon.com/eks/latest/userguide/s3-csi.html).
-You can install the CSI driver on a self-managed Kubernetes cluster by following its [installation instructions](https://github.com/awslabs/mountpoint-s3-csi-driver/blob/main/docs/install.md#installation),
+You can install the CSI driver on a self-managed Kubernetes cluster by following its [installation instructions](https://github.com/awslabs/mountpoint-s3-csi-driver/blob/main/docs/INSTALL.md#installation),
 or if you use Amazon EKS,
 it is also available as an [EKS managed add-on](https://docs.aws.amazon.com/eks/latest/userguide/s3-csi.html).
 
