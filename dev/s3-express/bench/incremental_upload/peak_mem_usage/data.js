@@ -1,57 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793705277147,
+  "lastUpdate": 1793720475236,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone, Incremental Upload)": [
-      {
-        "commit": {
-          "author": {
-            "email": "rajdchak@amazon.co.uk",
-            "name": "rajdchak",
-            "username": "rajdchak"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "cc1a6ded1d2bfcdbb393ae6540b66d306ee182a2",
-          "message": "Clarify mountpoint can overwrite objects (#1982)\n\nDocuments that Mountpoint can replace an existing object even when\n--allow-overwrite is not set: existence is only checked at file-open\ntime, so an object uploaded to the bucket after that check may be\nreplaced when the write completes. Metadata caching (negative cache)\nwidens this window.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: rajdchak <rajdchak@amazon.co.uk>",
-          "timestamp": "2026-10-12T16:01:13Z",
-          "tree_id": "21302bac8198a6e3315040305f42431b9d468ff9",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/cc1a6ded1d2bfcdbb393ae6540b66d306ee182a2"
-        },
-        "date": 1791825062699,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 10482.1953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 8398.109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 10320.75390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 2118.49609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 2119.9765625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1469,6 +1420,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 2341.60546875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "583dfe8e8f9b20861e3095b37a13f29df477b2c4",
+          "message": "Authenticate packaging image pulls against Amazon ECR Public (#2014)\n\nThe `Packaging` job pulls its CentOS 7 build image anonymously from\n`public.ecr.aws`. That quota is enforced per source IP, and\nGitHub-hosted runners\nshare a NAT pool with other tenants, so we regularly inherited an\nalready-exhausted\nbudget and failed with:\n\n```\npublic.ecr.aws/docker/library/centos:7: failed to resolve source metadata:\n429 Too Many Requests - Server message: toomanyrequests: Data limit exceeded\n```\n\nThis accounted for **15 of the last 40 `Packaging` runs** (~38%),\nincluding merge-queue\nruns, where it blocked unrelated pull requests. Only the `x86_64` leg\nfailed; the\n`aarch64` leg runs on a self-hosted runner, which egresses from our own\naddress rather\nthan a shared one.\n\n1. **Authenticate the pull** against ECR Public using the existing\n`ACTIONS_IAM_ROLE`,\nso we use the account quota instead of the shared anonymous one. Both\ncredential\nsteps are best effort: where we can't authenticate, we fall back to an\nanonymous\n   pull.\n2. **The job moves into the integration tests workflow**, so it sits\nbehind the same\napproval gate as the other jobs that use our own credentials and\nrunners.\n3. **`fail-fast: false`** keeps a failure on one architecture from\ncancelling an\n   otherwise healthy build on the other.\n\n`.github/workflows/package.yml` is removed; the job is now `packaging`\nin\n`integration.yml` and is included in the `Integration Tests Complete`\naggregate check.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2026-11-03T14:28:11Z",
+          "tree_id": "9ff696b13437c4fb10dfda18ab8cabce1030d8f0",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/583dfe8e8f9b20861e3095b37a13f29df477b2c4"
+        },
+        "date": 1793720475159,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 10565.30078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 8542.921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 10314.2265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 2117.9765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 2117.7109375,
             "unit": "MiB"
           }
         ]
