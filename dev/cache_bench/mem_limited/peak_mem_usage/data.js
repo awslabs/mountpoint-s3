@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793670589885,
+  "lastUpdate": 1793709600210,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard, Memory-Limited)": [
-      {
-        "commit": {
-          "author": {
-            "email": "20302932+yerzhan7@users.noreply.github.com",
-            "name": "Yerzhan Mazhkenov",
-            "username": "yerzhan7"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1f1c0c523e09b1fb2e460e5cfa6d55dccda493d8",
-          "message": "Send If-Match on incremental upload at offset 0 (#1970)\n\nFix inconsistency when during incremental upload we do not attach\n`If-Match` ETag header (when ETag is known) at offset 0.\n\n### Does this change impact existing behavior?\n\nYes. If there was concurrent modification file operation will fail with\nEIO. This now matches behaviour for `offset > 0`.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Yerzhan Mazhkenov <20302932+yerzhan7@users.noreply.github.com>",
-          "timestamp": "2026-10-07T09:38:56Z",
-          "tree_id": "2eb04ccdd5ac2df67b8acc94aaefd2a84bda81fa",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/1f1c0c523e09b1fb2e460e5cfa6d55dccda493d8"
-        },
-        "date": 1791375544452,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 377.52734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 61.01953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 377.8671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 59.91796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 378.51171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 46.41796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 378.37890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 46.06640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 378.05078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 56.46484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 387.96875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 64.52734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 390.84765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 41.95703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 365.71875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 394.19140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 43.15234375,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3269,6 +3160,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 43.29296875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "20302932+yerzhan7@users.noreply.github.com",
+            "name": "Yerzhan Mazhkenov",
+            "username": "yerzhan7"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5a5bedbdc1ef4dd19d633f1963faf68fafa4b9fb",
+          "message": "Update CRT submodules to latest releases (#2020)\n\nUpdate the CRT submodules to the latest releases:\n\n* `aws-c-auth` `v1.0.2` -> `v1.0.3`\n* `aws-c-s3` `v1.5.0` -> `v1.5.2`\n\nAll other submodules are already at their latest release.\n\n### Does this change impact existing behavior?\n\nNo breaking changes. Changes in behavior:\n- Requests to S3 carry the `amz-sdk-invocation-id` and `amz-sdk-request`\nheaders on every attempt.\n- Credential provider endpoints for `eusc-` regions now use the\n`amazonaws.eu` DNS suffix.\n\nThe new `aws-c-s3` also accepts `request_body` on `PUT_OBJECT` meta\nrequests. `mountpoint-s3-client` only sets `request_body` for single\nPutObject requests, which use the `DEFAULT` meta request type, so this\nchange does not affect it.\n\nThe compressed `mountpoint-s3-crt-sys` crate is 9.5MiB, within the 10MiB\ncrates.io limit.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo. The unreleased sections of `mountpoint-s3-crt-sys` (v0.18.0),\n`mountpoint-s3-crt` (v0.17.0) and `mountpoint-s3-client` (v0.23.0)\nalready include \"Update to latest CRT dependencies.\" and the version\nbumps from #2010.\n\n<details>\n  <summary>Full CRT changelog:</summary>\n\n```\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-auth 3d29adcec..6f9496f2f:\n  > chore(release): patch-update to VERSION - 1.0.3\n  > Add aws-eusc partition DNS suffix for credential provider endpoints (#309)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-s3 fcb0e322b..bc923d67e:\n  > chore(release): patch-update to VERSION - 1.5.2\n  > Zero-copy uploads: request_body on PUT_OBJECT (#709)\n  > Adding Retry headers to every attempt (#710)\n  > chore(release): patch-update to VERSION - 1.5.1\n  > Getters for default max part size and configured memory limit (#711)\n  > Resume token ETag with caller If-Match (#708)\n```\n\n</details>\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Yerzhan Mazhkenov <20302932+yerzhan7@users.noreply.github.com>",
+          "timestamp": "2026-11-03T10:16:27Z",
+          "tree_id": "115ded402e2824de775b5776a896f73c2bbe323f",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/5a5bedbdc1ef4dd19d633f1963faf68fafa4b9fb"
+        },
+        "date": 1793709600131,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 391.37890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 62.15625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 356.81640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 62.34375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 369.7578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 47.14453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 387.8671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 46.6015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 371.54296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 56.234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 369.75390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 67.296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 384.08984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 44.34375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 386.71484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 368.3046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 42.29296875,
             "unit": "MiB"
           }
         ]
