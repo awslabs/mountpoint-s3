@@ -8,7 +8,9 @@ set -eE -o pipefail
 trap 'echo "FAILED (exit $?) in ${FUNCNAME[0]:-main}: ${BASH_COMMAND}" >&2' ERR
 
 OTEL_COLLECTOR_CONFIG="otel-config.yaml"
-OTEL_COLLECTOR_METRICS="/tmp/otel-collector-metrics"
+# Unique per run: /tmp is shared between the runner processes of a self-hosted runner,
+# and cleanup deletes this file.
+OTEL_COLLECTOR_METRICS="/tmp/otel-collector-metrics-$$"
 OTLP_ENDPOINT="http://127.0.0.1:4318"
 # Directory to copy the Mountpoint logs of a failed test to, so that CI can keep them
 # after the temporary directory holding them is deleted. Logs are only printed if unset.
@@ -41,6 +43,15 @@ if [[ -z "${S3_BUCKET_TEST_PREFIX}" ]]; then
   echo "ERROR: Set S3_BUCKET_TEST_PREFIX to run this benchmark"
   exit 1
 fi
+
+# Prefix for this run of the script. Runs on different hosts must not share one, or
+# they would overwrite each other's objects: in CI, S3_BUCKET_TEST_PREFIX is one prefix
+# per workflow run and the tests run on more than one runner at a time. RUNNER_NAME
+# identifies the runner, which only runs one job at a time, and the PID keeps runs on
+# the same host apart. Overlapping runs on one host still compete for the collector's
+# OTLP port, which fails the later one at start-up.
+RUN_LABEL="${RUNNER_NAME:-local}"
+TEST_PREFIX="${S3_BUCKET_TEST_PREFIX%/}/metrics-${RUN_LABEL// /-}-$$/"
 
 if ! command -v otelcol &> /dev/null; then
   echo "ERROR: OTel collector not found in PATH"
@@ -192,14 +203,18 @@ setup_mount() {
   MOUNTPOINT_LOGS="$TMP_DIR/logs"
   MOUNTPOINT_CACHE="$TMP_DIR/cache"
   
-  echo "Mount ${S3_BUCKET_NAME}, prefix: ${S3_BUCKET_TEST_PREFIX} ($mode)"
+  # Each test also gets its own prefix, so that it writes new objects rather than
+  # overwriting the ones left behind by the test before it.
+  local prefix="${TEST_PREFIX}${mode}/"
+
+  echo "Mount ${S3_BUCKET_NAME}, prefix: ${prefix} ($mode)"
   mkdir -p "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}" "${MOUNTPOINT_CACHE}"
 
   local args=(
     "${S3_BUCKET_NAME}" "${MOUNT_DIR}"
     --allow-overwrite
     --log-directory="${MOUNTPOINT_LOGS}"
-    --prefix="${S3_BUCKET_TEST_PREFIX}"
+    --prefix="${prefix}"
     --cache="${MOUNTPOINT_CACHE}"
     --max-cache-size=100
   )
