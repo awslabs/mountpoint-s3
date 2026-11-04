@@ -384,7 +384,9 @@ impl RemoteIter {
     }
 
     async fn next(&mut self, client: &impl MetadataClient) -> Result<Option<ReaddirEntry>, InodeError> {
-        if self.entries.is_empty() {
+        // Loop because S3 can return empty `ListObjectsV2` pages with a continuation token. Returning
+        // `None` after an empty page would end the listing before the remaining pages are read.
+        while self.entries.is_empty() {
             let continuation_token = match &mut self.state {
                 RemoteIterState::Finished => {
                     trace!(self=?self as *const _, prefix=?self.full_path, "remote iter finished");
@@ -661,6 +663,10 @@ mod tests {
     use crate::superblock::Superblock;
     use crate::sync::Arc;
     use mountpoint_s3_client::mock_client::MockClient;
+    use test_case::test_case;
+
+    use super::RemoteIter;
+    use crate::superblock::{HeadInfo, ListPage, ListedObject, MetadataClient, MetadataError};
 
     /// Verifies that `readdir` gracefully skips local inodes that are no longer tracked
     /// in the parent’s `writing_children`.  
@@ -769,5 +775,78 @@ mod tests {
             .await
             .expect("Readdir failed");
         assert_eq!(names, [".", "..", "kept"]);
+    }
+
+    /// A [MetadataClient] that lists `dir/` as two empty, truncated pages followed by a page with
+    /// two objects.
+    struct EmptyPagesClient;
+
+    #[async_trait::async_trait]
+    impl MetadataClient for EmptyPagesClient {
+        async fn head_object(&self, _bucket: &str, _key: &str) -> Result<HeadInfo, MetadataError> {
+            unreachable!("readdir does not call HeadObject")
+        }
+
+        async fn list_objects(
+            &self,
+            _bucket: &str,
+            continuation_token: Option<&str>,
+            _delimiter: &str,
+            _max_keys: usize,
+            _prefix: &str,
+        ) -> Result<ListPage, MetadataError> {
+            let empty_page = |next: &str| ListPage {
+                objects: vec![],
+                common_prefixes: vec![],
+                next_continuation_token: Some(next.to_owned()),
+            };
+            let object = |key: &str| ListedObject {
+                key: key.to_owned(),
+                size: 0,
+                last_modified: time::OffsetDateTime::UNIX_EPOCH,
+                etag: "\"etag\"".to_owned(),
+                storage_class: None,
+                restore_status: None,
+            };
+            Ok(match continuation_token {
+                None => empty_page("page-1"),
+                Some("page-1") => empty_page("page-2"),
+                Some("page-2") => ListPage {
+                    objects: vec![object("dir/a.txt"), object("dir/b.txt")],
+                    common_prefixes: vec![],
+                    next_continuation_token: None,
+                },
+                Some(token) => panic!("unexpected continuation token {token}"),
+            })
+        }
+
+        async fn delete_object(&self, _bucket: &str, _key: &str) -> Result<(), MetadataError> {
+            unreachable!("readdir does not call DeleteObject")
+        }
+
+        async fn rename_object(
+            &self,
+            _bucket: &str,
+            _src_key: &str,
+            _dst_key: &str,
+            _overwrite: bool,
+        ) -> Result<(), MetadataError> {
+            unreachable!("readdir does not call RenameObject")
+        }
+    }
+
+    #[test_case(true; "ordered")]
+    #[test_case(false; "unordered")]
+    #[tokio::test]
+    async fn test_remote_iter_continues_after_empty_pages(ordered: bool) {
+        let client = EmptyPagesClient;
+        let mut iter = RemoteIter::new("test-bucket", "dir/", 1000, ordered);
+
+        let mut names = Vec::new();
+        while let Some(entry) = iter.next(&client).await.expect("listing should succeed") {
+            names.push(entry.name().to_owned());
+        }
+
+        assert_eq!(names, ["a.txt", "b.txt"]);
     }
 }
