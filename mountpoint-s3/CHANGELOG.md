@@ -6,7 +6,7 @@
 
 ### Other changes
 
-* Fix Mountpoint failing to start in the background with `Timeout after 30 seconds while waiting for mount process to be ready` when `--cache` points to a large cache directory left over from a previous run, for example after a crash. Mountpoint now waits for the leftover directory to be removed, and logs a warning if the removal takes longer than 30 seconds. ([#1251](https://github.com/awslabs/mountpoint-s3/issues/1251))
+* Fix Mountpoint failing to start with a 30 second timeout when `--cache` contains a large cache left over from a previous run. Mountpoint now waits for the old cache to be removed, and logs a warning if it takes longer than 30 seconds. ([#2024](https://github.com/awslabs/mountpoint-s3/pull/2024))
 * Fix `AWS_MAX_ATTEMPTS=1` still retrying failed S3 requests up to 3 times. ([#1996](https://github.com/awslabs/mountpoint-s3/pull/1996))
 * Fix Mountpoint failing to start when `AWS_MAX_ATTEMPTS` is set to more than 64. ([#2010](https://github.com/awslabs/mountpoint-s3/pull/2010))
 * Make `--incremental-upload` consistently check for concurrent writes when appending (i.e. without `O_TRUNC`), even at offset 0. Previously, appending to an existing empty object could silently overwrite another writer's changes instead of failing with `EIO`. ([#1970](https://github.com/awslabs/mountpoint-s3/pull/1970) by @yerzhan7)
