@@ -1,6 +1,7 @@
 mod build_info;
 mod cli;
 mod fstab;
+mod mount_progress;
 mod run;
 
 use clap::Parser;

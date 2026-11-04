@@ -2777,6 +2777,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "signal-hook",
  "syscalls",
  "tempfile",
  "test-case",
