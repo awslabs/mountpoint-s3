@@ -280,10 +280,11 @@ mod tests {
     /// Heartbeats restart the timeout, so the child can take much longer than one timeout in total.
     #[test]
     fn heartbeats_restart_the_timeout() {
-        let (reader, mut writer) = reader_and_writer(Duration::from_millis(200));
+        // Leave a wide margin between heartbeats and the timeout, so slow CI machines don't fail the test.
+        let (reader, mut writer) = reader_and_writer(Duration::from_secs(1));
         let writer_thread = thread::spawn(move || {
-            for _ in 0..10 {
-                thread::sleep(Duration::from_millis(100));
+            for _ in 0..40 {
+                thread::sleep(Duration::from_millis(50));
                 writer.write_all(&[HEARTBEAT_BYTE]).unwrap();
             }
             writer.write_all(&[SUCCESS_BYTE]).unwrap();
@@ -372,12 +373,12 @@ mod tests {
     #[test]
     fn reporter_heartbeats_keep_reader_waiting() {
         let (read_fd, write_fd) = nix::unistd::pipe().expect("failed to create pipe");
-        let reader = MountProgressReader::with_timeout(read_fd, Duration::from_millis(200));
+        let reader = MountProgressReader::with_timeout(read_fd, Duration::from_secs(1));
         let reporter = MountProgressReporter::new(write_fd);
 
         let child = thread::spawn(move || {
             let heartbeat = Heartbeat::start(reporter.pipe.clone(), Duration::from_millis(50));
-            thread::sleep(Duration::from_secs(1));
+            thread::sleep(Duration::from_secs(2));
             drop(heartbeat);
             reporter.report_success().unwrap();
         });
