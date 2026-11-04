@@ -1,6 +1,5 @@
 //! A simple interface to retrieve information about the EC2 instance this client is running on by
-//! querying the Instance Metadata Service (IMDS), falling back to the DMI tables for the instance
-//! type when IMDS is unavailable.
+//! reading the DMI tables and querying the Instance Metadata Service (IMDS).
 
 use std::cell::LazyCell;
 use std::path::Path;
@@ -13,8 +12,8 @@ use crate::imds_crt_client::{IdentityDocument, ImdsCrtClient, ImdsQueryRequestEr
 /// Directory where the Linux kernel exposes the decoded SMBIOS/DMI tables.
 const DMI_ROOT: &str = "/sys/devices/virtual/dmi/id";
 
-/// Information on the EC2 instance from the IMDS client. The client is queried lazily and only if
-/// the `AWS_EC2_METADATA_DISABLED` environment variable is not set.
+/// Information on the EC2 instance from the DMI tables and the IMDS client. Both are queried
+/// lazily, and IMDS only if the `AWS_EC2_METADATA_DISABLED` environment variable is not set.
 #[derive(Debug)]
 pub struct InstanceInfo {
     document: LazyCell<Result<IdentityDocument, InstanceInfoError>>,
@@ -61,14 +60,13 @@ impl InstanceInfo {
         self.document.as_ref().map(|d| d.region.as_str())
     }
 
-    /// The instance type for the current instance, if it can be retrieved using the IMDS client or
-    /// read from the DMI tables.
+    /// The instance type for the current instance, if it can be read from the DMI tables or
+    /// retrieved using the IMDS client.
     pub fn instance_type(&self) -> Result<&str, &InstanceInfoError> {
-        match self.document.as_ref() {
-            Ok(document) => Ok(document.instance_type.as_str()),
-            // Fall back to the DMI tables, reporting the original IMDS error if they are
-            // unavailable too.
-            Err(err) => self.dmi_instance_type.as_deref().ok_or(err),
+        match self.dmi_instance_type.as_deref() {
+            Some(instance_type) => Ok(instance_type),
+            // Fall back to IMDS, reporting its error if it is unavailable too.
+            None => self.document.as_ref().map(|d| d.instance_type.as_str()),
         }
     }
 }
@@ -149,5 +147,37 @@ mod tests {
             return;
         };
         assert_eq!(dmi_instance_type, identity_document.instance_type);
+    }
+
+    #[test]
+    fn instance_type_prefers_dmi_and_does_not_query_imds() {
+        let info = InstanceInfo {
+            document: LazyCell::new(|| panic!("IMDS should not be queried")),
+            dmi_instance_type: LazyCell::new(|| Some("m6a.4xlarge".to_owned())),
+        };
+        assert_eq!(info.instance_type().unwrap(), "m6a.4xlarge");
+    }
+
+    #[test]
+    fn instance_type_falls_back_to_imds_when_dmi_is_unavailable() {
+        let info = InstanceInfo {
+            document: LazyCell::new(|| {
+                Ok(IdentityDocument {
+                    instance_type: "m5.large".to_owned(),
+                    region: "us-east-1".to_owned(),
+                })
+            }),
+            dmi_instance_type: LazyCell::new(|| None),
+        };
+        assert_eq!(info.instance_type().unwrap(), "m5.large");
+    }
+
+    #[test]
+    fn instance_type_reports_imds_error_when_dmi_is_unavailable() {
+        let info = InstanceInfo {
+            document: LazyCell::new(|| Err(InstanceInfoError::ImdsDisabled)),
+            dmi_instance_type: LazyCell::new(|| None),
+        };
+        assert!(matches!(info.instance_type(), Err(InstanceInfoError::ImdsDisabled)));
     }
 }
