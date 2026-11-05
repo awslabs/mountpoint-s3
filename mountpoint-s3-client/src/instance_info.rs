@@ -171,7 +171,82 @@ pub enum InstanceInfoError {
 
 #[cfg(test)]
 mod tests {
+    use std::io::ErrorKind;
+
+    use tempfile::TempDir;
+    use test_case::test_case;
+
     use super::*;
+
+    /// Create a DMI root containing the given `(file name, contents)` entries.
+    fn dmi_root(files: &[(&str, &str)]) -> TempDir {
+        let root = tempfile::tempdir().unwrap();
+        for (name, contents) in files {
+            fs::write(root.path().join(name), contents).unwrap();
+        }
+        root
+    }
+
+    #[test_case("Amazon EC2\n"; "as written by EC2")]
+    #[test_case("amazon ec2\n"; "lowercase")]
+    fn reads_instance_type_when_vendor_is_ec2(vendor: &str) {
+        let root = dmi_root(&[("sys_vendor", vendor), ("product_name", "m6a.4xlarge\n")]);
+        assert_eq!(dmi_instance_type(root.path()).unwrap(), "m6a.4xlarge");
+    }
+
+    #[test]
+    fn reads_instance_type_with_hyphenated_size() {
+        let root = dmi_root(&[("sys_vendor", "Amazon EC2\n"), ("product_name", "c7i.metal-24xl\n")]);
+        assert_eq!(dmi_instance_type(root.path()).unwrap(), "c7i.metal-24xl");
+    }
+
+    #[test]
+    fn returns_unknown_instance_type_unchanged() {
+        // Whether the instance type is known is for the caller to decide (e.g. autoconfigure).
+        let root = dmi_root(&[("sys_vendor", "Amazon EC2\n"), ("product_name", "x99z.superlarge\n")]);
+        assert_eq!(dmi_instance_type(root.path()).unwrap(), "x99z.superlarge");
+    }
+
+    #[test_case("vendor\n", "product\n"; "other vendor")]
+    #[test_case("\n", "m6a.4xlarge\n"; "empty vendor")]
+    fn fails_when_vendor_is_not_ec2(vendor: &str, product_name: &str) {
+        let root = dmi_root(&[("sys_vendor", vendor), ("product_name", product_name)]);
+        let err = dmi_instance_type(root.path()).unwrap_err();
+        assert!(matches!(&err, DmiError::NotEc2(v) if v == vendor.trim()), "{err:?}");
+    }
+
+    #[test]
+    fn fails_when_product_name_is_empty() {
+        let root = dmi_root(&[("sys_vendor", "Amazon EC2\n"), ("product_name", "\n")]);
+        let err = dmi_instance_type(root.path()).unwrap_err();
+        assert!(matches!(err, DmiError::EmptyProductName), "{err:?}");
+    }
+
+    #[test_case("product"; "no dot")]
+    #[test_case("6a.4xlarge"; "family starts with a digit")]
+    #[test_case("m6 a.large"; "invalid character in family")]
+    #[test_case("m6a."; "empty size")]
+    #[test_case("m6a.4XLARGE"; "invalid character in size")]
+    fn fails_when_product_name_is_not_an_instance_type(product_name: &str) {
+        let root = dmi_root(&[("sys_vendor", "Amazon EC2\n"), ("product_name", product_name)]);
+        let result = dmi_instance_type(root.path());
+        assert!(
+            matches!(&result, Err(DmiError::NotAnInstanceType(name)) if name == product_name),
+            "{result:?}"
+        );
+    }
+
+    #[test_case(&[], "sys_vendor"; "no dmi tables")]
+    #[test_case(&[("sys_vendor", "Amazon EC2\n")], "product_name"; "missing product name")]
+    fn fails_when_file_is_missing(files: &[(&str, &str)], missing: &str) {
+        let root = dmi_root(files);
+        let err = dmi_instance_type(root.path()).unwrap_err();
+        assert!(
+            matches!(&err, DmiError::ReadFailed { path, source }
+                if *path == root.path().join(missing) && source.kind() == ErrorKind::NotFound),
+            "{err:?}"
+        );
+    }
 
     #[test]
     fn instance_type_prefers_dmi_and_does_not_query_imds() {
