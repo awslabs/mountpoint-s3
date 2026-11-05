@@ -777,12 +777,25 @@ mod tests {
         assert_eq!(names, [".", "..", "kept"]);
     }
 
-    /// A [MetadataClient] that lists `dir/` as two empty, truncated pages followed by a page with
-    /// two objects.
-    struct EmptyPagesClient;
+    /// A [MetadataClient] that lists a directory as the given pages of object keys. Every page but
+    /// the last has a continuation token, which is the index of the next page.
+    struct PagedListClient<'a> {
+        pages: &'a [&'a [&'a str]],
+    }
+
+    fn listed_object(key: &str) -> ListedObject {
+        ListedObject {
+            key: key.to_owned(),
+            size: 0,
+            last_modified: time::OffsetDateTime::UNIX_EPOCH,
+            etag: "\"etag\"".to_owned(),
+            storage_class: None,
+            restore_status: None,
+        }
+    }
 
     #[async_trait::async_trait]
-    impl MetadataClient for EmptyPagesClient {
+    impl MetadataClient for PagedListClient<'_> {
         async fn head_object(&self, _bucket: &str, _key: &str) -> Result<HeadInfo, MetadataError> {
             unreachable!("readdir does not call HeadObject")
         }
@@ -795,28 +808,12 @@ mod tests {
             _max_keys: usize,
             _prefix: &str,
         ) -> Result<ListPage, MetadataError> {
-            let empty_page = |next: &str| ListPage {
-                objects: vec![],
-                common_prefixes: vec![],
-                next_continuation_token: Some(next.to_owned()),
-            };
-            let object = |key: &str| ListedObject {
-                key: key.to_owned(),
-                size: 0,
-                last_modified: time::OffsetDateTime::UNIX_EPOCH,
-                etag: "\"etag\"".to_owned(),
-                storage_class: None,
-                restore_status: None,
-            };
-            Ok(match continuation_token {
-                None => empty_page("page-1"),
-                Some("page-1") => empty_page("page-2"),
-                Some("page-2") => ListPage {
-                    objects: vec![object("dir/a.txt"), object("dir/b.txt")],
-                    common_prefixes: vec![],
-                    next_continuation_token: None,
-                },
-                Some(token) => panic!("unexpected continuation token {token}"),
+            let index = continuation_token.map_or(0, |token| token.parse().expect("token should be a page index"));
+            let next = index + 1;
+            Ok(ListPage {
+                objects: self.pages[index].iter().copied().map(listed_object).collect(),
+                next_continuation_token: (next < self.pages.len()).then(|| next.to_string()),
+                ..Default::default()
             })
         }
 
@@ -835,18 +832,30 @@ mod tests {
         }
     }
 
-    #[test_case(true; "ordered")]
-    #[test_case(false; "unordered")]
+    #[test_case(&[&[], &[], &["dir/a.txt", "dir/b.txt"]]; "empty pages first")]
+    #[test_case(&[&["dir/a.txt"], &[], &["dir/b.txt"]]; "empty page between")]
+    #[test_case(&[&["dir/a.txt"], &[], &[], &["dir/b.txt", "dir/c.txt"]]; "empty pages between")]
+    #[test_case(&[&["dir/a.txt", "dir/b.txt"], &[]]; "empty last page")]
+    #[test_case(&[&[], &["dir/a.txt"], &[], &["dir/b.txt"], &[]]; "empty pages everywhere")]
+    #[test_case(&[&[], &[]]; "only empty pages")]
     #[tokio::test]
-    async fn test_remote_iter_continues_after_empty_pages(ordered: bool) {
-        let client = EmptyPagesClient;
-        let mut iter = RemoteIter::new("test-bucket", "dir/", 1000, ordered);
+    async fn test_remote_iter_continues_after_empty_pages(pages: &[&[&str]]) {
+        let client = PagedListClient { pages };
+        let expected: Vec<_> = pages
+            .iter()
+            .flat_map(|page| page.iter())
+            .map(|key| key.strip_prefix("dir/").unwrap())
+            .collect();
 
-        let mut names = Vec::new();
-        while let Some(entry) = iter.next(&client).await.expect("listing should succeed") {
-            names.push(entry.name().to_owned());
+        for ordered in [true, false] {
+            let mut iter = RemoteIter::new("test-bucket", "dir/", 1000, ordered);
+
+            let mut names = Vec::new();
+            while let Some(entry) = iter.next(&client).await.expect("listing should succeed") {
+                names.push(entry.name().to_owned());
+            }
+
+            assert_eq!(names, expected, "ordered: {ordered}");
         }
-
-        assert_eq!(names, ["a.txt", "b.txt"]);
     }
 }
