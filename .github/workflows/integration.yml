@@ -563,6 +563,8 @@ jobs:
     name: Binary size ${{ matrix.runner.name }}
     needs: packaging
     runs-on: ${{ matrix.runner.tags }}
+    permissions:
+      contents: read
 
     strategy:
       fail-fast: false
