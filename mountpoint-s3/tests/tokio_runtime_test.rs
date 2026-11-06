@@ -5,8 +5,10 @@
 #![cfg(all(feature = "mock", feature = "fuse_tests", target_os = "linux"))]
 
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus};
+use std::process::{Child, ChildStdout, Command, ExitStatus, Stdio};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use assert_cmd::cargo;
@@ -39,9 +41,12 @@ impl Mount {
             .arg(mount_point.path())
             .env("UNSTABLE_MOUNTPOINT_PID_FILE", &pid_file);
         if foreground {
-            cmd.arg("--foreground");
+            cmd.arg("--foreground").stdout(Stdio::piped());
         }
-        let process = cmd.spawn().expect("unable to spawn mock-mount-s3");
+        let mut process = cmd.spawn().expect("unable to spawn mock-mount-s3");
+        if foreground {
+            wait_for_mounted_message(process.stdout.take().unwrap());
+        }
 
         let mut mount = Self {
             foreground,
@@ -107,6 +112,23 @@ fn fusermount(args: &[&str], mount_point: &Path) -> bool {
             .status()
             .is_ok_and(|status| status.success())
     })
+}
+
+/// Wait for the line Mountpoint prints once the mount is ready, including the handler that ends
+/// it on SIGINT or SIGTERM, which is installed after the file system starts serving requests. Keeps
+/// reading its stdout until it closes.
+fn wait_for_mounted_message(stdout: ChildStdout) {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if line.contains(" is mounted at ") {
+                let _ = sender.send(());
+            }
+        }
+    });
+    receiver
+        .recv_timeout(TIMEOUT)
+        .expect("Mountpoint should report that it is mounted");
 }
 
 fn wait_until(what: &str, mut condition: impl FnMut() -> bool) {

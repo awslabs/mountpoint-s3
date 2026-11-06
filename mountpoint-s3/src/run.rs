@@ -53,16 +53,14 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
 
     if args.foreground {
         let _logging = init_logging(args.make_logging_config()).context("failed to initialize logging")?;
-        // Started before the metrics sink and the FUSE session, which hold the client, so that it is
-        // dropped after them.
-        let tokio_runtime = start_tokio_runtime()?;
+        let tokio_handle = start_tokio_runtime()?;
         let otlp_endpoint = args.otlp_endpoint.clone();
         let metrics = init_metrics(&otlp_endpoint, args.otlp_export_interval)?;
 
         create_pid_file()?;
 
         // mount file system as a foreground process
-        let session = mount(args, client_builder, &metrics, tokio_runtime.handle().clone())?;
+        let session = mount(args, client_builder, &metrics, tokio_handle)?;
 
         println!("{successful_mount_msg}");
 
@@ -101,9 +99,8 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
                 if let Some(Err(e)) = jemalloc_restored {
                     return Err(anyhow!("failed to start background threads: mallctl error code {e}"));
                 }
-                // Started after the fork, as threads don't survive `fork()`, and before the metrics
-                // sink and the FUSE session, which hold the client, so that it is dropped after them.
-                let tokio_runtime = start_tokio_runtime()?;
+                // Started after the fork, as threads don't survive `fork()`.
+                let tokio_handle = start_tokio_runtime()?;
                 let otlp_endpoint = args.otlp_endpoint.clone();
                 let metrics = init_metrics(&otlp_endpoint, args.otlp_export_interval)?;
 
@@ -116,7 +113,7 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
                     .open("/dev/null")
                     .context("couldn't open /dev/null")?;
 
-                let session = mount(args, client_builder, &metrics, tokio_runtime.handle().clone());
+                let session = mount(args, client_builder, &metrics, tokio_handle);
 
                 // close unused file descriptor, we only write from this end.
                 drop(read_fd);
@@ -219,16 +216,20 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
     Ok(())
 }
 
-/// Number of worker threads of the Tokio runtime. Its work is short, I/O-bound requests whose
-/// concurrency is bounded by their callers (the FUSE worker threads), so a small pool is enough.
+/// Number of worker threads of the Tokio runtime. A small fixed number rather than Tokio's default
+/// of one per CPU, as the runtime only runs the client's tasks, which mostly wait on network I/O.
 const TOKIO_WORKER_THREADS: usize = 2;
 
 /// Start the multi-thread Tokio runtime that the client's Tokio-based components, such as those
-/// built on the AWS SDK for Rust, spawn their tasks on. Its threads are named `mp-tokio-<n>`, so they
-/// can be told apart in `top -H` and stack dumps.
-fn start_tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
+/// built on the AWS SDK for Rust, spawn their tasks on, and return a handle to it. Its threads are
+/// named `mp-tokio-<n>`, so they can be told apart in `top -H` and stack dumps.
+///
+/// The runtime is never shut down: it runs until the process exits. The client can still be in use
+/// after the FUSE session ends, as the FUSE worker threads and the background tasks that hold it are
+/// not joined, and a runtime that has shut down cancels new tasks and fails timers and I/O.
+fn start_tokio_runtime() -> anyhow::Result<Handle> {
     let thread_index = AtomicUsize::new(0);
-    tokio::runtime::Builder::new_multi_thread()
+    let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(TOKIO_WORKER_THREADS)
         .thread_name_fn(move || {
             let index = thread_index.fetch_add(1, Ordering::Relaxed);
@@ -236,7 +237,10 @@ fn start_tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
         })
         .enable_all()
         .build()
-        .context("failed to start the Tokio runtime")
+        .context("failed to start the Tokio runtime")?;
+    let handle = runtime.handle().clone();
+    std::mem::forget(runtime);
+    Ok(handle)
 }
 
 /// Mount the file system. The client's Tokio-based components spawn their tasks through
@@ -360,7 +364,7 @@ pub trait ClientBuilder {
     /// Build a new client instance.
     ///
     /// Components of the client that need Tokio spawn their tasks through `tokio_handle`, on a
-    /// multi-thread runtime that is shut down only after the client has been dropped.
+    /// multi-thread runtime that runs until the process exits.
     fn build(
         self,
         client_config: ClientConfig,
@@ -472,9 +476,9 @@ mod tests {
 
     #[test]
     fn tokio_runtime_threads_are_named() {
-        let runtime = start_tokio_runtime().unwrap();
-        let name = runtime
-            .block_on(runtime.spawn(async { std::thread::current().name().map(str::to_owned) }))
+        let handle = start_tokio_runtime().unwrap();
+        let name = handle
+            .block_on(handle.spawn(async { std::thread::current().name().map(str::to_owned) }))
             .unwrap();
         assert!(
             name.as_deref().is_some_and(|name| name.starts_with("mp-tokio-")),
