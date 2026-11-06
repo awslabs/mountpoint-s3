@@ -30,7 +30,7 @@ assert_cmd = "2.2.2"
 assert_fs = "1.1.4"
 aws-config = "1.13.0"
 aws-credential-types = "1.2.14"
-aws-sdk-s3 = { version = "1.157.0", default-features = false, features = ["behavior-version-latest", "sigv4a", "rt-tokio", "default-https-client"] }
+aws-sdk-s3 = { version = "1.157.0", default-features = false, features = ["sigv4a", "rt-tokio", "default-https-client"] }
 futures = { version = "0.3.32", features = ["thread-pool"] }
 predicates = "3.1.4"
 proptest = "1.11.0"
