@@ -1,5 +1,6 @@
 ## Unreleased (v0.23.0)
 
+* Skip the `x-amz-optional-object-attributes: RestoreStatus` header on ListObjectsV2 when `EXPERIMENTAL_MOUNTPOINT_NO_LIST_RESTORE_STATUS` is set, for S3-compatible servers that reject it. ([#2026](https://github.com/awslabs/mountpoint-s3/pull/2026))
 * Add `checksums::crc32c::combine`, which combines the CRC32C checksums of two consecutive blocks of data. ([#2019](https://github.com/awslabs/mountpoint-s3/pull/2019))
 * Fix `S3ClientConfig::max_attempts` and `AWS_MAX_ATTEMPTS` set to 1 still retrying failed requests up to 3 times. `S3CrtClient::new` now fails with `NewClientError::InvalidConfiguration` when `AWS_MAX_ATTEMPTS` is not a positive integer. Previously 0 selected the CRT's default of 4 attempts and other invalid values were silently ignored. ([#1996](https://github.com/awslabs/mountpoint-s3/pull/1996))
 * Update to latest CRT dependencies.

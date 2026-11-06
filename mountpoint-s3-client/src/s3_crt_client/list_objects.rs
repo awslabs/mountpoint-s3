@@ -183,9 +183,11 @@ impl S3CrtClient {
                 .inner
                 .new_request_template("GET", bucket)
                 .map_err(S3RequestError::construction_failure)?;
-            message
-                .set_header(&Header::new("x-amz-optional-object-attributes", "RestoreStatus"))
-                .map_err(S3RequestError::construction_failure)?;
+            if std::env::var_os("EXPERIMENTAL_MOUNTPOINT_NO_LIST_RESTORE_STATUS").is_none() {
+                message
+                    .set_header(&Header::new("x-amz-optional-object-attributes", "RestoreStatus"))
+                    .map_err(S3RequestError::construction_failure)?;
+            }
             let max_keys = format!("{max_keys}");
             let mut query = vec![
                 ("list-type", "2"),
