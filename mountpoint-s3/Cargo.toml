@@ -21,6 +21,7 @@ serde = "1.0.228"
 serde_json = "1.0.150"
 tikv-jemalloc-sys = { version = "0.7.0", default-features = false }
 tikv-jemallocator = "0.7.0"
+tokio = { version = "1.54.1", features = ["rt-multi-thread"] }
 tracing = "0.1.44"
 
 [dev-dependencies]
@@ -40,7 +41,6 @@ rand = "0.10.1"
 serde = { version = "1.0.228", features = ["derive"] }
 test-case = "3.3.1"
 tempfile = "3.27.0"
-tokio = { version = "1.52.3" }
 tracing = { version = "0.1.44", features = ["log"] }
 
 [build-dependencies]
