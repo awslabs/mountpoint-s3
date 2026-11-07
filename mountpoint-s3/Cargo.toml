@@ -14,7 +14,7 @@ anyhow = { version = "1.0.103", features = ["backtrace"] }
 clap = { version = "4.6.1", features = ["derive", "env"] }
 const_format = "0.2.36"
 futures = "0.3.32"
-nix = { version = "0.31.3", default-features = false, features = ["fs", "process", "signal", "user"] }
+nix = { version = "0.31.3", default-features = false, features = ["fs", "poll", "process", "signal", "user"] }
 owo-colors = { version = "4.3.0", features = ["supports-colors"] }
 regex = "1.12.4"
 serde = "1.0.228"
@@ -32,12 +32,14 @@ aws-config = "1.8.18"
 aws-credential-types = "1.2.14"
 aws-sdk-s3 = { version = "1.137.0", default-features = false, features = ["behavior-version-latest", "sigv4a", "rt-tokio", "default-https-client"] }
 futures = { version = "0.3.32", features = ["thread-pool"] }
+nix = { version = "0.31.3", default-features = false, features = ["pthread"] }
 predicates = "3.1.4"
 proptest = "1.11.0"
 proptest-derive = "0.8.0"
 syscalls = "0.8.1"
 rand = "0.10.1"
 serde = { version = "1.0.228", features = ["derive"] }
+signal-hook = "0.4.4"
 test-case = "3.3.1"
 tempfile = "3.27.0"
 tokio = { version = "1.52.3" }
