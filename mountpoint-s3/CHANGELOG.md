@@ -13,6 +13,7 @@
 * Fix files and directories created through Mountpoint being reported as missing after an earlier lookup of the same name failed, when negative metadata caching is enabled (`--metadata-ttl` or `--negative-metadata-ttl`). Lookups could return `ENOENT` until the negative cache entry expired once the kernel had forgotten the new inode. ([#1985](https://github.com/awslabs/mountpoint-s3/pull/1985))
 * Fix memory allocator background threads not running when Mountpoint runs in background mode (the default, without `--foreground`). These threads return freed memory to the operating system, which otherwise happens on the threads serving file system requests. ([#1999](https://github.com/awslabs/mountpoint-s3/pull/1999))
 * Fix a deadlock that could make the file system hang when the kernel forgets a file or directory while another file in the same directory is renamed, or while the directory is opened for listing with files still being written in it. ([#1995](https://github.com/awslabs/mountpoint-s3/pull/1995))
+* Fix directory listings ending early when S3 returns an empty page of listing results. `readdir` now keeps listing until it finds entries or reaches the last page. ([#2023](https://github.com/awslabs/mountpoint-s3/pull/2023))
 
 ## v1.24.0 (August 24, 2026)
 
