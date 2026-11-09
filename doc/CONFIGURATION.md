@@ -162,7 +162,7 @@ When constructing the directory structure for your mount, Mountpoint removes any
 
 Amazon S3 buckets are associated with a single AWS Region. Mountpoint attempts to automatically detect the region for your S3 bucket at startup time and directs all S3 requests to that region. However, in some scenarios like cross-region mount with a directory bucket, this region detection may fail, preventing your bucket from being mounted and displaying Access Denied or No Such Bucket errors. You can override Mountpoint's automatic bucket region detection with the `--region` command-line argument or `AWS_REGION` environment variable.
 
-Mountpoint uses [instance metadata (IMDS)](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html) to help detect the region for an S3 bucket. If you want to disable IMDS, set the `AWS_EC2_METADATA_DISABLED` environment variable to `true`. Disabling IMDS does not stop Mountpoint from detecting the instance type from the instance's DMI tables (see [Configuring Mountpoint performance](#configuring-mountpoint-performance)).
+Mountpoint uses [instance metadata (IMDS)](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html) to help detect the region for an S3 bucket, and to detect the instance type only when the instance's DMI tables do not provide it (see [Configuring Mountpoint performance](#configuring-mountpoint-performance)). If you want to disable IMDS, set the `AWS_EC2_METADATA_DISABLED` environment variable to `true`.
 
 ### Access points
 
