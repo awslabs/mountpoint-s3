@@ -257,7 +257,8 @@ The same expected bucket owner is used for both the mounted S3 bucket and the sh
 There are certain situations where Mountpoint receives a response from Amazon S3 indicating that a retry is necessary.
 For example, if an application generates high request rates (typically sustained rates of over 5,000 requests per second to a small number of objects), Mountpoint might receive HTTP 503 slowdown responses from S3.
 Mountpoint automatically retries these requests up to a total of 10 attempts, using jittered exponential backoff between attempts.
-If these attempts are exhausted, Mountpoint will return an error to your application (usually `EIO`).
+While S3 keeps throttling, Mountpoint may stop retrying sooner, to avoid adding load. See [Throttling errors](https://github.com/awslabs/mountpoint-s3/blob/main/doc/TROUBLESHOOTING.md#throttling-errors).
+When Mountpoint stops retrying, it returns an error to your application (usually `EIO`).
 If you need to modify the maximum number of attempts, set the `AWS_MAX_ATTEMPTS` environment variable.
 The value must be a positive integer, otherwise Mountpoint fails to start. Set it to `1` to disable retries.
 
@@ -730,3 +731,12 @@ This should work well for most use cases but if you need to use a different valu
 
 > [!WARNING]
 > Overriding the default maximum prefetch window size may reduce overall read throughput.
+
+### Retry quota
+
+Mountpoint limits its retries with a [retry quota](https://docs.aws.amazon.com/sdkref/latest/guide/feature-retry-behavior.html#retry-quota-token-bucket) that all requests of a mount share. Once the quota runs out, for example while S3 throttles a prefix, Mountpoint returns errors to your application (usually `EIO`) without retrying.
+
+If your application retries failed file operations itself, letting Mountpoint retry with backoff instead can send fewer requests to S3. You can turn off the retry quota by setting the `UNSTABLE_MOUNTPOINT_DISABLE_RETRY_QUOTA` environment variable to `true` at mount time. Mountpoint then retries failed requests up to the maximum number of attempts (10 by default, or the value of `AWS_MAX_ATTEMPTS`), however many other requests fail.
+
+> [!WARNING]
+> Without the retry quota, Mountpoint sends more requests to S3 while S3 keeps failing them, and a file operation may wait for more than a minute while its requests are retried. Each waiting operation holds one of Mountpoint's FUSE threads, so raise `--max-threads` above the number of file operations your application may have waiting at the same time.

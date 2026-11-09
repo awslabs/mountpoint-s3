@@ -301,7 +301,29 @@ Amazon S3 automatically scales to high request rates.
 Your application can achieve at least 3,500 PUT/COPY/POST/DELETE or 5,500 GET/HEAD requests per second per partitioned Amazon S3 prefix.
 You can reduce the impact of throttling errors by distributing objects across multiple prefixes in your bucket.
 
-By default, Mountpoint retries throttled requests up to a total to 10 attempts. You can increase this default by setting the `AWS_MAX_ATTEMPTS` environment variable.
+By default, Mountpoint retries a throttled request up to a total of 10 attempts, with jittered exponential backoff between attempts.
+To avoid adding load while S3 is throttling, Mountpoint also keeps a retry quota for each mount.
+All requests share it, and it refills as requests succeed.
+If S3 keeps throttling and the quota runs out, Mountpoint returns the error to your application (usually `EIO`) without retrying.
+`AWS_MAX_ATTEMPTS` changes the number of attempts per request, but not the retry quota.
+This is the AWS SDKs' [standard retry mode](https://docs.aws.amazon.com/sdkref/latest/guide/feature-retry-behavior.html).
+
+If your application retries after an error, use exponential backoff with full jitter that spreads retries over tens of seconds, for example starting at 1 second and doubling up to 20 seconds between attempts.
+Retrying within a second or two adds to the request rate on a prefix that S3 is already throttling, so throttling can last longer.
+You can also leave the retrying to Mountpoint, by turning off its retry quota with the unstable `UNSTABLE_MOUNTPOINT_DISABLE_RETRY_QUOTA` environment variable.
+See [Mountpoint's configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#retry-quota) for the trade-offs, including raising `--max-threads`.
+
+**Avoid polling for files that don't exist yet.**
+Each check, for example `stat`, `open` or listing the directory, sends requests to S3 even when the file isn't there.
+A lookup sends up to two requests for each path component that isn't cached.
+With a [metadata TTL](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#metadata-cache) other than `minimal`, Mountpoint remembers missing files for the negative metadata TTL, so repeated `stat` or `open` calls don't reach S3, but new files take up to that long to appear.
+Listing a directory always sends requests to S3.
+When your application checks the same prefix repeatedly, these requests add up and can cause S3 to throttle the prefix.
+While a prefix is throttled, checks for missing files can fail with `EIO` instead of `ENOENT`.
+
+To find out when new objects are created, use [Amazon S3 Event Notifications](https://docs.aws.amazon.com/AmazonS3/latest/userguide/EventNotifications.html) or [Amazon EventBridge](https://docs.aws.amazon.com/AmazonS3/latest/userguide/EventBridge.html).
+For example, send `s3:ObjectCreated:*` events to an Amazon SQS queue or an Amazon SNS topic, and open the file through Mountpoint only after the event arrives.
+If you can't use events, poll less often.
 
 For more details on optimizing Amazon S3 performance and avoiding throttling errors, see the [S3 best practices documentation](https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance.html).
 
