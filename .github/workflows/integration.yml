@@ -568,6 +568,97 @@ jobs:
         retention-days: 3
         if-no-files-found: error
 
+  test-packages:
+    name: Test ${{ matrix.distro.name }} package on ${{ matrix.arch.name }}
+    needs: [packaging, approval]
+    runs-on: ${{ matrix.arch.tags }}
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+        - name: x86_64
+          tags: [ubuntu-22.04] # GitHub-hosted
+        - name: aarch64
+          tags: [self-hosted, linux, arm64]
+        distro:
+        - name: CentOS 7
+          id: centos7
+          image: public.ecr.aws/docker/library/centos:7
+        - name: RHEL 8
+          id: rhel8
+          image: registry.access.redhat.com/ubi8/ubi
+        - name: RHEL 9
+          id: rhel9
+          image: registry.access.redhat.com/ubi9/ubi
+        - name: Amazon Linux 2023
+          id: al2023
+          image: public.ecr.aws/amazonlinux/amazonlinux:2023
+        - name: Ubuntu
+          id: ubuntu
+          image: public.ecr.aws/ubuntu/ubuntu:24.04
+        - name: openSUSE Leap 15
+          id: opensuse
+          image: registry.opensuse.org/opensuse/leap:15
+
+    steps:
+    - name: Configure AWS credentials
+      id: aws-credentials
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      with:
+        role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+        # ECR Public only serves its authorization API from us-east-1.
+        aws-region: us-east-1
+
+    - name: Log in to Amazon ECR Public
+      # Don't fail the job if ECR Public auth transiently fails: the non-ECR images don't need it and the pull loop retries.
+      continue-on-error: true
+      uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      with:
+        registry-type: public
+
+    # Checkout runs before the download because it cleans the workspace it checks out into.
+    - name: Checkout the package test script
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ inputs.ref }}
+        persist-credentials: false
+        # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
+        allow-unsafe-pr-checkout: true
+        sparse-checkout: .github/actions/scripts
+
+    - name: Download the packages built for this architecture
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: packages-${{ matrix.arch.name }}
+        path: ./pkgs
+
+    - name: Install the package and mount the test bucket read-only
+      env:
+        DISTRO_ID: ${{ matrix.distro.id }}
+        IMAGE: ${{ matrix.distro.image }}
+        MOUNT_BUCKET: ${{ env.S3_BUCKET_NAME }}
+        MOUNT_PREFIX: ${{ env.S3_BUCKET_TEST_PREFIX }}test-packages/${{ matrix.distro.id }}-${{ matrix.arch.name }}/
+        MOUNT_REGION: ${{ env.S3_REGION }}
+      run: |
+        set -euo pipefail
+        ok=
+        for attempt in 1 2 3 4 5; do
+          docker pull "$IMAGE" && { ok=1; break; }
+          echo "pull attempt ${attempt} for ${IMAGE} failed; retrying" >&2
+          sleep $((attempt * 15))
+        done
+        # A failing pull inside the && above does not trip set -e, so fail explicitly if none succeeded.
+        [ -n "$ok" ] || { echo "could not pull ${IMAGE} after 5 attempts" >&2; exit 1; }
+        docker run --rm --privileged --device /dev/fuse \
+          -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
+          -e AWS_REGION -e AWS_DEFAULT_REGION \
+          -e DISTRO_ID -e MOUNT_BUCKET -e MOUNT_PREFIX -e MOUNT_REGION -e MOUNT_EXTRA_ARGS \
+          -v "$PWD/pkgs:/pkgs:ro" \
+          -v "$PWD/.github/actions/scripts/test-package.sh:/test-package.sh:ro" \
+          "$IMAGE" bash /test-package.sh
+
   workflow-complete:
     name: "Integration Tests Complete"
     runs-on: ubuntu-latest
@@ -580,6 +671,7 @@ jobs:
       - metrics
       - test-rpm
       - packaging
+      - test-packages
     steps:
       - name: Verify jobs succeeded
         run: echo '${{ toJSON(needs) }}' | jq -e 'to_entries | all(.value.result == "success")'
