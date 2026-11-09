@@ -98,7 +98,7 @@ jobs:
         # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
         allow-unsafe-pr-checkout: true
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
@@ -163,7 +163,7 @@ jobs:
         # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
         allow-unsafe-pr-checkout: true
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
@@ -229,7 +229,7 @@ jobs:
           # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
           allow-unsafe-pr-checkout: true
       - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
           # Allow warnings in `mountpoint-s3-fuser`.
           build-warnings: "warn"
@@ -273,7 +273,7 @@ jobs:
         # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
         allow-unsafe-pr-checkout: true
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
@@ -325,7 +325,7 @@ jobs:
           # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
           allow-unsafe-pr-checkout: true
       - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
           # Allow warnings in `mountpoint-s3-fuser`.
           build-warnings: "warn"
