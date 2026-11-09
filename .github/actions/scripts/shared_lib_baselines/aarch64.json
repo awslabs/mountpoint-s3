@@ -1,5 +1,8 @@
 {
   "libraries": {
+    "ld-linux-aarch64.so.1": {
+      "GLIBC": "2.17"
+    },
     "libc.so.6": {
       "GLIBC": "2.17"
     },

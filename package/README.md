@@ -10,6 +10,9 @@ This directory contains the infrastructure to compile new Mountpoint release pac
 It's recommended to perform the build in a Docker container using the image provided in the `Dockerfile`,
 to ensure the necessary dependency versions are in place.
 
+The image is based on Amazon Linux 2023 and compiles the binary with [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild), which links against the glibc 2.17 ABI so the packages still run on older distributions such as Amazon Linux 2, CentOS 7 and RHEL 7.
+The build runs natively for the host's architecture: build the image on an x86_64 host to produce x86_64 packages and on an arm64 host to produce arm64 packages.
+
 First, build the image:
 
     docker build -t mountpoint-builder .

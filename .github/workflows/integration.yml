@@ -568,6 +568,119 @@ jobs:
         retention-days: 3
         if-no-files-found: error
 
+  test-packages:
+    name: Test ${{ matrix.distro.name }} package on ${{ matrix.arch.name }}
+    needs: [packaging, approval]
+    runs-on: ${{ matrix.arch.tags }}
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+        - name: x86_64
+          tags: [ubuntu-22.04] # GitHub-hosted
+        - name: aarch64
+          tags: [self-hosted, linux, arm64]
+        distro:
+        - name: CentOS 7
+          id: centos7
+          image: public.ecr.aws/docker/library/centos:7
+        - name: RHEL 8
+          id: rhel8
+          image: registry.access.redhat.com/ubi8/ubi
+        - name: RHEL 9
+          id: rhel9
+          image: registry.access.redhat.com/ubi9/ubi
+        - name: Amazon Linux 2023
+          id: al2023
+          image: public.ecr.aws/amazonlinux/amazonlinux:2023
+        - name: Ubuntu
+          id: ubuntu
+          image: public.ecr.aws/ubuntu/ubuntu:24.04
+        - name: openSUSE Leap 15
+          id: opensuse
+          image: registry.opensuse.org/opensuse/leap:15
+
+    steps:
+    - name: Configure AWS credentials
+      id: aws-credentials
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      with:
+        role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+        # ECR Public only serves its authorization API from us-east-1.
+        aws-region: us-east-1
+
+    - name: Log in to Amazon ECR Public
+      # Don't fail the job if ECR Public auth transiently fails: the non-ECR images don't need it and the pull loop retries.
+      continue-on-error: true
+      uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      with:
+        registry-type: public
+
+    - name: Download the packages built for this architecture
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: packages-${{ matrix.arch.name }}
+        path: ./pkgs
+
+    - name: Install the package and mount the test bucket read-only
+      env:
+        DISTRO_ID: ${{ matrix.distro.id }}
+        IMAGE: ${{ matrix.distro.image }}
+        MOUNT_BUCKET: ${{ env.S3_BUCKET_NAME }}
+        MOUNT_PREFIX: ${{ env.S3_BUCKET_TEST_PREFIX }}test-packages/${{ matrix.distro.id }}-${{ matrix.arch.name }}/
+        MOUNT_REGION: ${{ env.S3_REGION }}
+        SCRIPT: |
+          set -euo pipefail
+          pkg_rpm()  { local f; for f in /pkgs/mount-s3-*.rpm; do [ "$f" = "${f%.suse.rpm}" ] && { echo "$f"; return; }; done; }
+          pkg_suse() { local f; for f in /pkgs/mount-s3-*.suse.rpm; do echo "$f"; return; done; }
+          pkg_deb()  { local f; for f in /pkgs/mount-s3-*.deb; do echo "$f"; return; done; }
+          case "$DISTRO_ID" in
+            centos7)
+              # CentOS 7 is EOL; its mirrors moved to vault.centos.org (altarch on aarch64).
+              sed -i 's/mirror.centos.org/vault.centos.org/g' /etc/yum.repos.d/*.repo
+              sed -i 's/^#.*baseurl=http/baseurl=https/g' /etc/yum.repos.d/*.repo
+              sed -i 's/^mirrorlist=http/#mirrorlist=https/g' /etc/yum.repos.d/*.repo
+              if [ "$(uname -m)" = "aarch64" ]; then sed -i 's|vault.centos.org/centos|vault.centos.org/altarch|g' /etc/yum.repos.d/*.repo; fi
+              yum install -y "$(pkg_rpm)" ;;
+            rhel8|rhel9|al2023)
+              dnf install -y "$(pkg_rpm)" ;;
+            ubuntu)
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get -qq update
+              apt-get install -y "$(pkg_deb)" ;;
+            opensuse)
+              zypper --no-gpg-checks -n install -y "$(pkg_suse)" ;;
+            *) echo "unknown distro id: $DISTRO_ID" >&2; exit 1 ;;
+          esac
+          mount-s3 --version
+          mkdir -p /mnt/mp
+          args=( "$MOUNT_BUCKET" /mnt/mp --read-only )
+          [ -n "${MOUNT_PREFIX:-}" ] && args+=( "--prefix=$MOUNT_PREFIX" )
+          [ -n "${MOUNT_REGION:-}" ] && args+=( "--region=$MOUNT_REGION" )
+          [ -n "${MOUNT_EXTRA_ARGS:-}" ] && args+=( $MOUNT_EXTRA_ARGS )
+          mount-s3 "${args[@]}"
+          ls /mnt/mp
+          fusermount -u /mnt/mp 2>/dev/null || umount /mnt/mp
+          echo "OK: ${DISTRO_ID} $(uname -m)"
+      run: |
+        set -euo pipefail
+        ok=
+        for attempt in 1 2 3 4 5; do
+          docker pull "$IMAGE" && { ok=1; break; }
+          echo "pull attempt ${attempt} for ${IMAGE} failed; retrying" >&2
+          sleep $((attempt * 15))
+        done
+        # A failing pull inside the && above does not trip set -e, so fail explicitly if none succeeded.
+        [ -n "$ok" ] || { echo "could not pull ${IMAGE} after 5 attempts" >&2; exit 1; }
+        docker run --rm --privileged --device /dev/fuse \
+          -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
+          -e AWS_REGION -e AWS_DEFAULT_REGION \
+          -e DISTRO_ID -e MOUNT_BUCKET -e MOUNT_PREFIX -e MOUNT_REGION -e MOUNT_EXTRA_ARGS \
+          -v "$PWD/pkgs:/pkgs:ro" \
+          "$IMAGE" bash -c "$SCRIPT"
+
   workflow-complete:
     name: "Integration Tests Complete"
     runs-on: ubuntu-latest
@@ -580,6 +693,7 @@ jobs:
       - metrics
       - test-rpm
       - packaging
+      - test-packages
     steps:
       - name: Verify jobs succeeded
         run: echo '${{ toJSON(needs) }}' | jq -e 'to_entries | all(.value.result == "success")'

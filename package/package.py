@@ -8,6 +8,7 @@ directory in the root of the Mountpoint repository.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -15,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
 
 def log(msg: str):
@@ -49,29 +51,29 @@ class BuildMetadata:
 
 OPT_PATH = "opt/aws/mountpoint-s3"
 
+# Oldest glibc the release must still run on (Amazon Linux 2, CentOS 7, RHEL 7).
+GLIBC_TARGET = "2.17"
+
 
 def check_dependencies(args: argparse.Namespace):
     """Check that all the required dependencies are available so we don't fail mid-build."""
 
     log("Checking dependencies")
 
-    deps = ["cargo", "cargo-about", "tar", "whereis"]
+    deps = ["cargo", "cargo-about", "cargo-zigbuild", "readelf", "tar", "pkg-config"]
     if any(map(lambda ext: ext.endswith("rpm"), args.pkg_extensions)):  # noqa: C417
-        deps.extend(["rpm", "rpmbuild"])
+        deps.append("rpmbuild")
     if any(map(lambda ext: ext.endswith("deb"), args.pkg_extensions)):  # noqa: C417
-        deps.extend(["fakeroot", "dpkg-deb"])
+        deps.extend(["ar", "xz"])
 
     for dep in deps:
         if shutil.which(dep) is None:
             raise Exception(f"`{dep}` must be installed")  # noqa: TRY002
 
-    output = run(["whereis", "libfuse"])
-    if b"libfuse.so" not in output:
-        raise Exception(f"libfuse not found (whereis output: {output})")  # noqa: TRY002
-
-    output = run(["whereis", "libfuse3"])
-    if b"libfuse3.so" in output:
-        raise Exception(f"libfuse3 should not be installed (whereis output: {output})")  # noqa: TRY002
+    if subprocess.call(["pkg-config", "--exists", "fuse"]) != 0:
+        raise Exception("libfuse not found by pkg-config; install fuse-devel")  # noqa: TRY002
+    if subprocess.call(["pkg-config", "--exists", "fuse3"]) == 0:
+        raise Exception("libfuse3 should not be installed (fuser would link it)")  # noqa: TRY002
 
 
 def get_build_metadata(args: argparse.Namespace) -> BuildMetadata:
@@ -101,7 +103,7 @@ def get_build_metadata(args: argparse.Namespace) -> BuildMetadata:
     buildroot = tempfile.mkdtemp()
 
     # Discover the architecture of this host
-    arch = run(["uname", "-p"]).decode("ascii").strip()
+    arch = run(["uname", "-m"]).decode("ascii").strip()
     arch_name = arch
     if arch == "aarch64":
         # We want to use arm64 in the artifact names
@@ -130,22 +132,26 @@ def build_mountpoint_binary(metadata: BuildMetadata, args: argparse.Namespace) -
     env = {
         "PATH": os.environ["PATH"],
         # Keep enough debug info to give line numbers. We can always `strip` in the future if we want to.
-        "RUSTFLAGS": "-C debuginfo=line-tables-only",
+        # `--allow-shlib-undefined` allows unknown linker errors in shared libraries - we're compiling against a libfuse
+        # with a modern glibc, which is not included with zigbuild. At runtime, we're using the host's libfuse, which
+        # will be linked against a glibc the host knows about
+        "RUSTFLAGS": "-C debuginfo=line-tables-only -C link-arg=-Wl,--allow-shlib-undefined",
     }
     target_dir = os.path.join(metadata.buildroot, "cargo-target")
     env["CARGO_TARGET_DIR"] = target_dir
     if args.official:
         # Set empty value to indicate official AWS release without specific release target
         env["MOUNTPOINT_S3_AWS_RELEASE_TARGET"] = ""
-    for var in ["CC", "CXX", "LD_LIBRARY_PATH"]:
+    for var in ["HOME", "ZIG_COMMAND", "RUSTUP_HOME", "CARGO_HOME"]:
         if var in os.environ:
             env[var] = os.environ[var]
 
     # Build the binary
-    cmd = ["cargo", "build", "--bin", "mount-s3", "--release"]
+    triple = f"{metadata.arch}-unknown-linux-gnu"
+    cmd = ["cargo", "zigbuild", "--bin", "mount-s3", "--release", "--target", f"{triple}.{GLIBC_TARGET}"]
     log(f"Building binary in target dir {target_dir} with environment {env}")
     run(cmd, cwd=metadata.cargoroot, env=env)
-    binary_path = os.path.join(target_dir, "release/mount-s3")
+    binary_path = os.path.join(target_dir, triple, "release/mount-s3")
     if not os.path.exists(binary_path):
         raise Exception(f"binary wasn't found at path {binary_path}")  # noqa: TRY002
 
@@ -162,7 +168,6 @@ def build_mountpoint_binary(metadata: BuildMetadata, args: argparse.Namespace) -
             raise Exception(f"unexpected compiled version {output}")  # noqa: TRY002
 
     log(f"Built binary for {output} at {binary_path}")
-
     return binary_path
 
 
@@ -234,6 +239,10 @@ def build_rpm(metadata: BuildMetadata, package_dir: str, ext: str) -> str:
         f"MOUNTPOINT_VERSION {metadata.version_string}",
         "--define",
         f"_topdir {rpm_topdir}",
+        # Amazon Linux 2023's rpmbuild defaults to a zstd payload, which the older
+        # rpm targets (Amazon Linux 2, CentOS 7, RHEL 7) cannot read. Force xz.
+        "--define",
+        "_binary_payload w2.xzdio",
         spec_file,
     ]
     run(cmd)
@@ -258,18 +267,24 @@ def build_deb(metadata: BuildMetadata, package_dir: str) -> str:
     """Build a DEB package from the contents of the package directory. Return the path to the final
     DEB package."""
 
-    deb_buildroot = os.path.join(metadata.buildroot, "deb-buildroot")
+    deb_buildroot = Path(metadata.buildroot) / "deb-buildroot"
     log(f"Building DEB in buildroot {deb_buildroot}")
 
     # Assemble the contents of the DEB, rooted at /
-    deb_package_dir = os.path.join(deb_buildroot, "pkg")
-    deb_opt_dir = os.path.join(deb_package_dir, OPT_PATH)
-    shutil.copytree(package_dir, deb_opt_dir)
-    deb_DEBIAN_dir = os.path.join(deb_package_dir, "DEBIAN")
-    os.makedirs(deb_DEBIAN_dir)
+    deb_package_dir = deb_buildroot / "pkg"
+    shutil.copytree(package_dir, deb_package_dir / OPT_PATH)
+    for link, target in (
+        ("usr/bin/mount-s3", f"/{OPT_PATH}/bin/mount-s3"),
+        ("usr/sbin/mount.mount-s3", f"/{OPT_PATH}/bin/mount-s3"),
+    ):
+        link_path = deb_package_dir / link
+        link_path.parent.mkdir(parents=True, exist_ok=True)
+        link_path.symlink_to(target)
 
     # Construct the package control file (the package metadata). We need to fill in the version
     # number ourselves, unlike RPM.
+    control_root = deb_buildroot / "control"
+    control_root.mkdir(parents=True, exist_ok=True)
     control_file_template = os.path.join(metadata.cargoroot, "package/mount-s3.debian-control")
     with open(control_file_template) as f:
         control_file = f.read()
@@ -280,26 +295,32 @@ def build_deb(metadata: BuildMetadata, package_dir: str) -> str:
     elif metadata.arch == "aarch64":
         deb_arch = "arm64"
     else:
-        raise Exception(f"unknown architecture {metadata.args} for DEB package")  # noqa: TRY002
+        raise Exception(f"unknown architecture {metadata.arch} for DEB package")  # noqa: TRY002
     control_file = control_file.replace("__ARCH__", deb_arch)
-    control_file_path = os.path.join(deb_DEBIAN_dir, "control")
-    with open(control_file_path, "w") as f:
+    with open(control_root / "control", "w") as f:
         f.write(control_file)
 
-    # For DEB we need to create the bin symlinks ourselves
-    deb_bin_dir = os.path.join(deb_package_dir, "usr/bin")
-    os.makedirs(deb_bin_dir)
-    os.symlink(f"/{OPT_PATH}/bin/mount-s3", os.path.join(deb_bin_dir, "mount-s3"))
-    deb_sbin_dir = os.path.join(deb_package_dir, "usr/sbin")
-    os.makedirs(deb_sbin_dir)
-    os.symlink(f"/{OPT_PATH}/bin/mount-s3", os.path.join(deb_sbin_dir, "mount.mount-s3"))
-
     # Build the DEB
-    deb_path = os.path.join(deb_buildroot, "mount-s3.deb")
-    run(["fakeroot", "dpkg-deb", "--build", "-Zxz", deb_package_dir, deb_path])
+    md5_lines = []
+    for path in sorted(deb_package_dir.rglob("*"), key=lambda p: p.relative_to(deb_package_dir).as_posix()):
+        if path.is_file() and not path.is_symlink():
+            rel = path.relative_to(deb_package_dir).as_posix()
+            digest = hashlib.md5(path.read_bytes(), usedforsecurity=False).hexdigest()
+            md5_lines.append(f"{digest}  {rel}")
+    with open(control_root / "md5sums", "w") as f:
+        f.write("\n".join(md5_lines) + "\n")
+
+    tar_flags = ["--sort=name", "--owner=0", "--group=0", "--numeric-owner", "--mtime=@0", "--mode=u=rwX,go=rX"]
+    run(["tar", *tar_flags, "--xz", "-cf", str(deb_buildroot / "data.tar.xz"), "-C", str(deb_package_dir), "."])
+    run(["tar", *tar_flags, "--xz", "-cf", str(deb_buildroot / "control.tar.xz"), "-C", str(control_root), "."])
+    with open(deb_buildroot / "debian-binary", "w") as f:
+        f.write("2.0\n")
 
     final_deb_path = os.path.join(metadata.output_dir, metadata.artifact_name("deb"))
-    shutil.copy2(os.path.join(deb_buildroot, "mount-s3.deb"), final_deb_path)
+    # ar r appends, so drop any stale .deb to keep exactly these three members.
+    if os.path.exists(final_deb_path):
+        os.remove(final_deb_path)
+    run(["ar", "rcD", final_deb_path, "debian-binary", "control.tar.xz", "data.tar.xz"], cwd=str(deb_buildroot))
 
     log(f"Built DEB: {final_deb_path}")
 
