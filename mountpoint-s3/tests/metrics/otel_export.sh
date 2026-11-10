@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 
-set -e
+# `-E` makes the ERR trap fire inside functions too.
+set -eE -o pipefail
+
+# Report which command failed.
+trap 'echo "FAILED (exit $?) at line ${LINENO} in ${FUNCNAME[0]:-main}: ${BASH_COMMAND}" >&2' ERR
 
 OTEL_COLLECTOR_CONFIG="otel-config.yaml"
-OTEL_COLLECTOR_METRICS="/tmp/otel-collector-metrics"
+# Unique per run: /tmp is shared on self-hosted runners.
+OTEL_COLLECTOR_METRICS="/tmp/otel-collector-metrics-$$"
 OTLP_ENDPOINT="http://127.0.0.1:4318"
+# If set, the Mountpoint logs of a failed test are copied here for CI to upload.
+FAILED_LOGS_DIR="${FAILED_LOGS_DIR:-}"
+FAILURE_LOG_LINES=200
 EXPECTED_METRICS=(
   "experimental.cache.evict_latency"
   "experimental.cache.get_latency"
@@ -33,6 +41,11 @@ if [[ -z "${S3_BUCKET_TEST_PREFIX}" ]]; then
   exit 1
 fi
 
+# Unique prefix per run: in CI, S3_BUCKET_TEST_PREFIX is shared by the concurrent jobs
+# of a workflow run, which would otherwise overwrite each other's objects.
+RUN_LABEL="${RUNNER_NAME:-local}"
+TEST_PREFIX="${S3_BUCKET_TEST_PREFIX%/}/metrics-${RUN_LABEL// /-}-$$/"
+
 if ! command -v otelcol &> /dev/null; then
   echo "ERROR: OTel collector not found in PATH"
   exit 1
@@ -42,6 +55,21 @@ if ! command -v jq &> /dev/null; then
   echo "ERROR: jq must be installed to run this test"
   exit 1
 fi
+
+# Print the tail of the Mountpoint logs and copy them to FAILED_LOGS_DIR, if set.
+save_mountpoint_logs() {
+  echo "Last ${FAILURE_LOG_LINES} lines of the Mountpoint logs:"
+  tail -n "${FAILURE_LOG_LINES}" "${MOUNTPOINT_LOGS}"/*.log || true
+
+  if [[ -n "${FAILED_LOGS_DIR}" ]]; then
+    local archive_dir="${FAILED_LOGS_DIR}/${TEST_MODE:-unknown}"
+    if mkdir -p "${archive_dir}" && cp "${MOUNTPOINT_LOGS}"/*.log "${archive_dir}/"; then
+      echo "Copied Mountpoint logs to ${archive_dir}"
+    else
+      echo "Failed to copy Mountpoint logs to ${archive_dir}"
+    fi
+  fi
+}
 
 cleanup() {
   local exit_code=$?
@@ -53,7 +81,16 @@ cleanup() {
   if [[ -n "${TMP_DIR}" ]]; then
     # Best-effort unmount.
     ! mountpoint -q "${MOUNT_DIR}" || sudo umount "${MOUNT_DIR}" || true
-    rm -rf "${TMP_DIR}"
+
+    # Save the logs after unmounting (giving Mountpoint a moment to log its shutdown)
+    # and before deleting their directory.
+    if [[ ${exit_code} -ne 0 && -d "${MOUNTPOINT_LOGS:-}" ]]; then
+      sleep 1
+      save_mountpoint_logs
+    fi
+
+    # Don't recurse into the mount if the unmount failed.
+    rm -rf --one-file-system "${TMP_DIR}" || true
     TMP_DIR=""
   fi
 
@@ -109,7 +146,8 @@ trigger_metrics() {
   echo "Starting file operations."
   
   test_file="${MOUNT_DIR}/test_file.txt"
-  dd if=/dev/urandom of="${test_file}" bs=128k count=500 2>/dev/null
+  # `status=none` hides the transfer summary but keeps error messages.
+  dd if=/dev/urandom of="${test_file}" bs=128k count=500 status=none
   sync
 
   # Read from the file. Ensure that:
@@ -117,26 +155,26 @@ trigger_metrics() {
   # - At least one "skip" is large enough to reset the internal prefetcher
   {
     for skip in {0..5} 300; do
-      dd bs=128k skip=$skip count=1 iflag=direct 2>/dev/null
+      dd bs=128k skip=$skip count=1 iflag=direct status=none
     done
   } < "${test_file}" > /dev/null
 
   # Re-read some data to trigger cache hits
   {
     for skip in {1..5}; do
-      dd bs=128k skip=$skip count=1 2>/dev/null
+      dd bs=128k skip=$skip count=1 status=none
     done
   } < "${test_file}" > /dev/null
 
   # Create multiple large files
   for i in {1..10}; do
-    dd if=/dev/urandom of="${MOUNT_DIR}/evict_file_${i}.txt" bs=128k count=100 2>/dev/null
+    dd if=/dev/urandom of="${MOUNT_DIR}/evict_file_${i}.txt" bs=128k count=100 status=none
   done
   sync
 
   # Try reading all files to force cache eviction metrics
   for i in {1..10}; do
-    dd if="${MOUNT_DIR}/evict_file_${i}.txt" bs=128k count=10 2>/dev/null > /dev/null
+    dd if="${MOUNT_DIR}/evict_file_${i}.txt" bs=128k count=10 status=none > /dev/null
   done
 
   cat "${MOUNT_DIR}/nonexistent_file.txt" 2>/dev/null || true
@@ -153,14 +191,17 @@ setup_mount() {
   MOUNTPOINT_LOGS="$TMP_DIR/logs"
   MOUNTPOINT_CACHE="$TMP_DIR/cache"
   
-  echo "Mount ${S3_BUCKET_NAME}, prefix: ${S3_BUCKET_TEST_PREFIX} ($mode)"
+  # Each test gets its own prefix, so it doesn't overwrite the previous test's objects.
+  local prefix="${TEST_PREFIX}${mode}/"
+
+  echo "Mount ${S3_BUCKET_NAME}, prefix: ${prefix} ($mode)"
   mkdir -p "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}" "${MOUNTPOINT_CACHE}"
 
   local args=(
     "${S3_BUCKET_NAME}" "${MOUNT_DIR}"
     --allow-overwrite
     --log-directory="${MOUNTPOINT_LOGS}"
-    --prefix="${S3_BUCKET_TEST_PREFIX}"
+    --prefix="${prefix}"
     --cache="${MOUNTPOINT_CACHE}"
     --max-cache-size=100
   )
@@ -187,8 +228,13 @@ setup_mount() {
 
 verify_otel_metrics() {
   local mode=$1
-  local found_metrics=$(jq -r '.resourceMetrics[].scopeMetrics[].metrics[].name' "${OTEL_COLLECTOR_METRICS}" 2>/dev/null | sort -u)
-  
+  # The file is empty or missing if nothing was exported. The collector may be
+  # part-way through a write, so tolerate a torn last line and let the checks decide.
+  local found_metrics=""
+  if [[ -s "${OTEL_COLLECTOR_METRICS}" ]]; then
+    found_metrics=$( { jq -r '.resourceMetrics[].scopeMetrics[].metrics[].name' "${OTEL_COLLECTOR_METRICS}" || true; } | sort -u)
+  fi
+
   if [[ "${mode}" == "with_logs" ]]; then
     if [[ -n "${found_metrics}" ]]; then
       echo "Found OTel metrics when none expected"
@@ -197,7 +243,8 @@ verify_otel_metrics() {
     echo "Found no OTel metrics"
   else
     for expected in "${EXPECTED_METRICS[@]}"; do
-      if ! echo "${found_metrics}" | grep -q "^${expected}$"; then
+      # Match the whole line, literally: metric names contain dots.
+      if ! grep -qxF -- "${expected}" <<< "${found_metrics}"; then
         echo "${expected} metric not found"
         exit 1
       fi
@@ -231,7 +278,10 @@ verify_log_metrics() {
 
 run_test() {
   local mode=$1
-  
+
+  # Used by cleanup to label the logs it saves on failure.
+  TEST_MODE="${mode}"
+
   echo "Running test ${mode}"
   
   start_collector

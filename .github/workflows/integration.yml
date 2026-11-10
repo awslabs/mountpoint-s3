@@ -335,7 +335,18 @@ jobs:
           fuseVersion: 2
           otelcol: true
       - name: Run OTLP metrics tests
+        id: metrics-tests
         run: ./mountpoint-s3/tests/metrics/otel_export.sh
+        env:
+          FAILED_LOGS_DIR: ${{ github.workspace }}/metrics-test-logs
+      - name: Upload Mountpoint logs of failed metrics tests
+        if: failure() && steps.metrics-tests.outcome == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: metrics-test-logs-${{ matrix.runner.name }}
+          path: ${{ github.workspace }}/metrics-test-logs
+          retention-days: 3
+          if-no-files-found: warn
 
   build-srpm:
     name: Build SRPM
