@@ -77,7 +77,8 @@ jobs:
         - name: AL2023 arm
           tags: [self-hosted, linux, arm64]
         exclude:
-          # fuse3 is not available on Amazon Linux 2
+          # This exclusion dates from when this runner was Amazon Linux 2, which has no fuse3.
+          # The runner is now AL2023, so FUSE 3 tests could likely be enabled here.
           - runner:
               name: AL2023 arm
               tags: [self-hosted, linux, arm64]
