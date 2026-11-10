@@ -44,7 +44,7 @@ mime_guess = "2.0.5"
 nix = { version = "0.31.3", default-features = false, features = ["fs", "process", "signal", "user"] }
 rand = "0.10.1"
 regex = "1.12.4"
-rusqlite = { version = "0.40.1", features = ["bundled", "fallible_uint"], optional = true }
+rusqlite = { version = "0.41.1", features = ["bundled", "fallible_uint"], optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 sha2 = "0.11.0"
