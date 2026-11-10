@@ -71,8 +71,9 @@ fn run_in_background() -> Result<(), Box<dyn std::error::Error>> {
 /// Number of partition subdirectories Mountpoint spreads cache entries across.
 const CACHE_NUM_PARTITIONS: usize = 256;
 
-/// Fill a leftover cache directory with `num_files` empty files, using Mountpoint's on-disk layout
-/// `<cache>/mountpoint-cache/V2/<partition>/<n>.txt`. Mountpoint removes this directory at startup.
+/// Fill a leftover cache directory with `num_files` empty files, in a synthetic layout similar to
+/// Mountpoint's cache: `<cache>/mountpoint-cache/V2/<partition>/<n>.txt`. Mountpoint removes this
+/// directory at startup.
 fn populate_residual_cache(cache_dir: &Path, num_files: usize) {
     let v2 = cache_dir.join("mountpoint-cache").join("V2");
     for n in 0..num_files {

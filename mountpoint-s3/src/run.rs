@@ -153,17 +153,17 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
                 // cache directory, restarts the timeout.
                 let status = MountProgressReader::new(read_fd).wait_for_status();
                 match status {
-                    MountStatus::Success => {
+                    Ok(MountStatus::Success) => {
                         println!("{successful_mount_msg}");
                         tracing::debug!("success status flag received from child process")
                     }
-                    MountStatus::Failed => {
+                    Ok(MountStatus::Failed) => {
                         nix::sys::wait::waitpid(child, None).context("Failed to wait for child process to exit")?;
                         return Err(anyhow!("Failed to create mount process"));
                     }
-                    MountStatus::TimedOut => {
+                    Ok(MountStatus::TimedOut) => {
                         tracing::error!(
-                            "timeout after {} seconds waiting for message from child process",
+                            "no message from child process for {} seconds, considering it stuck",
                             MOUNT_PROGRESS_TIMEOUT.as_secs(),
                         );
                         // kill child process before returning error.
@@ -171,9 +171,17 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
                             tracing::error!("Unable to kill hanging child process with SIGTERM: {:?}", e);
                         }
                         return Err(anyhow!(
-                            "Timeout after {} seconds while waiting for mount process to be ready",
+                            "Timeout while waiting for mount process to be ready: no progress for {} seconds",
                             MOUNT_PROGRESS_TIMEOUT.as_secs()
                         ));
+                    }
+                    Err(e) => {
+                        // The child may still be running, so stop it rather than wait for it to exit.
+                        tracing::error!("failed to wait for child process status: {e:#}");
+                        if let Err(e) = nix::sys::signal::kill(child, Signal::SIGTERM) {
+                            tracing::error!("Unable to kill child process with SIGTERM: {:?}", e);
+                        }
+                        return Err(e.context("Failed to create mount process"));
                     }
                 };
             }
