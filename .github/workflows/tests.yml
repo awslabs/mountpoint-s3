@@ -35,7 +35,7 @@ jobs:
       with:
         fuseVersion: ${{ matrix.fuseVersion }}
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
@@ -72,7 +72,7 @@ jobs:
       with:
         fuseVersion: 2
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
@@ -109,7 +109,7 @@ jobs:
       run: |
         brew install --cask macfuse
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
@@ -149,7 +149,7 @@ jobs:
       with:
         fuseVersion: 2
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
@@ -180,7 +180,7 @@ jobs:
       with:
         fuseVersion: 2
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
@@ -207,7 +207,7 @@ jobs:
       with:
         submodules: true
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
@@ -240,7 +240,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
           # Allow warnings in `mountpoint-s3-fuser`.
           build-warnings: "warn"
@@ -262,7 +262,7 @@ jobs:
         with:
           fuseVersion: 2
       - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
           # Allow warnings in `mountpoint-s3-fuser`.
           build-warnings: "warn"
@@ -290,7 +290,7 @@ jobs:
         with:
           submodules: true
       - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
           # Allow warnings in `mountpoint-s3-fuser`.
           build-warnings: "warn"
@@ -404,7 +404,7 @@ jobs:
         fuseVersion: 2
         run-as-root: true
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
