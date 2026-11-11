@@ -24,21 +24,23 @@ impl ImdsCrtClient {
     pub fn new() -> Result<Self, error::Error> {
         let allocator = Allocator::default();
 
-        let mut event_loop_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
+        // A single event loop is enough for the few requests sent to IMDS. The CRT default would
+        // start a thread for every two logical CPUs, which is wasteful on large instances.
+        let mut event_loop_group = EventLoopGroup::new_default(&allocator, Some(1), || {})?;
 
         let resolver_options = HostResolverDefaultOptions {
             max_entries: 8,
             event_loop_group: &mut event_loop_group,
         };
 
-        let mut host_resolver = HostResolver::new_default(&allocator, &resolver_options).unwrap();
+        let mut host_resolver = HostResolver::new_default(&allocator, &resolver_options)?;
 
         let bootstrap_options = ClientBootstrapOptions {
             event_loop_group: &mut event_loop_group,
             host_resolver: &mut host_resolver,
         };
 
-        let client_bootstrap = ClientBootstrap::new(&allocator, &bootstrap_options).unwrap();
+        let client_bootstrap = ClientBootstrap::new(&allocator, &bootstrap_options)?;
 
         let mut client_config = ImdsClientConfig::new();
         client_config.client_bootstrap(client_bootstrap);
