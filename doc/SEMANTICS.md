@@ -205,7 +205,7 @@ but with some limitations:
   * The existing file must be opened in truncate mode (`O_TRUNC`).
   * You cannot overwrite files that are currently being read or renamed.
   * The upload to S3 starts as soon as Mountpoint receives the first `write` request and cannot be cancelled. The data is uploaded to S3 in fixed-size parts (controlled by `--write-part-size`).
-  * Whether the file can be overwritten is decided when the file is opened, and is not re-checked before the upload completes. If another client (Mountpoint or external) writes to the same key while the overwrite is in progress, the last upload to complete wins, replacing the data written by the other.
+  * Whether the file can be overwritten is decided when the file is opened, and is not re-checked before the upload completes. If another client (Mountpoint or external) writes to the same key while the overwrite is in progress, the object can end up with the data from either write (see [concurrent multipart upload operations](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html#distributedmpupload)).
 * Both for new files and overwrites:
   * Synchronization operations (`fsync`, `fdatasync`) complete the upload of the object to S3 and disallow further writes.
   * The data written to the file will be visible to other S3 clients only once the upload completes.
@@ -213,7 +213,7 @@ but with some limitations:
   * The existing file must be opened without the `O_TRUNC` flag or any existing content will be truncated.
   * Only sequential writes at the end of the file are allowed. Setting the `O_APPEND` flag on open will enforce this behavior, but is not required by Mountpoint.
   * You cannot append to files that are currently being read, renamed or overwritten.
-  * Appends to existing content are conditional on the object's ETag as of `open`, or as of the last completed append. If another client (Mountpoint or external) modifies the object in the meantime, subsequent writes fail rather than replacing that client's data.
+  * Appends to existing content are conditional on the ETag Mountpoint has for the object at `open` (which may come from its metadata cache and be stale), or on the ETag of the last completed append. If another client (Mountpoint or external) modifies the object in the meantime, a subsequent `write`, `fsync` or `close` fails rather than replacing that client's data.
   * The data is uploaded incrementally to S3 in fixed-size parts (controlled by `--write-part-size`).
   * Synchronization operations (`fsync`, `fdatasync`) trigger the upload of the appended parts and do allow to continue writing.
   * Parts successfully appended to an object are visible as the whole (appended) object to other S3 clients.
