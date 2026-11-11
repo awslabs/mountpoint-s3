@@ -76,12 +76,6 @@ jobs:
           tags: [ubuntu-22.04] # GitHub-hosted
         - name: AL2023 arm
           tags: [self-hosted, linux, arm64]
-        exclude:
-          # fuse3 is not available on Amazon Linux 2
-          - runner:
-              name: AL2023 arm
-              tags: [self-hosted, linux, arm64]
-            fuseVersion: 3
 
     steps:
     - name: Configure AWS credentials

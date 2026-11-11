@@ -2,6 +2,7 @@
 
 ### Breaking changes
 
+* Amazon Linux 2 reached end of support on June 30, 2026 and is no longer tested. Mountpoint for Amazon S3 releases may continue to install and run on it, but we recommend upgrading to Amazon Linux 2023. ([#2033](https://github.com/awslabs/mountpoint-s3/pull/2033))
 * Mountpoint now fails to start when `AWS_MAX_ATTEMPTS` is not a positive integer. Previously `0` selected 4 attempts and other invalid values were silently ignored. ([#1996](https://github.com/awslabs/mountpoint-s3/pull/1996))
 
 ### Other changes
