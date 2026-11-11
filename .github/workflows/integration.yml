@@ -76,13 +76,6 @@ jobs:
           tags: [ubuntu-22.04] # GitHub-hosted
         - name: AL2023 arm
           tags: [self-hosted, linux, arm64]
-        exclude:
-          # This exclusion dates from when this runner was Amazon Linux 2, which has no fuse3.
-          # The runner is now AL2023, so FUSE 3 tests could likely be enabled here.
-          - runner:
-              name: AL2023 arm
-              tags: [self-hosted, linux, arm64]
-            fuseVersion: 3
 
     steps:
     - name: Configure AWS credentials

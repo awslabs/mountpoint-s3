@@ -7,11 +7,11 @@ The idea is that because Mountpoint exposes your S3 bucket as a local file syste
 ## Getting started
 
 To get started, launch an EC2 instance with a GPU (we used a [g5.2xlarge](https://aws.amazon.com/ec2/instance-types/g5/)),
-choosing an [AWS Deep Learning OSS AMI GPU PyTorch (Amazon Linux 2023)](https://docs.aws.amazon.com/dlami/latest/devguide/appendix-ami-release-notes.html) as your AMI.
+choosing the [AWS Deep Learning AMI GPU PyTorch 2.0.1 (Amazon Linux 2)](https://aws.amazon.com/releasenotes/aws-deep-learning-ami-gpu-pytorch-2-0-amazon-linux-2/) as your AMI.
 
 When using the AWS Deep Learning AMI, you'll need to activate the preconfigured virtual environment for PyTorch:
 
-    source /opt/pytorch/bin/activate
+    source activate pytorch
 
 Perform a simple clone of this repository if you don't already have it available on the instance.
 
@@ -27,7 +27,8 @@ Install the dependencies for the example code:
 
 Install Mountpoint if you don't already have it:
 
-    sudo dnf install mount-s3
+    wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm
+    sudo yum install ./mount-s3.rpm
 
 To generate and upload the training shards to an S3 bucket (in this example, _amzn-s3-demo-bucket_), run:
 

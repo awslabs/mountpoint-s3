@@ -2,11 +2,11 @@
 
 ### Breaking changes
 
+* Amazon Linux 2 reached end of support on June 30, 2026 and is no longer tested. Mountpoint for Amazon S3 releases may continue to install and run on it, but we recommend upgrading to Amazon Linux 2023. ([#2033](https://github.com/awslabs/mountpoint-s3/pull/2033))
 * Mountpoint now fails to start when `AWS_MAX_ATTEMPTS` is not a positive integer. Previously `0` selected 4 attempts and other invalid values were silently ignored. ([#1996](https://github.com/awslabs/mountpoint-s3/pull/1996))
 
 ### Other changes
 
-* Amazon Linux 2 is no longer supported, as it reached end of support on June 30, 2026. We recommend upgrading to Amazon Linux 2023, where Mountpoint can be installed with `sudo dnf install mount-s3`.
 * Add the unstable `UNSTABLE_MOUNTPOINT_DISABLE_RETRY_QUOTA` environment variable. When set to `true`, Mountpoint keeps retrying throttled requests up to the maximum number of attempts even while S3 keeps throttling, instead of failing them without retrying once its retry quota runs out. See [the configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#retry-quota).
 * Fix `AWS_MAX_ATTEMPTS=1` still retrying failed S3 requests up to 3 times. ([#1996](https://github.com/awslabs/mountpoint-s3/pull/1996))
 * Fix Mountpoint failing to start when `AWS_MAX_ATTEMPTS` is set to more than 64. ([#2010](https://github.com/awslabs/mountpoint-s3/pull/2010))
