@@ -538,11 +538,13 @@ async fn fstat_after_writing_mock(sync_mode: FSyncMode, upload_mode: UploadMode)
 
 async fn write_too_big_test(creator_fn: impl TestSessionCreator, write_size: usize) {
     const KEY: &str = "new.txt";
-    const PART_SIZE: usize = 64;
-    const MAX_S3_MULTIPART_UPLOAD_PARTS: usize = 10000;
 
     let config = TestSessionConfig {
-        part_size: PART_SIZE,
+        part_size: WRITE_TOO_BIG_PART_SIZE,
+        filesystem_config: S3FilesystemConfig {
+            max_upload_parts: WRITE_TOO_BIG_MAX_PARTS,
+            ..Default::default()
+        },
         ..Default::default()
     };
     let test_session = creator_fn("write_too_big_test", config).await;
@@ -551,7 +553,7 @@ async fn write_too_big_test(creator_fn: impl TestSessionCreator, write_size: usi
 
     let mut f = File::options().append(true).create(true).open(&path).unwrap();
 
-    let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;
+    let successful_writes = WRITE_TOO_BIG_PART_SIZE * WRITE_TOO_BIG_MAX_PARTS / write_size;
     let data = vec![0xaa; write_size];
     let mut current_size = 0;
     for _ in 0..successful_writes {
@@ -574,14 +576,17 @@ async fn write_too_big_test(creator_fn: impl TestSessionCreator, write_size: usi
     assert_eq!(err.raw_os_error(), Some(libc::ENOENT));
 }
 
-// This test runs on `MockClient` only. S3 and the mock server need parts of at least 5 MiB, so
-// reaching the limit of 10,000 parts would take an upload of 50 GiB.
-#[test_case(8000; "divisible by max size")]
-#[test_case(7000; "not divisible by max size")]
-#[test_case(640001; "single write too big")]
+/// [write_too_big_test] uses the smallest part size that S3 accepts.
+const WRITE_TOO_BIG_PART_SIZE: usize = 5 * 1024 * 1024;
+/// [write_too_big_test] allows this number of parts, so the largest file it can write is 15 MiB.
+const WRITE_TOO_BIG_MAX_PARTS: usize = 3;
+
+#[test_case(1024 * 1024; "divisible by max size")]
+#[test_case(4 * 1024 * 1024; "not divisible by max size")]
+#[test_case(WRITE_TOO_BIG_PART_SIZE * WRITE_TOO_BIG_MAX_PARTS + 1; "single write too big")]
 #[tokio::test]
 async fn write_too_big_test_mock(write_size: usize) {
-    write_too_big_test(fuse::mock_session::new, write_size).await;
+    write_too_big_test(fuse::mock_server_session::new, write_size).await;
 }
 
 async fn out_of_order_write_test(creator_fn: impl TestSessionCreator, offset: i64, upload_mode: UploadMode) {
