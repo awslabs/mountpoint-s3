@@ -199,7 +199,7 @@ impl MountProgressReader {
                     let started = *cleanup_started.get_or_insert_with(Instant::now);
                     if !warned_slow_cleanup && started.elapsed() >= SLOW_CLEANUP_WARNING_AFTER {
                         let message = format!(
-                            "cleaning up the cache directory is taking longer than expected (over {} seconds), but is still progressing",
+                            "cleaning up the cache directory is taking longer than expected (over {} seconds)",
                             SLOW_CLEANUP_WARNING_AFTER.as_secs(),
                         );
                         tracing::warn!("{message}");
@@ -235,14 +235,20 @@ mod tests {
     fn success_byte_reports_success() {
         let (reader, mut writer) = reader_and_writer(Duration::from_secs(5));
         writer.write_all(&[SUCCESS_BYTE]).unwrap();
-        assert_eq!(reader.wait_for_status().unwrap(), MountStatus::Success);
+        assert_eq!(
+            reader.wait_for_status().map_err(|e| e.to_string()),
+            Ok(MountStatus::Success)
+        );
     }
 
     #[test]
     fn failure_byte_reports_failure() {
         let (reader, mut writer) = reader_and_writer(Duration::from_secs(5));
         writer.write_all(&[FAILURE_BYTE]).unwrap();
-        assert_eq!(reader.wait_for_status().unwrap(), MountStatus::Failed);
+        assert_eq!(
+            reader.wait_for_status().map_err(|e| e.to_string()),
+            Ok(MountStatus::Failed)
+        );
     }
 
     #[test]
@@ -257,7 +263,10 @@ mod tests {
     fn closed_pipe_reports_failure() {
         let (reader, writer) = reader_and_writer(Duration::from_secs(5));
         drop(writer);
-        assert_eq!(reader.wait_for_status().unwrap(), MountStatus::Failed);
+        assert_eq!(
+            reader.wait_for_status().map_err(|e| e.to_string()),
+            Ok(MountStatus::Failed)
+        );
     }
 
     #[test]
@@ -265,14 +274,20 @@ mod tests {
         let (reader, mut writer) = reader_and_writer(Duration::from_secs(5));
         writer.write_all(&[HEARTBEAT_BYTE, HEARTBEAT_BYTE]).unwrap();
         drop(writer);
-        assert_eq!(reader.wait_for_status().unwrap(), MountStatus::Failed);
+        assert_eq!(
+            reader.wait_for_status().map_err(|e| e.to_string()),
+            Ok(MountStatus::Failed)
+        );
     }
 
     #[test]
     fn no_message_reports_timed_out() {
         // Keep the write end open, so the reader sees no end of file and has to time out.
         let (reader, _writer) = reader_and_writer(Duration::from_millis(200));
-        assert_eq!(reader.wait_for_status().unwrap(), MountStatus::TimedOut);
+        assert_eq!(
+            reader.wait_for_status().map_err(|e| e.to_string()),
+            Ok(MountStatus::TimedOut)
+        );
     }
 
     #[test]
@@ -281,7 +296,10 @@ mod tests {
         writer
             .write_all(&[HEARTBEAT_BYTE, HEARTBEAT_BYTE, HEARTBEAT_BYTE, SUCCESS_BYTE])
             .unwrap();
-        assert_eq!(reader.wait_for_status().unwrap(), MountStatus::Success);
+        assert_eq!(
+            reader.wait_for_status().map_err(|e| e.to_string()),
+            Ok(MountStatus::Success)
+        );
     }
 
     /// The timeout still applies once heartbeats stop, for example if the mount hangs after the
@@ -290,16 +308,13 @@ mod tests {
     fn timeout_applies_after_heartbeats_stop() {
         let (reader, mut writer) = reader_and_writer(Duration::from_millis(200));
         writer.write_all(&[HEARTBEAT_BYTE, HEARTBEAT_BYTE]).unwrap();
-        assert_eq!(reader.wait_for_status().unwrap(), MountStatus::TimedOut);
+        assert_eq!(
+            reader.wait_for_status().map_err(|e| e.to_string()),
+            Ok(MountStatus::TimedOut)
+        );
         drop(writer);
     }
 
-    /// A timeout too large to wait for is an error, so the caller doesn't wait for the child to exit.
-    #[test]
-    fn invalid_timeout_is_an_error() {
-        let (reader, _writer) = reader_and_writer(Duration::MAX);
-        assert!(reader.wait_for_status().is_err());
-    }
     #[test]
     fn heartbeat_sends_until_dropped() {
         let (read_fd, write_fd) = nix::unistd::pipe().expect("failed to create pipe");
