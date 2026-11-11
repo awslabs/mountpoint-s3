@@ -41,7 +41,7 @@ jobs:
     - name: Push release tags
       run: |
         git push origin "mountpoint-s3-${VERSION}" "v${VERSION}"
-    - uses: taiki-e/create-gh-release-action@eba8ea96c86cca8a37f1b56e94b4d13301fba651 # v1.11.0
+    - uses: taiki-e/create-gh-release-action@045e5c0ed9c50cc1f96de7e891a09ad3daea245f # v1.12.0
       with:
         title: "mountpoint-s3 v$version"
         # Strip this prefix off the tag to discover the version number

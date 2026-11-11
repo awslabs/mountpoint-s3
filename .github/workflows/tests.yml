@@ -35,12 +35,12 @@ jobs:
       with:
         fuseVersion: ${{ matrix.fuseVersion }}
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
     - name: Install nextest
-      uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+      uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
       with:
         tool: nextest
     - name: Cargo cache
@@ -72,7 +72,7 @@ jobs:
       with:
         fuseVersion: 2
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
@@ -109,13 +109,13 @@ jobs:
       run: |
         brew install --cask macfuse
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
         components: clippy
     - name: Install nextest
-      uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+      uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
       with:
         tool: nextest
     - name: Cargo cache
@@ -149,7 +149,7 @@ jobs:
       with:
         fuseVersion: 2
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
@@ -180,7 +180,7 @@ jobs:
       with:
         fuseVersion: 2
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
@@ -207,12 +207,12 @@ jobs:
       with:
         submodules: true
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
     - name: Install nextest
-      uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+      uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
       with:
         tool: nextest
     - name: Install operating system dependencies
@@ -240,7 +240,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
           # Allow warnings in `mountpoint-s3-fuser`.
           build-warnings: "warn"
@@ -262,7 +262,7 @@ jobs:
         with:
           fuseVersion: 2
       - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
           # Allow warnings in `mountpoint-s3-fuser`.
           build-warnings: "warn"
@@ -290,7 +290,7 @@ jobs:
         with:
           submodules: true
       - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
           # Allow warnings in `mountpoint-s3-fuser`.
           build-warnings: "warn"
@@ -330,7 +330,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -352,7 +352,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       - name: Format check
@@ -404,7 +404,7 @@ jobs:
         fuseVersion: 2
         run-as-root: true
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       with:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"

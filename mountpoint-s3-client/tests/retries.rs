@@ -5,12 +5,15 @@
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
+use futures::future::join_all;
 use mountpoint_s3_client::config::{
     AddressingStyle, Allocator, EndpointConfig, S3ClientAuthConfig, S3ClientConfig, Uri,
 };
 use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{NewClientError, ObjectClient, S3CrtClient};
 use rusty_fork::rusty_fork_test;
+use tokio::runtime::Builder;
+use tokio::time::timeout;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -57,6 +60,17 @@ fn assert_env_max_attempts_rejected(value: &str) {
     );
 }
 
+/// Configuration for a client that sends its requests to `server`.
+fn mock_server_config(server: &MockServer) -> S3ClientConfig {
+    let endpoint = Uri::new_from_str(&Allocator::default(), server.uri()).expect("valid uri");
+    let endpoint_config = EndpointConfig::new("us-east-1")
+        .addressing_style(AddressingStyle::Path)
+        .endpoint(endpoint);
+    S3ClientConfig::new()
+        .endpoint_config(endpoint_config)
+        .auth_config(S3ClientAuthConfig::NoSigning)
+}
+
 /// Count the requests the client sends for one failing call of `operation`, with `AWS_MAX_ATTEMPTS`
 /// set to `env_max_attempts` (or unset) and the client configured with `config_max_attempts`.
 fn count_attempts(
@@ -66,7 +80,7 @@ fn count_attempts(
 ) -> usize {
     set_env_max_attempts(env_max_attempts);
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
+    let runtime = Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()
@@ -85,29 +99,23 @@ fn count_attempts(
             .mount(&server)
             .await;
 
-        let endpoint = Uri::new_from_str(&Allocator::default(), server.uri()).expect("valid uri");
-        let endpoint_config = EndpointConfig::new("us-east-1")
-            .addressing_style(AddressingStyle::Path)
-            .endpoint(endpoint);
-        let mut config = S3ClientConfig::new()
-            .endpoint_config(endpoint_config)
-            .auth_config(S3ClientAuthConfig::NoSigning);
+        let mut config = mock_server_config(&server);
         if let Some(max_attempts) = config_max_attempts {
             config = config.max_attempts(max_attempts);
         }
         let client = S3CrtClient::new(config).expect("create client");
 
         // Generous bound: retries back off for at most a few seconds with the attempt counts used here.
-        let timeout = Duration::from_secs(60);
+        let time_limit = Duration::from_secs(60);
         match operation {
             Operation::ListObjects => {
-                let result = tokio::time::timeout(timeout, client.list_objects(BUCKET, None, "/", 1000, ""))
+                let result = timeout(time_limit, client.list_objects(BUCKET, None, "/", 1000, ""))
                     .await
                     .expect("request should finish");
                 result.expect_err("request should fail");
             }
             Operation::HeadObject => {
-                let result = tokio::time::timeout(timeout, client.head_object(BUCKET, KEY, &HeadObjectParams::new()))
+                let result = timeout(time_limit, client.head_object(BUCKET, KEY, &HeadObjectParams::new()))
                     .await
                     .expect("request should finish");
                 result.expect_err("request should fail");
@@ -115,6 +123,53 @@ fn count_attempts(
         }
 
         server.received_requests().await.expect("recording is enabled").len()
+    })
+}
+
+/// The number of requests that the retry quota tests send at the same time.
+const THROTTLED_REQUESTS: usize = 150;
+
+/// Count the retries the client sends for [THROTTLED_REQUESTS] HeadObject requests made at the same
+/// time, which all fail with 503, with the client configured with `max_attempts` and `retry_quota`.
+fn count_retries_of_throttled_requests(max_attempts: usize, retry_quota: bool) -> usize {
+    set_env_max_attempts(None);
+
+    let runtime = Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    runtime.block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("HEAD"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+
+        let config = mock_server_config(&server)
+            .max_attempts(NonZeroUsize::new(max_attempts).unwrap())
+            .retry_quota(retry_quota);
+        let client = S3CrtClient::new(config).expect("create client");
+
+        let requests = (0..THROTTLED_REQUESTS).map(|i| {
+            let client = &client;
+            async move {
+                client
+                    .head_object(BUCKET, &format!("{KEY}-{i}"), &HeadObjectParams::new())
+                    .await
+            }
+        });
+        // Generous bound: with two attempts, each request is retried at most once, within 500ms.
+        let results = timeout(Duration::from_secs(60), join_all(requests))
+            .await
+            .expect("requests should finish");
+        for result in results {
+            result.expect_err("request should fail");
+        }
+
+        let received = server.received_requests().await.expect("recording is enabled").len();
+        received - THROTTLED_REQUESTS
     })
 }
 
@@ -169,5 +224,39 @@ rusty_fork_test! {
     #[test]
     fn empty_env_value_is_rejected() {
         assert_env_max_attempts_rejected("");
+    }
+
+    #[test]
+    fn retry_quota_limits_retries_of_throttled_requests() {
+        // The quota starts with 500 tokens and a retry after a 503 costs 5, so it allows about 100
+        // retries while every request fails.
+        let retries = count_retries_of_throttled_requests(2, true);
+        assert!(
+            (1..THROTTLED_REQUESTS).contains(&retries),
+            "expected between 1 and {} retries, but {retries} were sent",
+            THROTTLED_REQUESTS - 1
+        );
+    }
+
+    #[test]
+    fn without_retry_quota_every_throttled_request_is_retried() {
+        assert_eq!(count_retries_of_throttled_requests(2, false), THROTTLED_REQUESTS);
+    }
+
+    #[test]
+    fn single_attempt_without_retry_quota_does_not_retry() {
+        assert_eq!(count_retries_of_throttled_requests(1, false), 0);
+    }
+
+    #[test]
+    fn any_number_of_attempts_is_valid_without_retry_quota() {
+        set_env_max_attempts(None);
+        for max_attempts in [1, 2, 100] {
+            let config = S3ClientConfig::new()
+                .auth_config(S3ClientAuthConfig::NoSigning)
+                .max_attempts(NonZeroUsize::new(max_attempts).unwrap())
+                .retry_quota(false);
+            S3CrtClient::new(config).expect("client creation should succeed");
+        }
     }
 }

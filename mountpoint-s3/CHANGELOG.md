@@ -6,6 +6,7 @@
 
 ### Other changes
 
+* Add the unstable `UNSTABLE_MOUNTPOINT_DISABLE_RETRY_QUOTA` environment variable. When set to `true`, Mountpoint keeps retrying throttled requests up to the maximum number of attempts even while S3 keeps throttling, instead of failing them without retrying once its retry quota runs out. See [the configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#retry-quota).
 * Fix `AWS_MAX_ATTEMPTS=1` still retrying failed S3 requests up to 3 times. ([#1996](https://github.com/awslabs/mountpoint-s3/pull/1996))
 * Fix Mountpoint failing to start when `AWS_MAX_ATTEMPTS` is set to more than 64. ([#2010](https://github.com/awslabs/mountpoint-s3/pull/2010))
 * Detect the EC2 instance type from the instance's DMI tables before querying IMDS. Where IMDS is disabled or unreachable, the default target throughput now matches the instance's network bandwidth instead of falling back to 10 Gbps. This can increase memory and network usage; use `--maximum-throughput-gbps 10` to keep the previous target. ([#2006](https://github.com/awslabs/mountpoint-s3/pull/2006))

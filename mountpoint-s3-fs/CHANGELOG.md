@@ -1,5 +1,6 @@
 ## Unreleased (v0.12.0)
 
+* Add experimental environment variable `UNSTABLE_MOUNTPOINT_DISABLE_RETRY_QUOTA` to turn off the S3 client's retry quota.
 * Remove `checksums::combine_checksums`. Use `mountpoint_s3_client::checksums::crc32c::combine` instead. ([#2019](https://github.com/awslabs/mountpoint-s3/pull/2019))
 * Align with fuser 0.17. `S3Filesystem` now uses fuser's types, such as `INodeNo`, `FileHandle` and `Errno`, instead of raw integers. `InodeNo` and `FUSE_ROOT_INODE` are replaced by `INodeNo` and `INodeNo::ROOT`. ([#2005](https://github.com/awslabs/mountpoint-s3/pull/2005))
 * Update to latest S3 client.
