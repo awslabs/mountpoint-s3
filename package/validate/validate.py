@@ -17,15 +17,15 @@ def validate(args: argparse.Namespace) -> str:
     package = f"{args.artifact}-{args.os}"
     if package == "deb-ubuntu":
         image = "public.ecr.aws/ubuntu/ubuntu:20.04"
-    elif package == "rpm-al2" or package == "gzip-al2":
-        image = "public.ecr.aws/amazonlinux/amazonlinux:2"
+    elif package == "rpm-al2023" or package == "gzip-al2023":
+        image = "public.ecr.aws/amazonlinux/amazonlinux:2023"
     elif package == "rpm-suse":
         image = "registry.suse.com/bci/bci-base:15.6"
     elif package == "rpm-centos8":
         image = "public.ecr.aws/docker/library/centos:8"
     else:
         raise Exception(  # noqa: TRY002
-            f"unsupported OS {args.os} for {args.artifact}. Supported combinations are: deb-ubuntu, rpm-al2, gzip-al2, rpm-suse"
+            f"unsupported OS {args.os} for {args.artifact}. Supported combinations are: deb-ubuntu, rpm-al2023, gzip-al2023, rpm-suse, rpm-centos8"
         )
 
     print("Validating Mountpoint Release Package")
@@ -64,7 +64,7 @@ if __name__ == "__main__":
     p.add_argument("--version", help="the version number for the Mountpoint release", required=True)
     p.add_argument("--arch", help="the architecture to validate", required=True, choices=["x86_64", "arm64"])
     p.add_argument("--artifact", help="the artifact to validate", required=True, choices=["deb", "rpm", "gzip"])
-    p.add_argument("--os", help="the OS to validate on", required=True, choices=["ubuntu", "al2", "suse", "centos8"])
+    p.add_argument("--os", help="the OS to validate on", required=True, choices=["ubuntu", "al2023", "suse", "centos8"])
     p.add_argument("--bucket", help="the public bucket to mount", required=True)
     p.add_argument("--pkg-suffix", help="the suffix to add to the package name")
 
