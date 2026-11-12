@@ -1,57 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794447622268,
+  "lastUpdate": 1794488041674,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark (S3 Express One Zone, Incremental Upload)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fb36799638c268ffd7d7267e936b255e203fe1df",
-          "message": "Extract `MockBucket` from `MockClient` (#1989)\n\nExtract the in-memory bucket model of `MockClient` into a new\n`MockBucket`.\n\n`MockBucket` owns the bucket state (objects, in-progress uploads,\noperation counts) and serves HeadObject, ListObjectsV2, DeleteObject and\nRenameObject synchronously. `MockClient` becomes a view over an\n`Arc<MockBucket>` that adds the client-side behaviour: part sizes,\nbackpressure, and the `ObjectClient` interface. A bucket can then be\nshared between a `MockClient` and other in-memory test backends without\ngoing through `ObjectClient`, for example a metadata-only fake for the\nfile system's superblock, so that tests exercising the superblock can\nrun on synchronous operations.\n\nThe configuration is split the same way. `MockBucketConfig` (name,\nlisting order, rename support) builds a `MockBucket`. `MockDataConfig`\n(part size, backpressure, read window checks) configures a `MockClient`\nover an existing bucket with `MockClient::with_bucket`.\n`MockClientConfig` keeps its API and combines both.\n\n### Does this change impact existing behavior?\n\nNo. This only affects test-support code under the `mock` feature of\n`mountpoint-s3-client`. The existing `MockClient` and `MockClientConfig`\nAPIs and their behaviour are unchanged.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes, a `mountpoint-s3-client` changelog entry for the new public\n`MockBucket`, `MockBucketConfig`, `MockDataConfig`,\n`MockClient::with_bucket` and `MockClient::mock_bucket`. No version\nchange: these are additions, and v0.22.2 is already pending.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
-          "timestamp": "2026-10-21T21:21:17Z",
-          "tree_id": "b15590ec69e2ff0a11cc962d202eb1c3d68af7dd",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/fb36799638c268ffd7d7267e936b255e203fe1df"
-        },
-        "date": 1792623551470,
-        "tool": "customBiggerIsBetter",
-        "benches": [
-          {
-            "name": "sequential_read,sequential_write_four_threads",
-            "value": 1859.711328125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_two_threads,sequential_write_two_threads",
-            "value": 3015.376953125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads,sequential_write",
-            "value": 5322.512109374999,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write_direct_io",
-            "value": 111.385546875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write",
-            "value": 111.262109375,
-            "unit": "MiB/s"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1469,6 +1420,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_write",
             "value": 110.7107421875,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prikaru@amazon.com",
+            "name": "Priyankakarumuru1",
+            "username": "Priyankakarumuru1"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "51c4d18fad9b1af0945852a24a023de5886fcb70",
+          "message": "Move release package validation from Amazon Linux 2 to AL2023 (#2036)\n\nAmazon Linux 2 reached end of support on June 30, 2026. This moves the\nrelease validation scripts for the rpm and tar.gz artifacts from Amazon\nLinux 2 to Amazon Linux 2023.\n\n- `validate.py`: replace the `al2` OS option with `al2023`, using the\n`amazonlinux:2023` image.\n- Rename `validate-{rpm,gzip}-al2.sh` to `-al2023.sh` and switch `yum`\nto `dnf`.\n- Install the full `gnupg2` with `--allowerasing`. The AL2023 image\nships `gnupg2-minimal`, which conflicts with `gnupg2` and has no\n`gpg-agent`, so `gpg --import` fails without it.\n- Drop the `yum update -y` step. `dnf install` refreshes repository\nmetadata itself, and skipping a full system update keeps validation\nfaster and more reproducible.\n\nTested locally on x86_64 following the release runbook (1.3.4), against\n1.24.0 and the `giab` bucket:\n- `--artifact rpm --os al2023`: signature verified, `mount-s3 1.24.0`\ninstalled, bucket mounted and listed.\n- `--artifact gzip --os al2023`: signature verified, `mount-s3 1.24.0`\ninstalled, bucket mounted and listed.\n\narm64 not tested locally.\n\n### Does this change impact existing behavior?\n\nOnly the manual release validation tooling. The `--os al2` option\nbecomes `--os al2023`, and the release runbook will be updated to match\nafter this merges.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo. This is internal release tooling and doesn't affect Mountpoint or\nany crate. No version change.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Priyankakarumuru1 <prikaru@amazon.com>",
+          "timestamp": "2026-11-12T11:43:26Z",
+          "tree_id": "96abe1e472398e6cebc6103b51aed9b1660790ce",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/51c4d18fad9b1af0945852a24a023de5886fcb70"
+        },
+        "date": 1794488040057,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "sequential_read,sequential_write_four_threads",
+            "value": 1920.8742187500002,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_two_threads,sequential_write_two_threads",
+            "value": 3111.83486328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads,sequential_write",
+            "value": 5382.93359375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write_direct_io",
+            "value": 110.84072265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write",
+            "value": 110.879296875,
             "unit": "MiB/s"
           }
         ]
