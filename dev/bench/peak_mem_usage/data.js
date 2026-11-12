@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794502057835,
+  "lastUpdate": 1794514790449,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "b36809b56455bf2b1d8c63a7fea9f963a4ee71d3",
-          "message": "Narrow the superblock's S3 dependency to a `MetadataClient` interface (#1998)\n\nNarrow the file system's superblock to the S3 metadata operations it\nactually issues, behind a new `MetadataClient` trait, and run the\nsuperblock's slow, deterministic tests (shuttle tests and reftests) on\nan in-memory implementation of it.\n\nThe superblock only issues HeadObject, ListObjectsV2, DeleteObject and\nRenameObject, and only reads a few response fields. `Superblock<OC:\nObjectClient>` becomes `Superblock<M: MetadataClient>`, an interface\nshaped after exactly that: plain request parameters (rename takes\n`overwrite` instead of precondition params), and small result types\n(`HeadInfo`, `ListPage`) with only the fields the superblock uses. Every\n`ObjectClient` implements `MetadataClient` through a blanket\nimplementation that converts its results, so production code paths are\nunchanged.\n\n`MetadataError` classifies the failures the superblock handles\nspecifically (not found, precondition failed, not implemented, key too\nlong) and keeps the client error as its source. It is transparent for\n`Display` and `source()`, and delegates `ProvideErrorMetadata`, so logs\nand error metadata are unchanged. The kinds don't depend on\n`mountpoint-s3-client` error types, so other clients can classify their\nown errors.\n\n`InMemoryMetadata` (new `mock` feature, enabled for the crate's own\ntests) serves the interface synchronously from a `MockBucket` (#1989),\nwhich can be shared with a `MockClient` serving the data path.\nOperations complete on the first poll, without threads or I/O:\n\n* the superblock shuttle tests use it directly, so shuttle only\nschedules at the superblock's own synchronization points;\n* the reftest harness builds its file system with the superblock on\n`InMemoryMetadata` and the data path on `MockClient`, over the same\nbucket. Runtime is unchanged (the mutations reftest is within 2-4%).\n\n### Does this change impact existing behavior?\n\nNo. The `Superblock` bounds are relaxed from `ObjectClient + Send +\nSync` to `MetadataClient`, which every such client implements, so\nexisting uses compile and behave as before. Errors keep the same\ndisplay, source chain and error metadata.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes, a `mountpoint-s3-fs` changelog entry for the new public\n`MetadataClient` interface and the `mock` feature with\n`InMemoryMetadata`. No version change: these are additive, and v0.11.1\nis already pending.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
-          "timestamp": "2026-10-22T15:39:59Z",
-          "tree_id": "1561f9d5314b778c198deb6a377dda2f71428ac9",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/b36809b56455bf2b1d8c63a7fea9f963a4ee71d3"
-        },
-        "date": 1792692563367,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 3204.1875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 4770.484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8432.66796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 54.49609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 88.91015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 56.05078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 88.59375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 45.9453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 59.13671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 47.54296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 58.3828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8163.7578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 84.48046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8027.27734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 86.39453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2144.9140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 52.90625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2161.70703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2144.53515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 53.1640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 562.6328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 349.5546875,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 389.3671875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prikaru@amazon.com",
+            "name": "Priyankakarumuru1",
+            "username": "Priyankakarumuru1"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "2b391202bb2ac04812e5c606d7c8ee61e0cb21a9",
+          "message": "Update PyTorch example for Amazon Linux 2023 (#2037)\n\nAmazon Linux 2 is no longer supported, so this updates the PyTorch\nexample to use Amazon Linux 2023.\n\n- Use the Amazon Linux 2023 PyTorch Deep Learning AMI.\n- Pin PyTorch library versions that still work with the example.\n- Install the example's dependencies in a separate virtual environment,\nso the AMI's own PyTorch isn't changed.\n- Install Mountpoint with `dnf`.\n- Note that the existing results came from an older setup.\n\nTesting: ran the full example on a GPU instance with the Amazon Linux\n2023 PyTorch Deep Learning AMI. Training completed successfully.\n\n### Does this change impact existing behavior?\n\nNo. This only changes the example's README and requirements.txt.\nMountpoint itself is unchanged.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo. It's a documentation change to an example and doesn't affect any\ncrate.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Priyankakarumuru1 <prikaru@amazon.com>",
+          "timestamp": "2026-11-12T16:44:49Z",
+          "tree_id": "3d2b4e79198d65c61037b7fc39a49e4886a8e2d2",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/2b391202bb2ac04812e5c606d7c8ee61e0cb21a9"
+        },
+        "date": 1794514790367,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 3235.1796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 4738.03125,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 8418.68359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 54.47265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 88.96484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 56.51171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 89.359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 45.63671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 56.97265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 46.98046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 59.0546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8217.640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 85.0078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 8199.3203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 86.578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2374.5078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 54.12109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2380.04296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2376.85546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 53.51953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 636.86328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 394.828125,
             "unit": "MiB"
           }
         ]
