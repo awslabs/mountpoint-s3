@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794453294413,
+  "lastUpdate": 1794459482778,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark (S3 Standard, Memory-Limited)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9e23c24e5962d249ef06370124309d3e52661b33",
-          "message": "Restrict FUSE test mounts to the user running the tests (#2000)\n\nThe FUSE test sessions mounted with `allow_other`, so any process on the\nhost could open files in the test file systems. Other processes, such as\nfile scanners, can then interfere with the tests: if one opens a file\nfor reading just after a test closes it, Mountpoint correctly rejects\nthe test's next open of that file for writing with `EPERM` (a file can't\nhave a reader and a writer at the same time, see SEMANTICS.md). That\nmade tests such as `rename_append_mock`, `read_errors_test_mock` and\n`reftests::fuse::proptest_fuse` fail intermittently, more often under\nload.\n\nThis change mounts the test sessions without `allow_other` and with the\nmatching owner-only session ACL, as `mount-s3` does by default. The\nkernel then rejects accesses from other users, root included, and the\ntests remain the only clients of their file systems.\n\n### Does this change impact existing behavior?\n\nNo. Only the test harness changes; Mountpoint's behavior is unchanged.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo. Test-only change, no published code is affected.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
-          "timestamp": "2026-10-22T16:47:08Z",
-          "tree_id": "a048439bd443814faa8b72fdea91aca20e6a6c32",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/9e23c24e5962d249ef06370124309d3e52661b33"
-        },
-        "date": 1792697921355,
-        "tool": "customBiggerIsBetter",
-        "benches": [
-          {
-            "name": "random_read_four_threads_direct_io",
-            "value": 1298.03125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io_small_file",
-            "value": 2210.0349609375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads",
-            "value": 871.35625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_small_file",
-            "value": 1595.255078125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io",
-            "value": 278.04599609375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io_small_file",
-            "value": 716.772265625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read",
-            "value": 182.00029296875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_small_file",
-            "value": 276.82783203125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io",
-            "value": 3984.721875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io_small_file",
-            "value": 4416.50390625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads",
-            "value": 1367.19462890625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_small_file",
-            "value": 1285.69521484375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io",
-            "value": 751.7001953125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io_small_file",
-            "value": 1448.7595703125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read",
-            "value": 1090.2515625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 985.2625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_small_file",
-            "value": 984.219921875,
-            "unit": "MiB/s"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3269,6 +3160,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 1002.62451171875,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prikaru@amazon.com",
+            "name": "Priyankakarumuru1",
+            "username": "Priyankakarumuru1"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "12f00c23775ed78a6a687cf34c39fd118dba95d8",
+          "message": "Fix mount timeout when cleaning up a large cache (#2024)\n\nWhen Mountpoint runs in the background, the child process removes any\ncache directory left over from a previous run before mounting, while the\nparent waits at most 30 seconds for the mount status. Removing a large\nleftover cache can take longer, so the mount fails with `Timeout after\n30 seconds while waiting for mount process to be ready`. Fixes #1251.\n\n* The child still removes the directory synchronously, as today.\n* While it does, a separate thread in the child sends a heartbeat byte\nto the parent every second. Heartbeats stop as soon as the cleanup ends,\nso the rest of the mount keeps the 30 second timeout.\n* The parent waits with `poll` instead of a separate thread and channel.\nEach heartbeat restarts the 30 second timeout, and signals interrupting\n`poll` don't extend it. The parent prints a warning if the cleanup takes\nlonger than 30 seconds.\n* If the parent can't read the child's status, it stops the child\ninstead of waiting for it to exit.\n* The child closes the read end of the pipe right after the fork.\n\nThe new code is in `mountpoint-s3/src/mount_progress.rs`.\n\n### Testing\n\n* Unit tests for the status and heartbeat messages, the timeout once\nheartbeats stop, the child exiting without a status, and errors reading\nthe status.\n* Added `run_in_background_large_cache_cleanup_does_not_time_out` to\n`fork_test.rs`. It creates 2M files, so it's `#[ignore]` and needs to be\nrun manually.\n* Manually mounted in the background with a 400,000-file leftover cache:\nthe mount succeeded after 78 seconds, printed the warning at 30 seconds,\nand emptied the cache.\n\n### Does this change impact existing behavior?\n\nYes. With a large leftover cache, the mount now waits for the cleanup to\nfinish instead of failing after 30 seconds. There's no timeout while the\nold cache is removed, but the rest of the mount still fails if it makes\nno progress for 30 seconds. That error now reads `Timeout while waiting\nfor mount process to be ready: no progress for 30 seconds`. Other mounts\nare unaffected.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes, changelog entry added for `mountpoint-s3`. No version change\nneeded, it's already at an unreleased v1.25.0.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Priyankakarumuru1 <prikaru@amazon.com>",
+          "timestamp": "2026-11-12T02:07:22Z",
+          "tree_id": "82a3c26348674b30cdd30abb3dcd3ebd5dd22ba4",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/12f00c23775ed78a6a687cf34c39fd118dba95d8"
+        },
+        "date": 1794459481010,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 1359.069140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 2055.13115234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 893.756640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 1666.1564453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 284.59306640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 406.88349609375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read",
+            "value": 185.93193359375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 270.4552734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 3986.3255859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 4521.86875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 1498.0458984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 1355.8876953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 1457.68994140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 1069.6896484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1415.78466796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 1114.32021484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 873.1404296875,
             "unit": "MiB/s"
           }
         ]
