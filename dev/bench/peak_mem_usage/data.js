@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794492393322,
+  "lastUpdate": 1794502057835,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fb36799638c268ffd7d7267e936b255e203fe1df",
-          "message": "Extract `MockBucket` from `MockClient` (#1989)\n\nExtract the in-memory bucket model of `MockClient` into a new\n`MockBucket`.\n\n`MockBucket` owns the bucket state (objects, in-progress uploads,\noperation counts) and serves HeadObject, ListObjectsV2, DeleteObject and\nRenameObject synchronously. `MockClient` becomes a view over an\n`Arc<MockBucket>` that adds the client-side behaviour: part sizes,\nbackpressure, and the `ObjectClient` interface. A bucket can then be\nshared between a `MockClient` and other in-memory test backends without\ngoing through `ObjectClient`, for example a metadata-only fake for the\nfile system's superblock, so that tests exercising the superblock can\nrun on synchronous operations.\n\nThe configuration is split the same way. `MockBucketConfig` (name,\nlisting order, rename support) builds a `MockBucket`. `MockDataConfig`\n(part size, backpressure, read window checks) configures a `MockClient`\nover an existing bucket with `MockClient::with_bucket`.\n`MockClientConfig` keeps its API and combines both.\n\n### Does this change impact existing behavior?\n\nNo. This only affects test-support code under the `mock` feature of\n`mountpoint-s3-client`. The existing `MockClient` and `MockClientConfig`\nAPIs and their behaviour are unchanged.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes, a `mountpoint-s3-client` changelog entry for the new public\n`MockBucket`, `MockBucketConfig`, `MockDataConfig`,\n`MockClient::with_bucket` and `MockClient::mock_bucket`. No version\nchange: these are additions, and v0.22.2 is already pending.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
-          "timestamp": "2026-10-21T21:21:17Z",
-          "tree_id": "b15590ec69e2ff0a11cc962d202eb1c3d68af7dd",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/fb36799638c268ffd7d7267e936b255e203fe1df"
-        },
-        "date": 1792627918401,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 3193.640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 4770.21484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8524.81640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 54.578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 88.73046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 56.109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 88.484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 46.19140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 56.51953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 46.9296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 58.7890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8136.43359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 84.09765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8211.890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 86.54296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2157.11328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 53.75390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2158.83203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2160.69140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 54.1015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 549.37890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 382.2109375,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 380.3515625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "jetong@amazon.co.uk",
+            "name": "Jensen Tong",
+            "username": "jet-tong"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "c18f30d82f76457f3e8ff882a4d29451654aeb24",
+          "message": "Update changelogs to prepare v1.25.0 release (#2035)\n\n### Description\n\n- Add v1.25.0 / v0.x.0 changelog headers\n- Add missing mountpoint-s3 entries: #1954 (directory lookup after empty\nlist pages, which I think affects customer behaviour in mount-s3 usage)\nand the CRT update #1967, #2010, #2020 (with some important mount-s3\nfacing changes)\n- Add missing #2032 PR links\n- Credit external contributors on #1957, #1985, #1954 and #2023 (just\nbecause previous releases did that)\n\n### Does this change impact existing behavior?\n\nNo\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nThis PR changes changelog entries and does not need a change log entry.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Jensen Tong <jetong@amazon.com>\nCo-authored-by: Jensen Tong <jetong@amazon.com>",
+          "timestamp": "2026-11-12T14:22:53Z",
+          "tree_id": "0bee418b6bee203ddd057bb02d6e9cfb74293019",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/c18f30d82f76457f3e8ff882a4d29451654aeb24"
+        },
+        "date": 1794502057755,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 3205.57421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 4741.5859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 8452.28125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 55.93359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 90.94140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 56.34765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 89.32421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 45.90625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 59.50390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 48.0390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 58.99609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8141.78515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 85.53125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 8209.57421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 87.00390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2378.1640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 52.66796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2374.859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2376.18359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 53.65234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 578.921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 389.3671875,
             "unit": "MiB"
           }
         ]
