@@ -1,6 +1,5 @@
 use std::ffi::{CStr, OsString, c_int};
 use std::fs::File;
-use std::io::{Read, Write};
 use std::ptr;
 use std::time::Duration;
 use std::{env, fs};
@@ -19,6 +18,7 @@ use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
 
 use crate::cli::CliArgs;
+use crate::mount_progress::{MOUNT_PROGRESS_TIMEOUT, MountProgressReader, MountProgressReporter, MountStatus};
 use crate::{build_info, parse_cli_args};
 
 /// Initialize metrics based on CLI arguments.
@@ -57,7 +57,7 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
         create_pid_file()?;
 
         // mount file system as a foreground process
-        let session = mount(args, client_builder, &metrics)?;
+        let session = mount(args, client_builder, &metrics, None)?;
 
         println!("{successful_mount_msg}");
 
@@ -91,6 +91,13 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
                 // its first background thread.
                 let jemalloc_restored = jemalloc_background_threads.then(enable_jemalloc_background_threads);
 
+                // close unused file descriptor, we only write from this end.
+                drop(read_fd);
+
+                // Reports progress and the mount status to the parent. If the child exits before
+                // reporting a status, dropping this closes the pipe and the parent reports a failure.
+                let reporter = MountProgressReporter::new(write_fd);
+
                 let args = parse_cli_args(false);
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
                 if let Some(Err(e)) = jemalloc_restored {
@@ -108,15 +115,7 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
                     .open("/dev/null")
                     .context("couldn't open /dev/null")?;
 
-                let session = mount(args, client_builder, &metrics);
-
-                // close unused file descriptor, we only write from this end.
-                drop(read_fd);
-
-                let mut pipe_file = File::from(write_fd);
-
-                let status_success = b"0";
-                let status_failure = b"1";
+                let session = mount(args, client_builder, &metrics, Some(&reporter));
 
                 match session {
                     Ok(session) => {
@@ -131,19 +130,14 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
                         drop(dev_null);
 
                         tracing::trace!("FUSE session created OK, sending message back to parent process");
-                        pipe_file
-                            .write(status_success)
-                            .context("Failed to write data to the pipe")?;
-                        drop(pipe_file);
+                        reporter.report_success().context("Failed to write data to the pipe")?;
                         tracing::trace!("message sent back to parent process");
 
                         session.join().context("failed to join session")?;
                     }
                     Err(e) => {
                         tracing::trace!("FUSE session creation failed, sending message back to parent process");
-                        pipe_file
-                            .write(status_failure)
-                            .context("Failed to write data to the pipe")?;
+                        reporter.report_failure().context("Failed to write data to the pipe")?;
                         tracing::trace!("message sent back to parent process");
                         return Err(anyhow!(e));
                     }
@@ -155,53 +149,39 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
                 // close unused file descriptor, we only read from this end.
                 drop(write_fd);
 
-                let mut pipe_file = File::from(read_fd);
-
-                let (sender, receiver) = std::sync::mpsc::channel();
-
-                // create a thread that read from the pipe so that we can enforce a time out.
-                std::thread::spawn(move || {
-                    let mut buf = [0];
-                    match pipe_file
-                        .read_exact(&mut buf)
-                        .context("Failed to read data from the pipe")
-                    {
-                        Ok(_) => {
-                            let status = buf[0] as char;
-                            sender.send(status).unwrap();
-                        }
-                        Err(_) => sender.send('1').unwrap(),
-                    }
-                });
-
-                let timeout = Duration::from_secs(30);
-                tracing::debug!(
-                    "waiting up to {} seconds for child process to be ready",
-                    timeout.as_secs(),
-                );
-                let status = receiver.recv_timeout(timeout);
+                // Each message from the child, including heartbeats sent while it cleans up the
+                // cache directory, restarts the timeout.
+                let status = MountProgressReader::new(read_fd).wait_for_status();
                 match status {
-                    Ok('0') => {
+                    Ok(MountStatus::Success) => {
                         println!("{successful_mount_msg}");
                         tracing::debug!("success status flag received from child process")
                     }
-                    Ok(_) => {
+                    Ok(MountStatus::Failed) => {
                         nix::sys::wait::waitpid(child, None).context("Failed to wait for child process to exit")?;
                         return Err(anyhow!("Failed to create mount process"));
                     }
-                    Err(_timeout_err) => {
+                    Ok(MountStatus::TimedOut) => {
                         tracing::error!(
-                            "timeout after {} seconds waiting for message from child process",
-                            timeout.as_secs(),
+                            "no message from child process for {} seconds, considering it stuck",
+                            MOUNT_PROGRESS_TIMEOUT.as_secs(),
                         );
                         // kill child process before returning error.
                         if let Err(e) = nix::sys::signal::kill(child, Signal::SIGTERM) {
                             tracing::error!("Unable to kill hanging child process with SIGTERM: {:?}", e);
                         }
                         return Err(anyhow!(
-                            "Timeout after {} seconds while waiting for mount process to be ready",
-                            timeout.as_secs()
+                            "Timeout while waiting for mount process to be ready: no progress for {} seconds",
+                            MOUNT_PROGRESS_TIMEOUT.as_secs()
                         ));
+                    }
+                    Err(e) => {
+                        // The child may still be running, so stop it rather than wait for it to exit.
+                        tracing::error!("failed to wait for child process status: {e:#}");
+                        if let Err(e) = nix::sys::signal::kill(child, Signal::SIGTERM) {
+                            tracing::error!("Unable to kill child process with SIGTERM: {:?}", e);
+                        }
+                        return Err(e.context("Failed to create mount process"));
                     }
                 };
             }
@@ -211,10 +191,12 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
     Ok(())
 }
 
+/// Set up the mount. When running in the background, `progress` reports to the parent process.
 fn mount(
     args: CliArgs,
     client_builder: impl ClientBuilder,
     metrics: &MetricsSinkHandle,
+    progress: Option<&MountProgressReporter>,
 ) -> anyhow::Result<FuseSession> {
     tracing::info!("mount-s3 {}", build_info::FULL_VERSION);
     tracing::debug!("{:?}", args);
@@ -251,7 +233,7 @@ fn mount(
     let filesystem_config = args.filesystem_config(sse.clone(), s3_personality);
     let mut data_cache_config = args.data_cache_config(sse)?;
 
-    let managed_cache_dir = setup_disk_cache_directory(&mut data_cache_config)?;
+    let managed_cache_dir = setup_disk_cache_directory(&mut data_cache_config, progress)?;
 
     tracing::debug!(?fuse_session_config, "creating fuse session");
     let mount_point_path = format!("{}", fuse_session_config.mount_point());
@@ -372,17 +354,28 @@ pub fn create_s3_client(
     Ok((client, runtime, s3_personality))
 }
 
-fn setup_disk_cache_directory(cache_config: &mut DataCacheConfig) -> anyhow::Result<Option<ManagedCacheDir>> {
+/// Create the cache directory, removing any directory left over from a previous run.
+///
+/// Removing a large leftover directory can take minutes. While it runs, `progress` sends heartbeats
+/// to the parent process, so the parent doesn't time out waiting for the mount.
+fn setup_disk_cache_directory(
+    cache_config: &mut DataCacheConfig,
+    progress: Option<&MountProgressReporter>,
+) -> anyhow::Result<Option<ManagedCacheDir>> {
     let Some(disk_cache_config) = &mut cache_config.disk_cache_config else {
         return Ok(None);
     };
     let cache_key = env_unstable_cache_key();
+    // Removing a leftover cache directory can take minutes, so send heartbeats to the parent
+    // until it's done. Dropping the heartbeat stops it, including on the error return below.
+    let heartbeat = progress.map(MountProgressReporter::start_heartbeat);
     let managed_cache_dir = ManagedCacheDir::new_from_parent_with_cache_key(
         &disk_cache_config.cache_directory,
         cache_key.as_deref(),
         should_cleanup_cache_dir(),
     )
     .context("failed to create cache directory")?;
+    drop(heartbeat);
     disk_cache_config.cache_directory = managed_cache_dir.as_path_buf();
     Ok(Some(managed_cache_dir))
 }

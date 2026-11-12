@@ -6,6 +6,7 @@
 * Mountpoint now fails to start when `AWS_MAX_ATTEMPTS` is not a positive integer. Previously `0` selected 4 attempts and other invalid values were silently ignored. ([#1996](https://github.com/awslabs/mountpoint-s3/pull/1996))
 
 ### Other changes
+* Fix Mountpoint failing to start with a 30 second timeout when `--cache` contains a large cache left over from a previous run. Mountpoint no longer enforces a timeout while it removes the old cache, so starting can take as long as the removal does, and it prints a warning if the removal takes longer than 30 seconds. The rest of the mount still fails if it makes no progress for 30 seconds. ([#2024](https://github.com/awslabs/mountpoint-s3/pull/2024))
 
 * Add the unstable `UNSTABLE_MOUNTPOINT_DISABLE_RETRY_QUOTA` environment variable. When set to `true`, Mountpoint keeps retrying throttled requests up to the maximum number of attempts even while S3 keeps throttling, instead of failing them without retrying once its retry quota runs out. See [the configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#retry-quota).
 * Fix `AWS_MAX_ATTEMPTS=1` still retrying failed S3 requests up to 3 times. ([#1996](https://github.com/awslabs/mountpoint-s3/pull/1996))

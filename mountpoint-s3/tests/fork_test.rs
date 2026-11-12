@@ -68,6 +68,88 @@ fn run_in_background() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Number of partition subdirectories Mountpoint spreads cache entries across.
+const CACHE_NUM_PARTITIONS: usize = 256;
+
+/// Fill a leftover cache directory with `num_files` empty files, in a synthetic layout similar to
+/// Mountpoint's cache: `<cache>/mountpoint-cache/V2/<partition>/<n>.txt`. Mountpoint removes this
+/// directory at startup.
+fn populate_residual_cache(cache_dir: &Path, num_files: usize) {
+    let v2 = cache_dir.join("mountpoint-cache").join("V2");
+    for n in 0..num_files {
+        let partition_dir = v2.join((n % CACHE_NUM_PARTITIONS).to_string());
+        fs::create_dir_all(&partition_dir).unwrap();
+        File::create(partition_dir.join(format!("{n}.txt"))).unwrap();
+    }
+}
+
+/// Removing a leftover cache directory that takes longer than the parent's 30 second timeout must
+/// not fail the mount, because the child sends heartbeats while it removes the directory.
+/// Reproduces <https://github.com/awslabs/mountpoint-s3/issues/1251>.
+///
+/// Ignored by default because it's slow: creating 2M files took 123s and removing them took 65s on
+/// one test machine. Run it with, for example:
+/// `TMPDIR=<> S3_BUCKET_NAME=<> S3_REGION=<> cargo test -p mountpoint-s3 --features fuse_tests,s3_tests large_cache_cleanup -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn run_in_background_large_cache_cleanup_does_not_time_out() -> Result<(), Box<dyn std::error::Error>> {
+    // The parent considers the child stuck after this long without a message.
+    const PROGRESS_TIMEOUT: Duration = Duration::from_secs(30);
+    // Enough files that removing them takes longer than PROGRESS_TIMEOUT on typical storage.
+    const NUM_FILES: usize = 2_000_000;
+    // Upper bound for the whole mount, including the cleanup.
+    const MAX_MOUNT_WAIT: Duration = Duration::from_secs(600);
+
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_run_in_background_large_cache_cleanup");
+    let region = get_test_region();
+    let mount_point = assert_fs::TempDir::new()?;
+    let cache_dir = assert_fs::TempDir::new()?;
+
+    let create_start = Instant::now();
+    populate_residual_cache(cache_dir.path(), NUM_FILES);
+    println!(
+        "created residual cache of {NUM_FILES} files in {:?}",
+        create_start.elapsed()
+    );
+
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
+    cmd.arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--auto-unmount")
+        .arg(format!("--cache={}", cache_dir.path().display()))
+        .arg(format!("--region={region}"));
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
+
+    let child = cmd.spawn().expect("unable to spawn child");
+    let (exit_status, elapsed) = wait_for_exit_within(child, MAX_MOUNT_WAIT);
+    println!("mount (including cache cleanup) took {elapsed:?}");
+
+    assert!(
+        exit_status.success(),
+        "mount should succeed even when cache cleanup takes longer than the {}s timeout",
+        PROGRESS_TIMEOUT.as_secs(),
+    );
+    assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
+
+    // Otherwise the test didn't exercise the heartbeats, and NUM_FILES should be raised.
+    assert!(
+        elapsed > PROGRESS_TIMEOUT,
+        "cleanup finished in {elapsed:?}, within the {}s timeout, so heartbeats weren't needed",
+        PROGRESS_TIMEOUT.as_secs(),
+    );
+
+    let mountpoint_cache = cache_dir.path().join("mountpoint-cache");
+    let remaining = fs::read_dir(&mountpoint_cache).map(|d| d.count()).unwrap_or(0);
+    assert_eq!(remaining, 0, "cache sub-directory should be emptied on startup");
+
+    unmount(mount_point.path());
+
+    Ok(())
+}
+
 #[test]
 fn run_in_background_with_passed_fuse_fd() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("run_in_background_with_passed_fuse_fd");
@@ -1317,15 +1399,20 @@ fn get_mount_from_source_and_mountpoint(source: &str, mount_point: &str) -> Opti
     None
 }
 
-fn wait_for_exit(mut child: Child) -> ExitStatus {
+fn wait_for_exit(child: Child) -> ExitStatus {
+    wait_for_exit_within(child, MAX_WAIT_DURATION).0
+}
+
+/// Wait up to `max_wait` for `child` to exit, and return its exit status and how long it took.
+fn wait_for_exit_within(mut child: Child, max_wait: Duration) -> (ExitStatus, Duration) {
     let st = Instant::now();
 
     loop {
-        if st.elapsed() > MAX_WAIT_DURATION {
+        if st.elapsed() > max_wait {
             panic!("wait for result timeout")
         }
         match child.try_wait().expect("unable to wait for result") {
-            Some(result) => break result,
+            Some(result) => break (result, st.elapsed()),
             None => std::thread::sleep(Duration::from_millis(100)),
         }
     }
