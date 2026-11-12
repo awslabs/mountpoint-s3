@@ -6,7 +6,7 @@ use test_case::test_case;
 use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator};
 use mountpoint_s3_fs::data_cache::InMemoryDataCache;
 
-fn page_cache_sharing_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+async fn page_cache_sharing_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     // Big enough to avoid readahead
     const OBJECT_SIZE: usize = 512 * 1024;
 
@@ -16,11 +16,16 @@ fn page_cache_sharing_test(creator_fn: impl TestSessionCreator, prefix: &str) {
             max_worker_threads: 1, // avoid stale inode issues. (FIXME)
             ..Default::default()
         },
-    );
+    )
+    .await;
 
     // Create the first version of the file
     let old_contents = vec![0xaau8; OBJECT_SIZE];
-    test_session.client().put_object("file.bin", &old_contents).unwrap();
+    test_session
+        .client()
+        .put_object("file.bin", &old_contents)
+        .await
+        .unwrap();
 
     // Open the file before updating it remotely
     let old_file = File::open(test_session.mount_path().join("file.bin")).unwrap();
@@ -29,7 +34,11 @@ fn page_cache_sharing_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     assert_eq!(buf, &old_contents[..buf.len()]);
 
     let new_contents = vec![0xbbu8; OBJECT_SIZE];
-    test_session.client().put_object("file.bin", &new_contents).unwrap();
+    test_session
+        .client()
+        .put_object("file.bin", &new_contents)
+        .await
+        .unwrap();
 
     // Open the file again, should see the new contents this time
     let new_file = File::open(test_session.mount_path().join("file.bin")).unwrap();
@@ -55,31 +64,35 @@ fn page_cache_sharing_test(creator_fn: impl TestSessionCreator, prefix: &str) {
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn page_cache_sharing_test_s3() {
-    page_cache_sharing_test(fuse::s3_session::new, "page_cache_sharing_test");
+#[tokio::test]
+async fn page_cache_sharing_test_s3() {
+    page_cache_sharing_test(fuse::s3_session::new, "page_cache_sharing_test").await;
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn page_cache_sharing_test_s3_with_cache() {
+#[tokio::test]
+async fn page_cache_sharing_test_s3_with_cache() {
     page_cache_sharing_test(
         fuse::s3_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         "page_cache_sharing_test",
-    );
+    )
+    .await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("page_cache_sharing_test"; "prefix")]
-fn page_cache_sharing_test_mock(prefix: &str) {
-    page_cache_sharing_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn page_cache_sharing_test_mock(prefix: &str) {
+    page_cache_sharing_test(fuse::mock_session::new, prefix).await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("page_cache_sharing_test"; "prefix")]
-fn page_cache_sharing_test_mock_with_cache(prefix: &str) {
+#[tokio::test]
+async fn page_cache_sharing_test_mock_with_cache(prefix: &str) {
     page_cache_sharing_test(
         fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         prefix,
-    );
+    )
+    .await;
 }

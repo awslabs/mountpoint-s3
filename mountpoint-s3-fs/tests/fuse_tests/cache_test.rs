@@ -530,8 +530,8 @@ fn get_filesystem_stats(path: &Path) -> (u64, u64) {
 /// An isolated loop device filesystem is used for the cache, ensuring Mountpoint calculates the 95% limit based on the isolated filesystem, not the entire host.
 ///
 /// Note: requires `sudo` for loop device mount/umount operations.
-#[test]
-fn available_space_cache_limit_test_mock() {
+#[tokio::test]
+async fn available_space_cache_limit_test_mock() {
     const FILE_SIZE: usize = 4 * 1024 * 1024; // 4 MiB per file
     const NUM_FILES: usize = 50; // 50 files = 200 MiB total data
     const TOLERANCE_RATIO: f64 = 0.02; // 2% tolerance for filesystem metadata overhead
@@ -549,7 +549,8 @@ fn available_space_cache_limit_test_mock() {
             },
         };
         CacheTestWrapper::new(DiskDataCache::new(cache_config, pool))
-    })("available_space_cache_limit_test", TestSessionConfig::default());
+    })("available_space_cache_limit_test", TestSessionConfig::default())
+    .await;
 
     // Create test files
     let mut rng = SmallRng::seed_from_u64(0x12345678);
@@ -558,7 +559,7 @@ fn available_space_cache_limit_test_mock() {
     for i in 0..NUM_FILES {
         rng.fill_bytes(&mut file_data);
         let key = format!("file-{}.bin", i + 1);
-        test_session.client().put_object(&key, &file_data).unwrap();
+        test_session.client().put_object(&key, &file_data).await.unwrap();
     }
 
     let (total_space, initial_available) = get_filesystem_stats(&cache_path);

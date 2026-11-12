@@ -5,12 +5,12 @@ use test_case::test_case;
 
 use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator};
 
-fn read_test(creator_fn: impl TestSessionCreator, object_size: usize) {
-    let test_session = creator_fn(Default::default(), Default::default());
+async fn read_test(creator_fn: impl TestSessionCreator, object_size: usize) {
+    let test_session = creator_fn(Default::default(), Default::default()).await;
 
     let file_name = "hello.bin";
     let object = vec![255u8; object_size];
-    test_session.client().put_object(file_name, &object).unwrap();
+    test_session.client().put_object(file_name, &object).await.unwrap();
 
     let file_path = test_session.mount_path().join(file_name);
     let buf = {
@@ -27,36 +27,42 @@ fn read_test(creator_fn: impl TestSessionCreator, object_size: usize) {
 #[test_case(0; "empty file")]
 #[test_case(1; "single-byte file")]
 #[test_case(1024*1024; "1MiB file")]
-fn read_test_s3(object_size: usize) {
-    read_test(fuse::s3_session::new, object_size);
+#[tokio::test]
+async fn read_test_s3(object_size: usize) {
+    read_test(fuse::s3_session::new, object_size).await;
 }
 
 #[cfg(feature = "s3_tests")]
 #[test_case(0; "empty file")]
 #[test_case(1; "single-byte file")]
 #[test_case(1024*1024; "1MiB file")]
-fn read_test_s3_with_cache(object_size: usize) {
+#[tokio::test]
+async fn read_test_s3_with_cache(object_size: usize) {
     read_test(
         fuse::s3_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         object_size,
-    );
+    )
+    .await;
 }
 
 #[test_case(0; "empty file")]
 #[test_case(1; "single-byte file")]
 #[test_case(1024*1024; "1MiB file")]
-fn read_test_mock(object_size: usize) {
-    read_test(fuse::mock_session::new, object_size);
+#[tokio::test]
+async fn read_test_mock(object_size: usize) {
+    read_test(fuse::mock_session::new, object_size).await;
 }
 
 #[test_case(0; "empty file")]
 #[test_case(1; "single-byte file")]
 #[test_case(1024*1024; "1MiB file")]
-fn read_test_mock_with_cache(object_size: usize) {
+#[tokio::test]
+async fn read_test_mock_with_cache(object_size: usize) {
     read_test(
         fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         object_size,
-    );
+    )
+    .await;
 }
 
 /// Test for checking either prefetching fails or read original object when object is mutated during read.
@@ -64,7 +70,7 @@ fn read_test_mock_with_cache(object_size: usize) {
 /// When we read the first block, it prefetches the data with a window size enough to fulfill the request
 /// then increase the window size when needed.
 /// If object is mutated, reading a part from the next read window would fail from pre-condition (ETag) error.
-fn prefetch_test_etag(
+async fn prefetch_test_etag(
     creator_fn: impl TestSessionCreator,
     prefix: &str,
     part_size: usize,
@@ -82,13 +88,15 @@ fn prefetch_test_etag(
             max_worker_threads: 1, // avoid stale inode issues. (FIXME)
             ..Default::default()
         },
-    );
+    )
+    .await;
 
     let original_data_buf = vec![0u8; object_size];
 
     test_session
         .client()
         .put_object("dir/hello.txt", &original_data_buf)
+        .await
         .unwrap();
 
     let mut path = test_session.mount_path().join("dir/hello.txt");
@@ -107,6 +115,7 @@ fn prefetch_test_etag(
     test_session
         .client()
         .put_object("dir/hello.txt", &final_data_buf)
+        .await
         .unwrap();
     let mut dest_buf = vec![0u8; read_size];
 
@@ -151,7 +160,8 @@ fn prefetch_test_etag(
 #[test_case(64 * 1024, 1024; "first request size smaller than default, much larger than first block read size")]
 #[test_case(512 * 1024, 1024; "first request size greater than default,  much larger than first block read size")]
 #[test_case(64 * 1024, 500 * 1024; "first request size smaller than first block read size")]
-fn prefetch_test_etag_mock(initial_read_window_size: usize, read_size: usize) {
+#[tokio::test]
+async fn prefetch_test_etag_mock(initial_read_window_size: usize, read_size: usize) {
     let part_size = 256 * 1024;
     prefetch_test_etag(
         fuse::mock_session::new,
@@ -159,14 +169,16 @@ fn prefetch_test_etag_mock(initial_read_window_size: usize, read_size: usize) {
         part_size,
         initial_read_window_size,
         read_size,
-    );
+    )
+    .await;
 }
 
 #[test_case(256 * 1024, 1024; "default first request size, much larger than first block read size")]
 #[test_case(64 * 1024, 1024; "first request size smaller than default, much larger than first block read size")]
 #[test_case(512 * 1024, 1024; "first request size greater than default,  much larger than first block read size")]
 #[test_case(64 * 1024, 500 * 1024; "first request size smaller than first block read size")]
-fn prefetch_test_etag_mock_with_cache(initial_read_window_size: usize, read_size: usize) {
+#[tokio::test]
+async fn prefetch_test_etag_mock_with_cache(initial_read_window_size: usize, read_size: usize) {
     let part_size = 256 * 1024;
     prefetch_test_etag(
         fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
@@ -174,7 +186,8 @@ fn prefetch_test_etag_mock_with_cache(initial_read_window_size: usize, read_size
         part_size,
         initial_read_window_size,
         read_size,
-    );
+    )
+    .await;
 }
 
 #[cfg(feature = "s3_tests")]
@@ -182,7 +195,8 @@ fn prefetch_test_etag_mock_with_cache(initial_read_window_size: usize, read_size
 #[test_case(64 * 1024, 1024; "first request size smaller than default, much larger than first block read size")]
 #[test_case(512 * 1024, 1024; "first request size greater than default, much larger than first block read size")]
 #[test_case(256 * 1024, 256 * 1024; "first request size smaller than first block read size")]
-fn prefetch_test_etag_s3(initial_read_window_size: usize, read_size: usize) {
+#[tokio::test]
+async fn prefetch_test_etag_s3(initial_read_window_size: usize, read_size: usize) {
     let part_size = 8 * 1024 * 1024;
     prefetch_test_etag(
         fuse::s3_session::new,
@@ -190,7 +204,8 @@ fn prefetch_test_etag_s3(initial_read_window_size: usize, read_size: usize) {
         part_size,
         initial_read_window_size,
         read_size,
-    );
+    )
+    .await;
 }
 
 #[cfg(feature = "s3_tests")]
@@ -198,7 +213,8 @@ fn prefetch_test_etag_s3(initial_read_window_size: usize, read_size: usize) {
 #[test_case(64 * 1024, 1024; "first request size smaller than default, much larger than first block read size")]
 #[test_case(512 * 1024, 1024; "first request size greater than default, much larger than first block read size")]
 #[test_case(256 * 1024, 256 * 1024; "first request size smaller than first block read size")]
-fn prefetch_test_etag_s3_with_cache(initial_read_window_size: usize, read_size: usize) {
+#[tokio::test]
+async fn prefetch_test_etag_s3_with_cache(initial_read_window_size: usize, read_size: usize) {
     let part_size = 8 * 1024 * 1024;
     prefetch_test_etag(
         fuse::s3_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
@@ -206,5 +222,6 @@ fn prefetch_test_etag_s3_with_cache(initial_read_window_size: usize, read_size: 
         part_size,
         initial_read_window_size,
         read_size,
-    );
+    )
+    .await;
 }

@@ -71,265 +71,290 @@ fn verify_common_metrics(recorder: &TestRecorder) {
     assert_metric_exists(recorder, "fuse.idle_threads", &[]);
 }
 
+/// Runs a test body to completion on a new Tokio runtime.
+///
+/// The tests in this module run in a forked child process with `rusty_fork_test!`, which only
+/// supports synchronous test functions, so each test starts its own runtime for the async test
+/// session and client.
+fn tokio_block_on<F: Future>(future: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(future)
+}
+
 rusty_fork_test! {
     #[test]
     fn test_fuse_write_metrics() {
-        let recorder = setup_recorder();
+        tokio_block_on(async {
+            let recorder = setup_recorder();
 
-        let filesystem_config = S3FilesystemConfig {
-            allow_overwrite: true,
-            ..Default::default()
-        };
-        let config = TestSessionConfig {
-            filesystem_config,
-            ..Default::default()
-        };
+            let filesystem_config = S3FilesystemConfig {
+                allow_overwrite: true,
+                ..Default::default()
+            };
+            let config = TestSessionConfig {
+                filesystem_config,
+                ..Default::default()
+            };
 
-        let test_session = mock_session::new("test_fuse_write_metrics", config);
-        let path = test_session.mount_path().join("test.txt");
+            let test_session = mock_session::new("test_fuse_write_metrics", config).await;
+            let path = test_session.mount_path().join("test.txt");
 
-        // Test write
-        let content = vec![b'a'; 1024];
-        let mut file = File::create(&path).unwrap();
-        file.write_all(&content).unwrap();
-        file.sync_all().unwrap();
+            // Test write
+            let content = vec![b'a'; 1024];
+            let mut file = File::create(&path).unwrap();
+            file.write_all(&content).unwrap();
+            file.sync_all().unwrap();
 
-        // Write to multiple file handles and check all samples are recorded
-        let path2 = test_session.mount_path().join("test2.txt");
-        let mut file2 = File::create(&path2).unwrap();
-        file2.write_all(&content).unwrap();
-        file2.sync_all().unwrap();
+            // Write to multiple file handles and check all samples are recorded
+            let path2 = test_session.mount_path().join("test2.txt");
+            let mut file2 = File::create(&path2).unwrap();
+            file2.write_all(&content).unwrap();
+            file2.sync_all().unwrap();
 
-        let path3 = test_session.mount_path().join("test3.txt");
-        let mut file3 = File::create(&path3).unwrap();
-        file3.write_all(&content).unwrap();
-        file3.sync_all().unwrap();
+            let path3 = test_session.mount_path().join("test3.txt");
+            let mut file3 = File::create(&path3).unwrap();
+            file3.write_all(&content).unwrap();
+            file3.sync_all().unwrap();
 
-        let write_handle = get_metric!(&recorder, "fs.current_handles", &[("type", "write")]);
-        assert!(write_handle.gauge() >= 3.0, "should have at least 3 write handles");
+            let write_handle = get_metric!(&recorder, "fs.current_handles", &[("type", "write")]);
+            assert!(write_handle.gauge() >= 3.0, "should have at least 3 write handles");
 
-        for f in [file, file2, file3] {
-            drop(f);
-        }
+            for f in [file, file2, file3] {
+                drop(f);
+            }
 
-        let write_io_size = get_histogram!(&recorder, FUSE_IO_SIZE, &[(ATTR_FUSE_REQUEST, "write")]);
-        assert_eq!(write_io_size.len(), 3, "should have 3 write operations");
+            let write_io_size = get_histogram!(&recorder, FUSE_IO_SIZE, &[(ATTR_FUSE_REQUEST, "write")]);
+            assert_eq!(write_io_size.len(), 3, "should have 3 write operations");
 
-        let write_latency = get_histogram!(&recorder, FUSE_REQUEST_LATENCY, &[(ATTR_FUSE_REQUEST, "write")]);
-        assert_eq!(write_latency.len(), 3, "should have 3 write operations");
+            let write_latency = get_histogram!(&recorder, FUSE_REQUEST_LATENCY, &[(ATTR_FUSE_REQUEST, "write")]);
+            assert_eq!(write_latency.len(), 3, "should have 3 write operations");
 
-        assert_metric_exists(&recorder, "fuse.total_bytes", &[("type", "write")]);
+            assert_metric_exists(&recorder, "fuse.total_bytes", &[("type", "write")]);
 
-        verify_common_metrics(&recorder);
+            verify_common_metrics(&recorder);
+        })
     }
 
     #[test]
     fn test_fuse_read_metrics() {
-        let recorder = setup_recorder();
+        tokio_block_on(async {
+            let recorder = setup_recorder();
 
-        let filesystem_config = S3FilesystemConfig {
-            allow_overwrite: true,
-            ..Default::default()
-        };
-        let config = TestSessionConfig {
-            filesystem_config,
-            ..Default::default()
-        };
+            let filesystem_config = S3FilesystemConfig {
+                allow_overwrite: true,
+                ..Default::default()
+            };
+            let config = TestSessionConfig {
+                filesystem_config,
+                ..Default::default()
+            };
 
-        let test_session = mock_session::new("test_fuse_read_metrics", config);
+            let test_session = mock_session::new("test_fuse_read_metrics", config).await;
 
-        let content = vec![b'a'; 1024];
-        test_session.client().put_object("test.txt", &content).unwrap();
+            let content = vec![b'a'; 1024];
+            test_session.client().put_object("test.txt", &content).await.unwrap();
 
-        let path = test_session.mount_path().join("test.txt");
+            let path = test_session.mount_path().join("test.txt");
 
-        let mut read_buf = vec![0; 1024];
-        let mut read_file = File::open(&path).unwrap();
-        let bytes_read = read_file.read(&mut read_buf).unwrap();
-        assert_eq!(bytes_read, 1024);
-        assert_eq!(read_buf, content);
+            let mut read_buf = vec![0; 1024];
+            let mut read_file = File::open(&path).unwrap();
+            let bytes_read = read_file.read(&mut read_buf).unwrap();
+            assert_eq!(bytes_read, 1024);
+            assert_eq!(read_buf, content);
 
-        // FIXME: Revisit this if this is really needed.
-        sleep(Duration::from_millis(100));
+            // FIXME: Revisit this if this is really needed.
+            sleep(Duration::from_millis(100));
 
-        let read_handle = get_metric!(&recorder, "fs.current_handles", &[("type", "read")]);
-        assert_eq!(read_handle.gauge(), 1.0, "should have at least 1 read handle");
+            let read_handle = get_metric!(&recorder, "fs.current_handles", &[("type", "read")]);
+            assert_eq!(read_handle.gauge(), 1.0, "should have at least 1 read handle");
 
-        drop(read_file);
+            drop(read_file);
 
-        let read_io_size = get_histogram!(&recorder, FUSE_IO_SIZE, &[(ATTR_FUSE_REQUEST, "read")]);
-        assert!(read_io_size.contains(&1024.0));
-        assert!(!read_io_size.is_empty(), "should have at least 1 io_size metric");
+            let read_io_size = get_histogram!(&recorder, FUSE_IO_SIZE, &[(ATTR_FUSE_REQUEST, "read")]);
+            assert!(read_io_size.contains(&1024.0));
+            assert!(!read_io_size.is_empty(), "should have at least 1 io_size metric");
 
-        let read_latency = get_histogram!(&recorder, FUSE_REQUEST_LATENCY, &[(ATTR_FUSE_REQUEST, "read")]);
-        assert!(!read_latency.is_empty(), "should have at least 1 read latency metric");
+            let read_latency = get_histogram!(&recorder, FUSE_REQUEST_LATENCY, &[(ATTR_FUSE_REQUEST, "read")]);
+            assert!(!read_latency.is_empty(), "should have at least 1 read latency metric");
 
-        assert_metric_exists(&recorder, "fuse.total_bytes", &[("type", "read")]);
-        verify_common_metrics(&recorder);
+            assert_metric_exists(&recorder, "fuse.total_bytes", &[("type", "read")]);
+            verify_common_metrics(&recorder);
+        })
     }
 
     #[test]
     fn test_fuse_error_metrics() {
-        let recorder = setup_recorder();
+        tokio_block_on(async {
+            let recorder = setup_recorder();
 
-        let test_session = mock_session::new("test_fuse_error_metrics", TestSessionConfig::default());
+            let test_session = mock_session::new("test_fuse_error_metrics", TestSessionConfig::default()).await;
 
-        // Try to read a non-existent file
-        let non_existent = test_session.mount_path().join("does_not_exist.txt");
-        assert!(File::open(&non_existent).is_err());
+            // Try to read a non-existent file
+            let non_existent = test_session.mount_path().join("does_not_exist.txt");
+            assert!(File::open(&non_existent).is_err());
 
-        let failure = recorder
-            .get(FUSE_REQUEST_ERRORS, &[(ATTR_FUSE_REQUEST, "lookup")])
-            .unwrap_or_else(|| panic!("failure metric for lookup should exist"));
+            let failure = recorder
+                .get(FUSE_REQUEST_ERRORS, &[(ATTR_FUSE_REQUEST, "lookup")])
+                .unwrap_or_else(|| panic!("failure metric for lookup should exist"));
 
-        assert!(
-            failure.counter() >= 1,
-            "should have at least one failed lookup operation"
-        );
+            assert!(
+                failure.counter() >= 1,
+                "should have at least one failed lookup operation"
+            );
+        })
     }
 
     #[test]
     fn test_random_access_resets_prefetch_state() {
-        let recorder = setup_recorder();
+        tokio_block_on(async {
+            let recorder = setup_recorder();
 
-        let test_session = mock_session::new("test_random_access_resets_prefetch_state", TestSessionConfig::default());
-        let path = test_session.mount_path().join("large_file.txt");
+            let test_session = mock_session::new("test_random_access_resets_prefetch_state", TestSessionConfig::default()).await;
+            let path = test_session.mount_path().join("large_file.txt");
 
-        // Create a large file for random reading
-        let content = vec![b'y'; 64 * 1024 * 1024];
-        let mut file = File::create(&path).unwrap();
-        file.write_all(&content).unwrap();
-        file.sync_all().unwrap();
-        drop(file);
+            // Create a large file for random reading
+            let content = vec![b'y'; 64 * 1024 * 1024];
+            let mut file = File::create(&path).unwrap();
+            file.write_all(&content).unwrap();
+            file.sync_all().unwrap();
+            drop(file);
 
-        let mut file = File::open(&path).unwrap();
-        let mut buffer = vec![0u8; 1024];
+            let mut file = File::open(&path).unwrap();
+            let mut buffer = vec![0u8; 1024];
 
-        for _ in 0..10 {
-            file.read_exact(&mut buffer).unwrap();
-        }
+            for _ in 0..10 {
+                file.read_exact(&mut buffer).unwrap();
+            }
 
-        let initial_reset_state = recorder
-            .get(PREFETCH_RESET_STATE, &[])
-            .map_or(0, |m| m.counter());
+            let initial_reset_state = recorder
+                .get(PREFETCH_RESET_STATE, &[])
+                .map_or(0, |m| m.counter());
 
-        // Jump around the file randomly to trigger out-of-order reads
-        for offset in [2 * 1024 * 1024, 8 * 1024 * 1024, 0, 32 * 1024 * 1024] {
-            file.seek(std::io::SeekFrom::Start(offset)).unwrap();
-            file.read_exact(&mut buffer).unwrap();
-        }
+            // Jump around the file randomly to trigger out-of-order reads
+            for offset in [2 * 1024 * 1024, 8 * 1024 * 1024, 0, 32 * 1024 * 1024] {
+                file.seek(std::io::SeekFrom::Start(offset)).unwrap();
+                file.read_exact(&mut buffer).unwrap();
+            }
 
-        drop(file);
+            drop(file);
 
-        let final_reset_state = recorder
-            .get(PREFETCH_RESET_STATE, &[])
-            .map_or(0, |m| m.counter());
+            let final_reset_state = recorder
+                .get(PREFETCH_RESET_STATE, &[])
+                .map_or(0, |m| m.counter());
 
-        assert!(
-            final_reset_state > initial_reset_state,
-            "Random access should increment reset_state metric"
-        );
+            assert!(
+                final_reset_state > initial_reset_state,
+                "Random access should increment reset_state metric"
+            );
+        })
     }
 
     #[test]
     fn test_cache_metrics() {
-        let recorder = setup_recorder();
-        let cache_dir = tempfile::tempdir().unwrap();
+        tokio_block_on(async {
+            let recorder = setup_recorder();
+            let cache_dir = tempfile::tempdir().unwrap();
 
-        let test_session = mock_session::new_with_cache(|block_size, pool| {
-            let cache_config = DiskDataCacheConfig {
-                cache_directory: cache_dir.path().to_path_buf(),
-                block_size,
-                limit: mountpoint_s3_fs::data_cache::CacheLimit::TotalSize { max_size: 2 * 1024 * 1024 },
-            };
-            DiskDataCache::new(cache_config, pool)
-        })("test_cache_metrics", TestSessionConfig::default());
+            let test_session = mock_session::new_with_cache(|block_size, pool| {
+                let cache_config = DiskDataCacheConfig {
+                    cache_directory: cache_dir.path().to_path_buf(),
+                    block_size,
+                    limit: mountpoint_s3_fs::data_cache::CacheLimit::TotalSize { max_size: 2 * 1024 * 1024 },
+                };
+                DiskDataCache::new(cache_config, pool)
+            })("test_cache_metrics", TestSessionConfig::default()).await;
 
-        let content = vec![b'x'; 1024 * 1024];
-        test_session.client().put_object("file.txt", &content).unwrap();
-        let path = test_session.mount_path().join("file.txt");
+            let content = vec![b'x'; 1024 * 1024];
+            test_session.client().put_object("file.txt", &content).await.unwrap();
+            let path = test_session.mount_path().join("file.txt");
 
-        // First read - populate cache
-        File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
-        sleep(Duration::from_millis(100));
+            // First read - populate cache
+            File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+            sleep(Duration::from_millis(100));
 
-        // No cache hits but cache should be updated
-        assert!(recorder.get(FUSE_CACHE_HIT, &[]).is_none(), "Cache hit metric should not exist after cache miss");
-        assert_metric_exists(&recorder, CACHE_PUT_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
-        assert_metric_exists(&recorder, CACHE_PUT_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
+            // No cache hits but cache should be updated
+            assert!(recorder.get(FUSE_CACHE_HIT, &[]).is_none(), "Cache hit metric should not exist after cache miss");
+            assert_metric_exists(&recorder, CACHE_PUT_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
+            assert_metric_exists(&recorder, CACHE_PUT_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
 
-        // Second read - cache hit
-        File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+            // Second read - cache hit
+            File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
 
-        // Verify cache hit metrics
-        assert_metric_exists(&recorder, FUSE_CACHE_HIT, &[]);
-        assert_metric_exists(&recorder, CACHE_GET_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
-        assert_histogram_exists(&recorder, CACHE_GET_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
+            // Verify cache hit metrics
+            assert_metric_exists(&recorder, FUSE_CACHE_HIT, &[]);
+            assert_metric_exists(&recorder, CACHE_GET_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
+            assert_histogram_exists(&recorder, CACHE_GET_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
 
-        // Read a large file to trigger eviction metrics
-        let large_content = vec![b'z'; 2 * 1024 * 1024];
-        test_session.client().put_object("large_file.txt", &large_content).unwrap();
-        let large_path = test_session.mount_path().join("large_file.txt");
-        File::open(&large_path).unwrap().read_to_end(&mut Vec::new()).unwrap();
-        sleep(Duration::from_millis(100));
+            // Read a large file to trigger eviction metrics
+            let large_content = vec![b'z'; 2 * 1024 * 1024];
+            test_session.client().put_object("large_file.txt", &large_content).await.unwrap();
+            let large_path = test_session.mount_path().join("large_file.txt");
+            File::open(&large_path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+            sleep(Duration::from_millis(100));
 
-        // Verify eviction metrics
-        assert_metric_exists(&recorder, CACHE_EVICT_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
+            // Verify eviction metrics
+            assert_metric_exists(&recorder, CACHE_EVICT_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
+        })
     }
 
     #[test]
     fn test_multi_level_cache_metrics() {
-        let recorder = setup_recorder();
-        let cache_dir = tempfile::tempdir().unwrap();
+        tokio_block_on(async {
+            let recorder = setup_recorder();
+            let cache_dir = tempfile::tempdir().unwrap();
 
-        let test_session = mock_session::new_with_cache(|block_size, pool| {
-            let disk_config = DiskDataCacheConfig {
-                cache_directory: cache_dir.path().to_path_buf(),
-                block_size,
-                limit: mountpoint_s3_fs::data_cache::CacheLimit::TotalSize { max_size: 2 * 1024 * 1024 },
-            };
-            let disk_cache = Arc::new(DiskDataCache::new(disk_config, pool.clone()));
+            let test_session = mock_session::new_with_cache(|block_size, pool| {
+                let disk_config = DiskDataCacheConfig {
+                    cache_directory: cache_dir.path().to_path_buf(),
+                    block_size,
+                    limit: mountpoint_s3_fs::data_cache::CacheLimit::TotalSize { max_size: 2 * 1024 * 1024 },
+                };
+                let disk_cache = Arc::new(DiskDataCache::new(disk_config, pool.clone()));
 
-            let express_cache = {
-                let express_client = MockClient::config()
-                    .bucket("test_bucket")
-                    .part_size(1024 * 1024)
-                    .build();
-                let express_config = ExpressDataCacheConfig::new("test_bucket", "test_source")
-                    .block_size(block_size);
-                ExpressDataCache::new(express_client, express_config)
-            };
+                let express_cache = {
+                    let express_client = MockClient::config()
+                        .bucket("test_bucket")
+                        .part_size(1024 * 1024)
+                        .build();
+                    let express_config = ExpressDataCacheConfig::new("test_bucket", "test_source")
+                        .block_size(block_size);
+                    ExpressDataCache::new(express_client, express_config)
+                };
 
-            let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-            MultilevelDataCache::new(disk_cache, express_cache, runtime)
-        })("test_multi_level_cache_metrics", TestSessionConfig::default());
+                let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
+                MultilevelDataCache::new(disk_cache, express_cache, runtime)
+            })("test_multi_level_cache_metrics", TestSessionConfig::default()).await;
 
-        let content = vec![b'x'; 128 * 1024];
-        test_session.client().put_object("file.txt", &content).unwrap();
-        let path = test_session.mount_path().join("file.txt");
+            let content = vec![b'x'; 128 * 1024];
+            test_session.client().put_object("file.txt", &content).await.unwrap();
+            let path = test_session.mount_path().join("file.txt");
 
-        // First read should populate both caches. Wait to allow both caches to be populated.
-        File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
-        sleep(Duration::from_millis(100));
+            // First read should populate both caches. Wait to allow both caches to be populated.
+            File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+            sleep(Duration::from_millis(100));
 
-        // Verify cache population metrics.
-        assert!(recorder.get(FUSE_CACHE_HIT, &[]).is_none(), "cache hit not expected on first read");
-        assert_histogram_exists(&recorder, CACHE_PUT_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
-        assert_histogram_exists(&recorder, CACHE_PUT_IO_SIZE, &[(ATTR_CACHE, CACHE_EXPRESS)]);
-        assert_metric_exists(&recorder, CACHE_PUT_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
-        assert_metric_exists(&recorder, CACHE_GET_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
-        assert_metric_exists(&recorder, CACHE_PUT_LATENCY, &[(ATTR_CACHE, CACHE_EXPRESS)]);
-        assert_metric_exists(&recorder, CACHE_GET_LATENCY, &[(ATTR_CACHE, CACHE_EXPRESS)]);
+            // Verify cache population metrics.
+            assert!(recorder.get(FUSE_CACHE_HIT, &[]).is_none(), "cache hit not expected on first read");
+            assert_histogram_exists(&recorder, CACHE_PUT_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
+            assert_histogram_exists(&recorder, CACHE_PUT_IO_SIZE, &[(ATTR_CACHE, CACHE_EXPRESS)]);
+            assert_metric_exists(&recorder, CACHE_PUT_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
+            assert_metric_exists(&recorder, CACHE_GET_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
+            assert_metric_exists(&recorder, CACHE_PUT_LATENCY, &[(ATTR_CACHE, CACHE_EXPRESS)]);
+            assert_metric_exists(&recorder, CACHE_GET_LATENCY, &[(ATTR_CACHE, CACHE_EXPRESS)]);
 
-        // Second read should hit disk cache after async write completes
-        File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
-        sleep(Duration::from_millis(100));
+            // Second read should hit disk cache after async write completes
+            File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+            sleep(Duration::from_millis(100));
 
-        // Verify cache hit and IO size metrics, which are emitted only on cache hits. Latency
-        // metrics are emitted for both hits and misses, so we can't verify them on second read.
-        assert_metric_exists(&recorder, FUSE_CACHE_HIT, &[]);
-        assert_histogram_exists(&recorder, CACHE_GET_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
-        assert!(recorder.get(CACHE_GET_IO_SIZE, &[(ATTR_CACHE, CACHE_EXPRESS)]).is_none(),
-         "express cache get io_size not expected on disk cache hit");
+            // Verify cache hit and IO size metrics, which are emitted only on cache hits. Latency
+            // metrics are emitted for both hits and misses, so we can't verify them on second read.
+            assert_metric_exists(&recorder, FUSE_CACHE_HIT, &[]);
+            assert_histogram_exists(&recorder, CACHE_GET_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
+            assert!(recorder.get(CACHE_GET_IO_SIZE, &[(ATTR_CACHE, CACHE_EXPRESS)]).is_none(),
+             "express cache get io_size not expected on disk cache hit");
+        })
     }
 }

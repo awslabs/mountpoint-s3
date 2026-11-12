@@ -6,13 +6,14 @@ use test_case::test_case;
 
 use crate::common::fuse::{self, TestSessionCreator};
 
-fn setattr_test(creator_fn: impl TestSessionCreator, prefix: &str, append: bool) {
-    let test_session = creator_fn(prefix, Default::default());
+async fn setattr_test(creator_fn: impl TestSessionCreator, prefix: &str, append: bool) {
+    let test_session = creator_fn(prefix, Default::default()).await;
 
     // Make sure there's an existing directory
     test_session
         .client()
         .put_object("dir/hello.txt", b"hello world")
+        .await
         .unwrap();
 
     let path = test_session.mount_path().join("dir/new.txt");
@@ -65,12 +66,14 @@ fn setattr_test(creator_fn: impl TestSessionCreator, prefix: &str, append: bool)
 #[cfg(feature = "s3_tests")]
 #[test_case(true; "append")]
 #[test_case(false; "no append")]
-fn setattr_test_s3(append: bool) {
-    setattr_test(fuse::s3_session::new, "setattr_test_s3", append);
+#[tokio::test]
+async fn setattr_test_s3(append: bool) {
+    setattr_test(fuse::s3_session::new, "setattr_test_s3", append).await;
 }
 
 #[test_case(true; "append")]
 #[test_case(false; "no append")]
-fn setattr_test_mock(append: bool) {
-    setattr_test(fuse::mock_session::new, "setattr_test_mock", append);
+#[tokio::test]
+async fn setattr_test_mock(append: bool) {
+    setattr_test(fuse::mock_session::new, "setattr_test_mock", append).await;
 }
