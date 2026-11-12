@@ -394,8 +394,8 @@ where
 #[test_case(get_external_express_bucket(), true, false; "bucket owned by another account")]
 #[test_case(get_external_express_bucket(), false, false; "bucket owned by another account, not checked")]
 #[cfg(all(feature = "s3express_tests", feature = "second_account_tests"))]
-fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool, owner_matches: bool) {
-    use futures::executor::block_on;
+#[tokio::test]
+async fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool, owner_matches: bool) {
     use mountpoint_s3_client::config::S3ClientConfig;
     use mountpoint_s3_fs::data_cache::DataCacheError;
     use mountpoint_s3_fs::s3::{Bucket, Prefix};
@@ -424,7 +424,7 @@ fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool
         .with_no_memory_limit()
         .build();
     let cache = ExpressDataCache::new(client.clone(), cache_config);
-    let cache_valid = block_on(cache.verify_cache_valid());
+    let cache_valid = cache.verify_cache_valid().await;
     if owner_checked && !owner_matches {
         match cache_valid {
             Err(DataCacheError::IoFailure(err)) => {

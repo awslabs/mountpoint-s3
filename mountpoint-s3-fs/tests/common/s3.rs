@@ -1,11 +1,8 @@
 use aws_config::{BehaviorVersion, Region};
-use aws_sdk_s3::primitives::ByteStream;
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, Uri};
 use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
 use rand::TryRng;
 use rand::rngs::SysRng;
-
-use crate::common::tokio_block_on;
 
 pub fn get_test_s3_path(test_name: &str) -> S3Path {
     let (bucket, prefix) = get_test_bucket_and_prefix(test_name);
@@ -111,20 +108,6 @@ pub async fn get_test_sdk_client(region: &str) -> aws_sdk_s3::Client {
 
 pub fn get_test_kms_key_id() -> String {
     std::env::var("KMS_TEST_KEY_ID").expect("Set KMS_TEST_KEY_ID to run integration tests")
-}
-
-pub fn create_objects(bucket: &str, prefix: &str, region: &str, key: &str, value: &[u8]) {
-    let sdk_client = tokio_block_on(get_test_sdk_client(region));
-    let full_key = format!("{prefix}{key}");
-    tokio_block_on(
-        sdk_client
-            .put_object()
-            .bucket(bucket)
-            .key(full_key)
-            .body(ByteStream::from(value.to_vec()))
-            .send(),
-    )
-    .unwrap();
 }
 
 pub fn deny_single_object_access_policy(bucket: &str, key: &str) -> String {

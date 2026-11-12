@@ -17,8 +17,8 @@ use crate::stress::workers::{Churn, Idle, SMALL_OBJECT_POOL};
 const NUM_CHURN_WORKERS: usize = 8;
 const NUM_IDLE_WORKERS: usize = 48;
 
-#[test]
-fn idle_and_churn() {
+#[tokio::test]
+async fn idle_and_churn() {
     let churn: Arc<dyn Worker> = Arc::new(Churn {
         pool: SMALL_OBJECT_POOL,
     });
@@ -34,5 +34,6 @@ fn idle_and_churn() {
         workers,
         max_latency: default_max_latency,
         max_idle: default_max_idle,
-    });
+    })
+    .await;
 }
