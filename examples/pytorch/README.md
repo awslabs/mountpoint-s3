@@ -7,11 +7,13 @@ The idea is that because Mountpoint exposes your S3 bucket as a local file syste
 ## Getting started
 
 To get started, launch an EC2 instance with a GPU (we used a [g5.2xlarge](https://aws.amazon.com/ec2/instance-types/g5/)),
-choosing the [AWS Deep Learning AMI GPU PyTorch 2.0.1 (Amazon Linux 2)](https://aws.amazon.com/releasenotes/aws-deep-learning-ami-gpu-pytorch-2-0-amazon-linux-2/) as your AMI.
+choosing a recent [AWS Deep Learning OSS AMI GPU PyTorch (Amazon Linux 2023)](https://docs.aws.amazon.com/dlami/latest/devguide/appendix-ami-release-notes.html) as your AMI.
 
-When using the AWS Deep Learning AMI, you'll need to activate the preconfigured virtual environment for PyTorch:
+This example relies on torchdata DataPipes, which were removed in torchdata 0.10, so `requirements.txt` pins older versions of PyTorch and torchdata.
+Create a separate virtual environment for them, so the AMI's preinstalled PyTorch environment isn't changed:
 
-    source activate pytorch
+    python3 -m venv ~/mountpoint-example
+    source ~/mountpoint-example/bin/activate
 
 Perform a simple clone of this repository if you don't already have it available on the instance.
 
@@ -27,8 +29,7 @@ Install the dependencies for the example code:
 
 Install Mountpoint if you don't already have it:
 
-    wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm
-    sudo yum install ./mount-s3.rpm
+    sudo dnf install mount-s3
 
 To generate and upload the training shards to an S3 bucket (in this example, _amzn-s3-demo-bucket_), run:
 
@@ -51,6 +52,7 @@ The `--source-kind` argument controls how the data is loaded from S3:
 ## Results
 
 Here are some indicative results (keep in mind this is a synthetic test).
+These results were measured on an earlier setup, so you may see different numbers with the versions above.
 We ran training on a g5.2xlarge EC2 instance (8 vCPUs, 1x NVIDIA A10G Tensor Core GPU) in the us-west-2 region
 running AWS Deep Learning AMI GPU PyTorch 2.0.1 (Amazon Linux 2) 20230609.
 The instance had PyTorch 2.0.1, PyTorch Lightning 2.0.6, NVIDIA driver 525.85.12, and CUDA 11.8.
