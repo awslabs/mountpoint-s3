@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794513267283,
+  "lastUpdate": 1794586428621,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark (S3 Express One Zone, Memory-Limited)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "e6e4f739c460f5ed356db01df673de220937da5f",
-          "message": "Re-enable jemalloc background threads in the background mount process (#1999)\n\n`mount-s3` configures jemalloc with `background_thread:true`, so that\npage purging runs on jemalloc's own threads rather than on the threads\nthat free memory. jemalloc turns its background threads off in a forked\nchild, though, so a mount in background mode (the default, without\n`--foreground`) ran without them, and only foreground mounts had them.\nIn background mode, freed memory was returned to the operating system\n(`madvise`) on the threads that freed it, the ones serving file system\nrequests and S3 transfers, which is what the setting is meant to avoid.\n\nThis change checks whether background threads are enabled before forking\nand, if so, turns them back on in the child before it does anything\nelse, using jemalloc's `background_thread` `mallctl` control. If that\nfails, the mount fails, as a foreground mount does when jemalloc can't\nstart its background thread.\n\njemalloc's background threads can write error messages directly to\nstderr. The background process used to close stdin, stdout and stderr\nonce mounted, so files and sockets opened later could reuse those\ndescriptors and receive such writes. It now points them to `/dev/null`\ninstead.\n\nA new test checks that the mount process has jemalloc background threads\nin both background and foreground mode.\n\n### Does this change impact existing behavior?\n\nBackground-mode mounts now run with jemalloc background threads, like\nforeground mounts. As a result, memory freed after a workload is\nreturned to the operating system gradually by those threads rather than\nimmediately on the thread that freed it: this is the intended behavior\nof the setting, and matches `--foreground` mounts. A background mount\nnow fails if those threads can't be started. Its standard streams are\nredirected to `/dev/null` rather than closed. No CLI or configuration\nchanges. Setting `background_thread:false` through `_RJEM_MALLOC_CONF`\nstill disables them.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nChangelog entry in `mountpoint-s3/CHANGELOG.md` under Unreleased\n(v1.24.1). No version change.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
-          "timestamp": "2026-10-27T15:50:50Z",
-          "tree_id": "8c9d0bf566d36d183adb4c0be5bde0a80bcc9873",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/e6e4f739c460f5ed356db01df673de220937da5f"
-        },
-        "date": 1793127138347,
-        "tool": "customBiggerIsBetter",
-        "benches": [
-          {
-            "name": "sequential_read,sequential_write_four_threads",
-            "value": 2318.431640625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_two_threads,sequential_write_two_threads",
-            "value": 2237.80625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads,sequential_write",
-            "value": 2050.7275390625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io",
-            "value": 100.6537109375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io_small_file",
-            "value": 145.92197265625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads",
-            "value": 97.97919921875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_small_file",
-            "value": 135.33115234375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io",
-            "value": 24.4921875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io_small_file",
-            "value": 35.67197265625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read",
-            "value": 23.232421875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_small_file",
-            "value": 33.51767578125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io",
-            "value": 1910.2935546875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io_small_file",
-            "value": 541.04736328125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads",
-            "value": 1858.6541015625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_small_file",
-            "value": 531.14462890625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io",
-            "value": 1153.85419921875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io_small_file",
-            "value": 128.01474609375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read",
-            "value": 1060.62763671875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 995.00185546875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_small_file",
-            "value": 128.230078125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write_direct_io",
-            "value": 1433.63662109375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write",
-            "value": 1006.61611328125,
-            "unit": "MiB/s"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_write",
             "value": 1041.25478515625,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "8bde58ccb2ff596e342b24baa732bb2b3ad9d261",
+          "message": "Make the FUSE test client and test sessions async (#2038)\n\nThe FUSE tests in `mountpoint-s3-fs` seed and inspect the bucket through\nthe `TestClient` trait, and create their mounts through\n`TestSessionCreator`. Both were synchronous: the implementations wrapped\nevery async call to `MockClient` and every call to the AWS SDK client in\n`tokio_block_on`, which builds and drops a new Tokio runtime for each\ncall, and the S3 sessions built their SDK client the same way. This\nchange makes the helpers async, so that tests await them on their own\nruntime. It prepares the test harness for clients that have to run on\nthe test's runtime, and removes the throwaway runtimes.\n\n- `TestClient` is an `#[async_trait]` trait, and its implementations\nawait their clients directly.\n- `TestSessionCreator` is an alias of `AsyncFnOnce(&str,\nTestSessionConfig) -> TestSession`. `mock_session::new`,\n`s3_session::new` and the creators that `new_with_cache` returns are\nasync. `s3_session::new_with_test_client` and\n`new_with_test_client_and_disk_cache` take an SDK client that the caller\nhas built, and stay synchronous.\n- The FUSE tests, the direct I/O test and the stress scenarios are\n`#[tokio::test]` functions. The test bodies that take a session creator\nare async functions, and the `test_case` and `test_matrix` attributes\nare unchanged. The tests still exercise the mount with blocking file\nsystem calls, which is fine on the test's current-thread runtime: the\nmount is served by the FUSE worker threads and the file system's own\nruntime, and the tests only use their runtime when they await the test\nclient.\n- The shared `tokio_block_on` helper in `tests/common` is removed,\ntogether with `create_objects`, an S3 helper that no test uses.\n\nA few tests needed more than an added `.await`:\n\n- `multi_thread_test` writes to and closes the file on another thread as\nbefore, and checks the bucket on the test's thread after joining it.\n- The metrics tests run in a forked child process with\n`rusty_fork_test!`, which only supports synchronous test functions, so\neach of them runs its body on a current-thread runtime of its own.\n- The FUSE reference tests run as synchronous proptest bodies, so the\nMountpoint side of the comparison owns a current-thread runtime to\ncreate its session and to seed the bucket.\n- The test matrix of `open_after_closing_empty_file_test` names the\nsession creators `MOCK` and `S3` with `use` aliases, because the type of\nan async function cannot be written as the function pointer type that\nthe constants had. The test names are unchanged.\n\n### Does this change impact existing behavior?\n\nNo. The change only touches test code. The same tests run with the same\nnames and assertions.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo. The change only touches test code and doesn't affect any published\ncrate.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
+          "timestamp": "2026-11-13T13:38:18Z",
+          "tree_id": "af7f0846ed5f56c19b5aebca5b33aa52483720cb",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/8bde58ccb2ff596e342b24baa732bb2b3ad9d261"
+        },
+        "date": 1794586426979,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "sequential_read,sequential_write_four_threads",
+            "value": 2316.04267578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_two_threads,sequential_write_two_threads",
+            "value": 2251.40078125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads,sequential_write",
+            "value": 2043.2976562499998,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 112.6154296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 151.02783203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 109.8603515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 139.1578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 26.8404296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 37.00498046875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read",
+            "value": 26.6888671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 34.01005859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 1897.64140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 540.8322265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 1869.716015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 533.46337890625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 1153.81455078125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 129.691015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1053.4859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 978.7556640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 130.29208984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write_direct_io",
+            "value": 1457.0037109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write",
+            "value": 974.924609375,
             "unit": "MiB/s"
           }
         ]
