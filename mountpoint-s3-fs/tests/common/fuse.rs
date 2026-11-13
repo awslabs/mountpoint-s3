@@ -50,11 +50,8 @@ pub trait TestClient: Send + Sync {
 
     async fn is_upload_in_progress(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 
-    async fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>>;
-
-    async fn get_object_checksums(&self, key: &str) -> Result<ObjectChecksums, Box<dyn std::error::Error>>;
-
-    async fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>>;
+    /// Returns what HeadObject reports for the object, in checksum mode.
+    async fn head_object(&self, key: &str) -> Result<ObjectHead, Box<dyn std::error::Error>>;
 
     async fn get_object_content(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
 
@@ -65,8 +62,14 @@ pub trait TestClient: Send + Sync {
     async fn is_object_restored(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 }
 
-/// Checksum for the whole object, if present, and [Vec] of the checksum for each part, if present.
-type ObjectChecksums = (Option<Checksum>, Vec<Option<Checksum>>);
+/// What the tests read from a HeadObject response, in checksum mode.
+#[derive(Debug)]
+pub struct ObjectHead {
+    pub size: u64,
+    pub checksum: Checksum,
+    /// The storage class, which general purpose buckets omit for STANDARD.
+    pub storage_class: Option<String>,
+}
 
 pub struct TestSessionConfig {
     pub part_size: usize,
@@ -328,7 +331,7 @@ pub mod mock_session {
 
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::MockClient;
-    use mountpoint_s3_client::types::{GetObjectParams, HeadObjectParams, ObjectAttribute};
+    use mountpoint_s3_client::types::{ChecksumMode, GetObjectParams, HeadObjectParams};
     use mountpoint_s3_fs::prefetch::Prefetcher;
     use mountpoint_s3_fs::s3::Bucket;
 
@@ -473,42 +476,15 @@ pub mod mock_session {
             Ok(self.client.is_upload_in_progress(&full_key))
         }
 
-        async fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        async fn head_object(&self, key: &str) -> Result<ObjectHead, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            Ok(self.client.get_object_storage_class(&full_key)?)
-        }
-
-        async fn get_object_checksums(&self, key: &str) -> Result<ObjectChecksums, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            let attrs = self
-                .client
-                .get_object_attributes(
-                    BUCKET_NAME,
-                    &full_key,
-                    None,
-                    None,
-                    &[ObjectAttribute::ObjectParts, ObjectAttribute::Checksum],
-                )
-                .await?;
-            let part_checksums = attrs
-                .object_parts
-                .map(|parts| {
-                    parts
-                        .parts
-                        .map(|parts| parts.into_iter().map(|part| part.checksum).collect())
-                        .unwrap_or_default()
-                })
-                .unwrap_or_default();
-            Ok((attrs.checksum, part_checksums))
-        }
-
-        async fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            let head_object = self
-                .client
-                .head_object(BUCKET_NAME, &full_key, &HeadObjectParams::new())
-                .await?;
-            Ok(head_object.size as usize)
+            let params = HeadObjectParams::new().checksum_mode(Some(ChecksumMode::Enabled));
+            let head_object = self.client.head_object(BUCKET_NAME, &full_key, &params).await?;
+            Ok(ObjectHead {
+                size: head_object.size,
+                checksum: head_object.checksum,
+                storage_class: head_object.storage_class,
+            })
         }
 
         async fn get_object_content(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
@@ -546,7 +522,7 @@ pub mod s3_session {
     use aws_sdk_s3::Client;
     use aws_sdk_s3::operation::head_object::HeadObjectError;
     use aws_sdk_s3::primitives::ByteStream;
-    use aws_sdk_s3::types::{ChecksumAlgorithm, GlacierJobParameters, RestoreRequest, Tier};
+    use aws_sdk_s3::types::{ChecksumAlgorithm, ChecksumMode, GlacierJobParameters, RestoreRequest, Tier};
     use mountpoint_s3_client::S3CrtClient;
     use mountpoint_s3_client::config::S3ClientConfig;
     use mountpoint_s3_client::types::Checksum;
@@ -800,71 +776,27 @@ pub mod s3_session {
             Ok(uploads.uploads().iter().any(|u| u.key().unwrap().ends_with(key)))
         }
 
-        async fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            let attrs = self
-                .sdk_client
-                .get_object_attributes()
-                .bucket(&self.bucket)
-                .key(full_key)
-                .object_attributes(aws_sdk_s3::types::ObjectAttributes::StorageClass)
-                .send()
-                .await?;
-            Ok(attrs.storage_class().map(|s| s.as_str().to_string()))
-        }
-
-        async fn get_object_checksums(&self, key: &str) -> Result<ObjectChecksums, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            let attrs = self
-                .sdk_client
-                .get_object_attributes()
-                .bucket(&self.bucket)
-                .key(full_key)
-                .object_attributes(aws_sdk_s3::types::ObjectAttributes::ObjectParts)
-                .object_attributes(aws_sdk_s3::types::ObjectAttributes::Checksum)
-                .send()
-                .await?;
-            let object_checksum = attrs.checksum.map(|checksum| Checksum {
-                checksum_crc64nvme: checksum.checksum_crc64_nvme,
-                checksum_crc32: checksum.checksum_crc32,
-                checksum_crc32c: checksum.checksum_crc32_c,
-                checksum_sha1: checksum.checksum_sha1,
-                checksum_sha256: checksum.checksum_sha256,
-            });
-
-            let part_checksums = attrs
-                .object_parts
-                .map(|parts| {
-                    parts
-                        .parts
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|part| {
-                            Some(Checksum {
-                                checksum_crc64nvme: part.checksum_crc64_nvme,
-                                checksum_crc32: part.checksum_crc32,
-                                checksum_crc32c: part.checksum_crc32_c,
-                                checksum_sha1: part.checksum_sha1,
-                                checksum_sha256: part.checksum_sha256,
-                            })
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            Ok((object_checksum, part_checksums))
-        }
-
-        async fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>> {
+        async fn head_object(&self, key: &str) -> Result<ObjectHead, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             let head_object = self
                 .sdk_client
                 .head_object()
                 .bucket(&self.bucket)
-                .key(&full_key)
+                .key(full_key)
+                .checksum_mode(ChecksumMode::Enabled)
                 .send()
                 .await?;
-            Ok(head_object.content_length().unwrap() as usize)
+            Ok(ObjectHead {
+                size: head_object.content_length().expect("HeadObject reports the size") as u64,
+                storage_class: head_object.storage_class().map(|class| class.as_str().to_owned()),
+                checksum: Checksum {
+                    checksum_crc64nvme: head_object.checksum_crc64_nvme,
+                    checksum_crc32: head_object.checksum_crc32,
+                    checksum_crc32c: head_object.checksum_crc32_c,
+                    checksum_sha1: head_object.checksum_sha1,
+                    checksum_sha256: head_object.checksum_sha256,
+                },
+            })
         }
 
         async fn get_object_content(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {

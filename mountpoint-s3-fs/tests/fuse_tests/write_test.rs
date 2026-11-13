@@ -7,7 +7,7 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-use mountpoint_s3_client::checksums::{crc64nvme, crc64nvme_to_base64};
+use mountpoint_s3_client::checksums::{crc32c, crc32c_to_base64, crc64nvme, crc64nvme_to_base64};
 use mountpoint_s3_client::types::{Checksum, ChecksumAlgorithm, PutObjectSingleParams, UploadChecksum};
 use rand::rngs::SmallRng;
 use rand::{RngExt, SeedableRng};
@@ -669,7 +669,7 @@ async fn write_with_storage_class_test(creator_fn: impl TestSessionCreator, stor
 
     assert_eq!(
         storage_class.map(String::from),
-        test_session.client().get_object_storage_class(KEY).await.unwrap()
+        test_session.client().head_object(KEY).await.unwrap().storage_class
     );
 }
 
@@ -1580,6 +1580,7 @@ async fn write_checksums_test(
         .upload_mode(upload_mode),
         ..Default::default()
     };
+    let part_size = config.part_size;
     let test_session = creator_fn("write_checksums_test", config).await;
 
     // Make sure there's an existing directory
@@ -1607,74 +1608,44 @@ async fn write_checksums_test(
     drop(f);
 
     // Now it's fsync'ed and closed, it should be present in S3
-    let (object_checksum, part_checksums) = test_session.client().get_object_checksums(KEY).await.unwrap();
+    let checksum = test_session.client().head_object(KEY).await.unwrap().checksum;
     match algorithm {
-        Some(UploadChecksumAlgorithm::Crc64nvme) => {
-            // CRC64NVME must be a full-object checksum (S3 doesn't support composite for it), so its
-            // value must land on the object itself, not just the parts, and is a bare `<base64>`
-            // with no `-<part-count>` suffix.
-            let value = object_checksum
-                .as_ref()
-                .and_then(|c| c.checksum_crc64nvme.as_ref())
-                .expect("CRC64NVME must be reported as a full-object checksum on the object");
-            assert!(
-                !value.contains('-'),
-                "CRC64NVME object-level checksum must be a bare `<base64>` (no `-<part-count>` suffix), got {value:?}"
-            );
-        }
-        Some(UploadChecksumAlgorithm::Crc32c) => {
-            // CRC32C is composite (carried by the per-part checksums) and can land on the object or
-            // only the parts. The object-level representation returned by GetObjectAttributes differs
-            // by backend: S3 Standard returns a bare `<base64>`, while S3 Express One Zone returns the
-            // composite form `<base64>-<part-count>`. Accept either, and when the suffix is present
-            // assert the part count matches the number of parts we observed.
-            let object_value = object_checksum.as_ref().and_then(|c| c.checksum_crc32c.as_ref());
-            let parts_have_checksum = !part_checksums.is_empty()
-                && part_checksums
-                    .iter()
-                    .all(|checksum| checksum.as_ref().is_some_and(|c| c.checksum_crc32c.is_some()));
-            assert!(
-                object_value.is_some() || parts_have_checksum,
-                "CRC32C should be present on the object or its parts"
-            );
-            if let Some(value) = object_value
-                && let Some((base, suffix)) = value.split_once('-')
-            {
-                assert!(
-                    !base.is_empty(),
-                    "CRC32C object-level checksum must have a `<base64>` prefix, got {value:?}"
-                );
-                let part_count: usize = suffix.parse().unwrap_or_else(|_| {
-                    panic!("CRC32C object-level checksum suffix must be a `-<part-count>`, got {value:?}")
-                });
-                assert_eq!(
-                    part_count,
-                    part_checksums.len(),
-                    "CRC32C composite object-level checksum part count must match the number of parts"
-                );
-            }
-        }
-        None => {
-            // Without upload checksums, S3 (and the mock) store a full-object CRC-64NVME checksum
-            // computed over the whole object, and no other checksum.
+        Some(UploadChecksumAlgorithm::Crc64nvme) | None => {
+            // CRC64NVME is a full-object checksum, which S3 reports as a bare `<base64>` of the whole
+            // object. Without upload checksums, S3 stores the same checksum as its default.
             // See https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html.
             let expected = Checksum {
                 checksum_crc64nvme: Some(crc64nvme_to_base64(&crc64nvme::checksum(&body))),
                 ..Checksum::empty()
             };
+            assert_eq!(checksum, expected);
+        }
+        Some(UploadChecksumAlgorithm::Crc32c) => {
+            let value = checksum
+                .checksum_crc32c
+                .clone()
+                .expect("CRC32C should be reported on the object");
             assert_eq!(
-                object_checksum,
-                Some(expected),
-                "object should have S3's default CRC-64NVME checksum when upload checksums are disabled"
+                checksum,
+                Checksum {
+                    checksum_crc32c: Some(value.clone()),
+                    ..Checksum::empty()
+                }
             );
-
-            // For S3 Standard, the list of parts is only present if checksums were used, but for S3
-            // Express One Zone the list of parts is always present.
-            for part_checksum in part_checksums {
-                assert!(
-                    part_checksum.is_none_or(|c| c == Checksum::empty()),
-                    "part checksums should not be present when upload checksums are disabled"
+            if !upload_mode.is_incremental() {
+                // A multipart upload with CRC32C is composite: S3 reports the CRC32C of the part
+                // checksums, followed by `-<part-count>`.
+                let parts: Vec<&[u8]> = body.chunks(part_size).collect();
+                let part_checksums: Vec<u8> = parts
+                    .iter()
+                    .flat_map(|part| crc32c::checksum(part).value().to_be_bytes())
+                    .collect();
+                let expected = format!(
+                    "{}-{}",
+                    crc32c_to_base64(&crc32c::checksum(&part_checksums)),
+                    parts.len()
                 );
+                assert_eq!(value, expected);
             }
         }
     }
@@ -1694,6 +1665,8 @@ async fn write_checksums_test_s3_incremental_upload(algorithm: Option<UploadChec
     write_checksums_test(fuse::s3_session::new, algorithm, INCREMENTAL_UPLOAD).await;
 }
 
+// `MockClient` reports the composite checksum of a multipart upload without the part count, so the
+// atomic CRC32C case fails.
 #[test_matrix(
     [CHECKSUMS_CRC32C, CHECKSUMS_CRC64NVME, CHECKSUMS_DISABLED],
     [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD]
@@ -1758,8 +1731,8 @@ async fn append_test(creator_fn: impl TestSessionCreator, append_config: AppendT
             let m = metadata(&path).unwrap();
             assert_eq!(m.len(), expected.len() as u64);
 
-            let new_size = test_session.client().get_object_size(KEY).await.unwrap();
-            assert_eq!(new_size, expected.len());
+            let new_size = test_session.client().head_object(KEY).await.unwrap().size;
+            assert_eq!(new_size, expected.len() as u64);
         }
     }
 
