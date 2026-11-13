@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794514790449,
+  "lastUpdate": 1794586469652,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9e23c24e5962d249ef06370124309d3e52661b33",
-          "message": "Restrict FUSE test mounts to the user running the tests (#2000)\n\nThe FUSE test sessions mounted with `allow_other`, so any process on the\nhost could open files in the test file systems. Other processes, such as\nfile scanners, can then interfere with the tests: if one opens a file\nfor reading just after a test closes it, Mountpoint correctly rejects\nthe test's next open of that file for writing with `EPERM` (a file can't\nhave a reader and a writer at the same time, see SEMANTICS.md). That\nmade tests such as `rename_append_mock`, `read_errors_test_mock` and\n`reftests::fuse::proptest_fuse` fail intermittently, more often under\nload.\n\nThis change mounts the test sessions without `allow_other` and with the\nmatching owner-only session ACL, as `mount-s3` does by default. The\nkernel then rejects accesses from other users, root included, and the\ntests remain the only clients of their file systems.\n\n### Does this change impact existing behavior?\n\nNo. Only the test harness changes; Mountpoint's behavior is unchanged.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo. Test-only change, no published code is affected.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
-          "timestamp": "2026-10-22T16:47:08Z",
-          "tree_id": "a048439bd443814faa8b72fdea91aca20e6a6c32",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/9e23c24e5962d249ef06370124309d3e52661b33"
-        },
-        "date": 1792697213441,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 3249.33203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 4768.87890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8399.37890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 55.3671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 89.5625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 56.5859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 88.1953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 45.7890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 57.69140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 48.11328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 58.1640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8155.3203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 84.4140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8172.578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 86.2265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2157.296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 52.48828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2158.6640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2157.69921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 54.19921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 577.9140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 381.640625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 394.828125,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "8bde58ccb2ff596e342b24baa732bb2b3ad9d261",
+          "message": "Make the FUSE test client and test sessions async (#2038)\n\nThe FUSE tests in `mountpoint-s3-fs` seed and inspect the bucket through\nthe `TestClient` trait, and create their mounts through\n`TestSessionCreator`. Both were synchronous: the implementations wrapped\nevery async call to `MockClient` and every call to the AWS SDK client in\n`tokio_block_on`, which builds and drops a new Tokio runtime for each\ncall, and the S3 sessions built their SDK client the same way. This\nchange makes the helpers async, so that tests await them on their own\nruntime. It prepares the test harness for clients that have to run on\nthe test's runtime, and removes the throwaway runtimes.\n\n- `TestClient` is an `#[async_trait]` trait, and its implementations\nawait their clients directly.\n- `TestSessionCreator` is an alias of `AsyncFnOnce(&str,\nTestSessionConfig) -> TestSession`. `mock_session::new`,\n`s3_session::new` and the creators that `new_with_cache` returns are\nasync. `s3_session::new_with_test_client` and\n`new_with_test_client_and_disk_cache` take an SDK client that the caller\nhas built, and stay synchronous.\n- The FUSE tests, the direct I/O test and the stress scenarios are\n`#[tokio::test]` functions. The test bodies that take a session creator\nare async functions, and the `test_case` and `test_matrix` attributes\nare unchanged. The tests still exercise the mount with blocking file\nsystem calls, which is fine on the test's current-thread runtime: the\nmount is served by the FUSE worker threads and the file system's own\nruntime, and the tests only use their runtime when they await the test\nclient.\n- The shared `tokio_block_on` helper in `tests/common` is removed,\ntogether with `create_objects`, an S3 helper that no test uses.\n\nA few tests needed more than an added `.await`:\n\n- `multi_thread_test` writes to and closes the file on another thread as\nbefore, and checks the bucket on the test's thread after joining it.\n- The metrics tests run in a forked child process with\n`rusty_fork_test!`, which only supports synchronous test functions, so\neach of them runs its body on a current-thread runtime of its own.\n- The FUSE reference tests run as synchronous proptest bodies, so the\nMountpoint side of the comparison owns a current-thread runtime to\ncreate its session and to seed the bucket.\n- The test matrix of `open_after_closing_empty_file_test` names the\nsession creators `MOCK` and `S3` with `use` aliases, because the type of\nan async function cannot be written as the function pointer type that\nthe constants had. The test names are unchanged.\n\n### Does this change impact existing behavior?\n\nNo. The change only touches test code. The same tests run with the same\nnames and assertions.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo. The change only touches test code and doesn't affect any published\ncrate.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
+          "timestamp": "2026-11-13T13:38:18Z",
+          "tree_id": "af7f0846ed5f56c19b5aebca5b33aa52483720cb",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/8bde58ccb2ff596e342b24baa732bb2b3ad9d261"
+        },
+        "date": 1794586469567,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 3220.4296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 4725.0078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 8322.03125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 54.30859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 91.0703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 56.79296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 90.25,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 45.93359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 58.9296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 47.33203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 58.8828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8296.2578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 85.3046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 8145.90234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 87.10546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2374.63671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 53.77734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2380.78125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2377.30078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 53.51171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 617.34765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 394.84375,
             "unit": "MiB"
           }
         ]
