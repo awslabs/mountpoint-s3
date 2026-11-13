@@ -394,8 +394,8 @@ where
 #[test_case(get_external_express_bucket(), true, false; "bucket owned by another account")]
 #[test_case(get_external_express_bucket(), false, false; "bucket owned by another account, not checked")]
 #[cfg(all(feature = "s3express_tests", feature = "second_account_tests"))]
-fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool, owner_matches: bool) {
-    use futures::executor::block_on;
+#[tokio::test]
+async fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool, owner_matches: bool) {
     use mountpoint_s3_client::config::S3ClientConfig;
     use mountpoint_s3_fs::data_cache::DataCacheError;
     use mountpoint_s3_fs::s3::{Bucket, Prefix};
@@ -424,7 +424,7 @@ fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool
         .with_no_memory_limit()
         .build();
     let cache = ExpressDataCache::new(client.clone(), cache_config);
-    let cache_valid = block_on(cache.verify_cache_valid());
+    let cache_valid = cache.verify_cache_valid().await;
     if owner_checked && !owner_matches {
         match cache_valid {
             Err(DataCacheError::IoFailure(err)) => {
@@ -530,8 +530,8 @@ fn get_filesystem_stats(path: &Path) -> (u64, u64) {
 /// An isolated loop device filesystem is used for the cache, ensuring Mountpoint calculates the 95% limit based on the isolated filesystem, not the entire host.
 ///
 /// Note: requires `sudo` for loop device mount/umount operations.
-#[test]
-fn available_space_cache_limit_test_mock() {
+#[tokio::test]
+async fn available_space_cache_limit_test_mock() {
     const FILE_SIZE: usize = 4 * 1024 * 1024; // 4 MiB per file
     const NUM_FILES: usize = 50; // 50 files = 200 MiB total data
     const TOLERANCE_RATIO: f64 = 0.02; // 2% tolerance for filesystem metadata overhead
@@ -549,7 +549,8 @@ fn available_space_cache_limit_test_mock() {
             },
         };
         CacheTestWrapper::new(DiskDataCache::new(cache_config, pool))
-    })("available_space_cache_limit_test", TestSessionConfig::default());
+    })("available_space_cache_limit_test", TestSessionConfig::default())
+    .await;
 
     // Create test files
     let mut rng = SmallRng::seed_from_u64(0x12345678);
@@ -558,7 +559,7 @@ fn available_space_cache_limit_test_mock() {
     for i in 0..NUM_FILES {
         rng.fill_bytes(&mut file_data);
         let key = format!("file-{}.bin", i + 1);
-        test_session.client().put_object(&key, &file_data).unwrap();
+        test_session.client().put_object(&key, &file_data).await.unwrap();
     }
 
     let (total_space, initial_available) = get_filesystem_stats(&cache_path);

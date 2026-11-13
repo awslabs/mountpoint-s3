@@ -51,12 +51,12 @@ cargo nextest run --release \
    (`SequentialReader`, `Writer`, `Idle`, `Churn`) or add a new type under
    `tests/stress/workers/`.
 2. Create `tests/stress/scenarios/my_scenario.rs` containing one
-   `#[test]` function that:
+   `#[tokio::test]` async function that:
    - Builds a `Vec<Arc<dyn Worker>>` using `repeat_n` / `chain` /
      `repeat_with` as needed.
    - Builds a `Scenario` value (name, session config, workers,
      `max_latency`).
-   - Calls `harness::run(scenario)`.
+   - Awaits `harness::run(scenario)`.
 3. Register the module in `tests/stress/scenarios.rs`.
 
 ## Adding a new worker kind

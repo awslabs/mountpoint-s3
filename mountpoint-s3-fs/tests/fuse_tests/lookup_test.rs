@@ -14,16 +14,18 @@ use test_case::test_case;
 use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
 
 /// See [mountpoint_s3_fs::inode::tests::test_lookup_directory_overlap].
-fn lookup_directory_overlap_test(creator_fn: impl TestSessionCreator, prefix: &str, subdir: &str) {
-    let test_session = creator_fn(prefix, Default::default());
+async fn lookup_directory_overlap_test(creator_fn: impl TestSessionCreator, prefix: &str, subdir: &str) {
+    let test_session = creator_fn(prefix, Default::default()).await;
 
     test_session
         .client()
         .put_object(&format!("dir/{subdir}hello.txt"), b"hello world")
+        .await
         .unwrap();
     test_session
         .client()
         .put_object(&format!("dir-1/{subdir}hello.txt"), b"hello world")
+        .await
         .unwrap();
 
     let read_dir_iter = read_dir(test_session.mount_path()).unwrap();
@@ -39,20 +41,22 @@ fn lookup_directory_overlap_test(creator_fn: impl TestSessionCreator, prefix: &s
 #[cfg(feature = "s3_tests")]
 #[test_case(""; "no subdirectory")]
 #[test_case("subdir/"; "with subdirectory")]
-fn lookup_directory_overlap_test_s3(subdir: &str) {
-    lookup_directory_overlap_test(fuse::s3_session::new, "lookup_dirrectory_overlap", subdir);
+#[tokio::test]
+async fn lookup_directory_overlap_test_s3(subdir: &str) {
+    lookup_directory_overlap_test(fuse::s3_session::new, "lookup_dirrectory_overlap", subdir).await;
 }
 
 #[test_case("", ""; "no prefix no subdirectory")]
 #[test_case("lookup_dirrectory_overlap", ""; "prefix no subdirectory")]
 #[test_case("", "subdir/"; "no prefix subdirectory")]
 #[test_case("lookup_dirrectory_overlap", "subdir/"; "prefix subdirectory")]
-fn lookup_directory_overlap_test_mock(prefix: &str, subdir: &str) {
-    lookup_directory_overlap_test(fuse::mock_session::new, prefix, subdir);
+#[tokio::test]
+async fn lookup_directory_overlap_test_mock(prefix: &str, subdir: &str) {
+    lookup_directory_overlap_test(fuse::mock_session::new, prefix, subdir).await;
 }
 
-fn lookup_weird_characters_test(creator_fn: impl TestSessionCreator, prefix: &str) {
-    let test_session = creator_fn(prefix, Default::default());
+async fn lookup_weird_characters_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default()).await;
 
     let keys = &[
         "weird$dir name",
@@ -66,6 +70,7 @@ fn lookup_weird_characters_test(creator_fn: impl TestSessionCreator, prefix: &st
         test_session
             .client()
             .put_object(key, format!("hello world {i}").as_bytes())
+            .await
             .unwrap();
     }
 
@@ -93,17 +98,17 @@ fn lookup_weird_characters_test(creator_fn: impl TestSessionCreator, prefix: &st
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn lookup_directory_weird_characters_s3() {
-    lookup_weird_characters_test(fuse::s3_session::new, "lookup_weird_characters_test");
+#[tokio::test]
+async fn lookup_directory_weird_characters_s3() {
+    lookup_weird_characters_test(fuse::s3_session::new, "lookup_weird_characters_test").await;
 }
 
-#[test]
-fn lookup_directory_weird_characters_mock() {
-    lookup_weird_characters_test(fuse::mock_session::new, "lookup_weird_characters_test");
+#[tokio::test]
+async fn lookup_directory_weird_characters_mock() {
+    lookup_weird_characters_test(fuse::mock_session::new, "lookup_weird_characters_test").await;
 }
 
-fn lookup_previously_shadowed_file_test(creator_fn: impl TestSessionCreator) {
+async fn lookup_previously_shadowed_file_test(creator_fn: impl TestSessionCreator) {
     let filesystem_config = S3FilesystemConfig {
         cache_config: CacheConfig {
             serve_lookup_from_cache: false,
@@ -120,36 +125,37 @@ fn lookup_previously_shadowed_file_test(creator_fn: impl TestSessionCreator) {
             filesystem_config,
             ..Default::default()
         },
-    );
+    )
+    .await;
 
     let name = "foo";
     let nested = format!("{name}/bar");
-    test_session.client().put_object(&nested, b"bar").unwrap();
+    test_session.client().put_object(&nested, b"bar").await.unwrap();
 
     let path = test_session.mount_path().join(name);
     let m = metadata(&path).unwrap();
     assert!(m.file_type().is_dir());
 
-    test_session.client().remove_object(&nested).unwrap();
-    test_session.client().put_object(name, b"foo").unwrap();
+    test_session.client().remove_object(&nested).await.unwrap();
+    test_session.client().put_object(name, b"foo").await.unwrap();
 
     let m = metadata(&path).unwrap();
     assert!(m.file_type().is_file());
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn lookup_previously_shadowed_file_test_s3() {
-    lookup_previously_shadowed_file_test(fuse::s3_session::new);
+#[tokio::test]
+async fn lookup_previously_shadowed_file_test_s3() {
+    lookup_previously_shadowed_file_test(fuse::s3_session::new).await;
 }
 
-#[test]
-fn lookup_previously_shadowed_file_test_mock() {
-    lookup_previously_shadowed_file_test(fuse::mock_session::new);
+#[tokio::test]
+async fn lookup_previously_shadowed_file_test_mock() {
+    lookup_previously_shadowed_file_test(fuse::mock_session::new).await;
 }
 
-fn lookup_unicode_keys_test(creator_fn: impl TestSessionCreator, prefix: &str) {
-    let test_session = creator_fn(prefix, Default::default());
+async fn lookup_unicode_keys_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default()).await;
 
     let keys = &["مرحبًا", "こんにちは/", "🇦🇺", "🐈/🦀"];
 
@@ -157,6 +163,7 @@ fn lookup_unicode_keys_test(creator_fn: impl TestSessionCreator, prefix: &str) {
         test_session
             .client()
             .put_object(key, format!("hello world {i}").as_bytes())
+            .await
             .unwrap();
     }
 
@@ -184,17 +191,17 @@ fn lookup_unicode_keys_test(creator_fn: impl TestSessionCreator, prefix: &str) {
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn lookup_unicode_keys_s3() {
-    lookup_unicode_keys_test(fuse::s3_session::new, "lookup_unicode_keys_test");
+#[tokio::test]
+async fn lookup_unicode_keys_s3() {
+    lookup_unicode_keys_test(fuse::s3_session::new, "lookup_unicode_keys_test").await;
 }
 
-#[test]
-fn lookup_unicode_keys_mock() {
-    lookup_unicode_keys_test(fuse::mock_session::new, "lookup_unicode_keys_test");
+#[tokio::test]
+async fn lookup_unicode_keys_mock() {
+    lookup_unicode_keys_test(fuse::mock_session::new, "lookup_unicode_keys_test").await;
 }
 
-fn lookup_with_negative_cache(creator_fn: impl TestSessionCreator) {
+async fn lookup_with_negative_cache(creator_fn: impl TestSessionCreator) {
     const FILE_NAME: &str = "hello.txt";
     let config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -203,13 +210,13 @@ fn lookup_with_negative_cache(creator_fn: impl TestSessionCreator) {
         },
         ..Default::default()
     };
-    let test_session = creator_fn("lookup_with_negative_cache", config);
+    let test_session = creator_fn("lookup_with_negative_cache", config).await;
 
     // Check negative caching
     let file_path = test_session.mount_path().join(FILE_NAME);
     metadata(&file_path).expect_err("should fail as no object exists");
 
-    test_session.client().put_object(FILE_NAME, b"hello").unwrap();
+    test_session.client().put_object(FILE_NAME, b"hello").await.unwrap();
 
     metadata(&file_path).expect_err("should fail as mountpoint should use negative cache");
 
@@ -222,17 +229,17 @@ fn lookup_with_negative_cache(creator_fn: impl TestSessionCreator) {
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn lookup_with_negative_cache_s3() {
-    lookup_with_negative_cache(fuse::s3_session::new);
+#[tokio::test]
+async fn lookup_with_negative_cache_s3() {
+    lookup_with_negative_cache(fuse::s3_session::new).await;
 }
 
-#[test]
-fn lookup_with_negative_cache_mock() {
-    lookup_with_negative_cache(fuse::mock_session::new);
+#[tokio::test]
+async fn lookup_with_negative_cache_mock() {
+    lookup_with_negative_cache(fuse::mock_session::new).await;
 }
 
-fn lookup_with_negative_cache_ttl(creator_fn: impl TestSessionCreator, ttl: Duration) {
+async fn lookup_with_negative_cache_ttl(creator_fn: impl TestSessionCreator, ttl: Duration) {
     const FILE_NAME: &str = "hello.txt";
     let config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -242,12 +249,12 @@ fn lookup_with_negative_cache_ttl(creator_fn: impl TestSessionCreator, ttl: Dura
         },
         ..Default::default()
     };
-    let test_session = creator_fn("lookup_with_negative_cache_ttl", config);
+    let test_session = creator_fn("lookup_with_negative_cache_ttl", config).await;
 
     let file_path = test_session.mount_path().join(FILE_NAME);
     metadata(&file_path).expect_err("should fail as no object exists");
 
-    test_session.client().put_object(FILE_NAME, b"hello").unwrap();
+    test_session.client().put_object(FILE_NAME, b"hello").await.unwrap();
     metadata(&file_path).expect_err("should fail as mountpoint should use negative cache");
 
     std::thread::sleep(ttl);
@@ -257,12 +264,12 @@ fn lookup_with_negative_cache_ttl(creator_fn: impl TestSessionCreator, ttl: Dura
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn lookup_with_negative_cache_ttl_s3() {
-    lookup_with_negative_cache_ttl(fuse::s3_session::new, Duration::from_secs(5));
+#[tokio::test]
+async fn lookup_with_negative_cache_ttl_s3() {
+    lookup_with_negative_cache_ttl(fuse::s3_session::new, Duration::from_secs(5)).await;
 }
 
-#[test]
-fn lookup_with_negative_cache_ttl_mock() {
-    lookup_with_negative_cache_ttl(fuse::mock_session::new, Duration::from_secs(1));
+#[tokio::test]
+async fn lookup_with_negative_cache_ttl_mock() {
+    lookup_with_negative_cache_ttl(fuse::mock_session::new, Duration::from_secs(1)).await;
 }

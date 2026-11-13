@@ -48,20 +48,23 @@ fn list_dir_recursive(path: impl AsRef<Path>, files: bool) -> Result<Vec<String>
 ///     * `red` (directory)
 ///         * `image.jpg` (file)
 ///     * `list.txt` (file)
-fn basic_directory_structure(creator_fn: impl TestSessionCreator) {
-    let test_session = creator_fn("basic_directory_structure", Default::default());
+async fn basic_directory_structure(creator_fn: impl TestSessionCreator) {
+    let test_session = creator_fn("basic_directory_structure", Default::default()).await;
 
     test_session
         .client()
         .put_object("colors/blue/image.jpg", b"hello world")
+        .await
         .unwrap();
     test_session
         .client()
         .put_object("colors/red/image.jpg", b"hello world")
+        .await
         .unwrap();
     test_session
         .client()
         .put_object("colors/list.txt", b"hello world")
+        .await
         .unwrap();
 
     let files = list_dir_recursive(test_session.mount_path(), true).unwrap();
@@ -74,15 +77,15 @@ fn basic_directory_structure(creator_fn: impl TestSessionCreator) {
     assert_eq!(&dirs[..], &["colors", "colors/blue", "colors/red"]);
 }
 
-#[test]
-fn basic_directory_structure_mock() {
-    basic_directory_structure(fuse::mock_session::new);
+#[tokio::test]
+async fn basic_directory_structure_mock() {
+    basic_directory_structure(fuse::mock_session::new).await;
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn basic_directory_structure_s3() {
-    basic_directory_structure(fuse::s3_session::new);
+#[tokio::test]
+async fn basic_directory_structure_s3() {
+    basic_directory_structure(fuse::s3_session::new).await;
 }
 
 /// Object keys that end in the path delimiter (`/`) will not be accessible. Instead, a directory of
@@ -96,15 +99,16 @@ fn basic_directory_structure_s3() {
 /// `image.jpg` file, and an empty `red` directory. The `blue/` and `red/` objects will not be
 /// accessible. Note that the S3 Console creates zero-byte objects like `blue/` and `red/` when
 /// creating directories in a bucket, and so these directories will work as expected.
-fn keys_ending_in_delimiter(creator_fn: impl TestSessionCreator) {
-    let test_session = creator_fn("keys_ending_in_delimiter", Default::default());
+async fn keys_ending_in_delimiter(creator_fn: impl TestSessionCreator) {
+    let test_session = creator_fn("keys_ending_in_delimiter", Default::default()).await;
 
-    test_session.client().put_object("blue/", b"hello world").unwrap();
+    test_session.client().put_object("blue/", b"hello world").await.unwrap();
     test_session
         .client()
         .put_object("blue/image.jpg", b"hello world")
+        .await
         .unwrap();
-    test_session.client().put_object("red/", b"hello world").unwrap();
+    test_session.client().put_object("red/", b"hello world").await.unwrap();
 
     let files = list_dir_recursive(test_session.mount_path(), true).unwrap();
     assert_eq!(&files[..], &["blue/image.jpg"]);
@@ -113,15 +117,15 @@ fn keys_ending_in_delimiter(creator_fn: impl TestSessionCreator) {
     assert_eq!(&dirs[..], &["blue", "red"]);
 }
 
-#[test]
-fn keys_ending_in_delimiter_mock() {
-    keys_ending_in_delimiter(fuse::mock_session::new);
+#[tokio::test]
+async fn keys_ending_in_delimiter_mock() {
+    keys_ending_in_delimiter(fuse::mock_session::new).await;
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn keys_ending_in_delimiter_s3() {
-    keys_ending_in_delimiter(fuse::s3_session::new);
+#[tokio::test]
+async fn keys_ending_in_delimiter_s3() {
+    keys_ending_in_delimiter(fuse::s3_session::new).await;
 }
 
 /// Files will be shadowed by directories with the same name. For example, if your bucket has the
@@ -133,13 +137,14 @@ fn keys_ending_in_delimiter_s3() {
 /// then mounting your bucket would give a file system with a `blue` directory, containing the file
 /// `image.jpg`. The `blue` object will not be accessible. Deleting the key `blue/image.jpg` will
 /// remove the `blue` directory, and cause the `blue` file to become visible.
-fn files_shadowed_by_directories(creator_fn: impl TestSessionCreator) {
-    let test_session = creator_fn("files_shadowed_by_directories", Default::default());
+async fn files_shadowed_by_directories(creator_fn: impl TestSessionCreator) {
+    let test_session = creator_fn("files_shadowed_by_directories", Default::default()).await;
 
-    test_session.client().put_object("blue", b"hello world").unwrap();
+    test_session.client().put_object("blue", b"hello world").await.unwrap();
     test_session
         .client()
         .put_object("blue/image.jpg", b"hello world")
+        .await
         .unwrap();
 
     let files = list_dir_recursive(test_session.mount_path(), true).unwrap();
@@ -149,13 +154,13 @@ fn files_shadowed_by_directories(creator_fn: impl TestSessionCreator) {
     assert_eq!(&dirs[..], &["blue"]);
 }
 
-#[test]
-fn files_shadowed_by_directories_mock() {
-    files_shadowed_by_directories(fuse::mock_session::new);
+#[tokio::test]
+async fn files_shadowed_by_directories_mock() {
+    files_shadowed_by_directories(fuse::mock_session::new).await;
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn files_shadowed_by_directories_s3() {
-    files_shadowed_by_directories(fuse::s3_session::new);
+#[tokio::test]
+async fn files_shadowed_by_directories_s3() {
+    files_shadowed_by_directories(fuse::s3_session::new).await;
 }

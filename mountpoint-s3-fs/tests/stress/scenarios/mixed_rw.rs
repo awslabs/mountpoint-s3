@@ -16,8 +16,8 @@ const READ_CHUNK: usize = 8 * 1024 * 1024; // 8 MiB — matches default part siz
 const WRITE_CHUNK: usize = 8 * 1024 * 1024; // 8 MiB — matches default part size
 const WRITE_OBJECT_SIZE: usize = 100 * 1024 * 1024; // 100 MiB
 
-#[test]
-fn mixed_rw() {
+#[tokio::test]
+async fn mixed_rw() {
     let reader: Arc<dyn Worker> = Arc::new(SequentialReader {
         target: LARGE_READ_OBJECT,
         chunk: READ_CHUNK,
@@ -37,5 +37,6 @@ fn mixed_rw() {
         workers,
         max_latency: default_max_latency,
         max_idle: default_max_idle,
-    });
+    })
+    .await;
 }

@@ -10,7 +10,7 @@ use test_case::test_case;
 
 use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
 
-fn perm_test(
+async fn perm_test(
     creator_fn: impl TestSessionCreator,
     uid: Option<u32>,
     gid: Option<u32>,
@@ -37,7 +37,8 @@ fn perm_test(
             filesystem_config: config,
             ..Default::default()
         },
-    );
+    )
+    .await;
 
     // expected values
     let uid = uid.unwrap_or_else(|| getuid().into());
@@ -50,10 +51,15 @@ fn perm_test(
     assert!(m.file_type().is_dir());
     assert_perm(m, uid, gid, dir_mode);
 
-    test_session.client().put_object("file1.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("file1.txt", b"hello world")
+        .await
+        .unwrap();
     test_session
         .client()
         .put_object("dir/file2.txt", b"hello world")
+        .await
         .unwrap();
 
     // verify readdir works on mount point
@@ -88,7 +94,7 @@ fn perm_test(
     assert_eq!(file_content, "hello world");
 }
 
-fn perm_test_negative(
+async fn perm_test_negative(
     creator_fn: impl TestSessionCreator,
     uid: Option<u32>,
     gid: Option<u32>,
@@ -115,7 +121,8 @@ fn perm_test_negative(
             filesystem_config: config,
             ..Default::default()
         },
-    );
+    )
+    .await;
 
     // expected values
     let uid = uid.unwrap_or_else(|| getuid().into());
@@ -127,10 +134,15 @@ fn perm_test_negative(
     assert!(m.file_type().is_dir());
     assert_perm(m, uid, gid, dir_mode);
 
-    test_session.client().put_object("file1.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("file1.txt", b"hello world")
+        .await
+        .unwrap();
     test_session
         .client()
         .put_object("dir/file2.txt", b"hello world")
+        .await
         .unwrap();
 
     // verify readdir returns permission denied on mount point
@@ -168,8 +180,9 @@ fn assert_perm(m: Metadata, uid: u32, gid: u32, perm: u32) {
 #[test_case(None, None, Some(0o777), Some(0o777); "full permissions")]
 #[test_case(Some(500), Some(20), None, None; "non default gid and uid")]
 #[test_case(Some(500), Some(20), Some(0o555), Some(0o444); "non default gid, uid and permissions")]
-fn permission_config_test_s3(uid: Option<u32>, gid: Option<u32>, dir_mode: Option<u16>, file_mode: Option<u16>) {
-    perm_test(fuse::s3_session::new, uid, gid, dir_mode, file_mode);
+#[tokio::test]
+async fn permission_config_test_s3(uid: Option<u32>, gid: Option<u32>, dir_mode: Option<u16>, file_mode: Option<u16>) {
+    perm_test(fuse::s3_session::new, uid, gid, dir_mode, file_mode).await;
 }
 
 #[test_case(None, None, None, None; "default config")]
@@ -177,29 +190,37 @@ fn permission_config_test_s3(uid: Option<u32>, gid: Option<u32>, dir_mode: Optio
 #[test_case(None, None, Some(0o777), Some(0o777); "full permissions")]
 #[test_case(Some(500), Some(20), None, None; "non default gid and uid")]
 #[test_case(Some(500), Some(20), Some(0o555), Some(0o444); "non default gid, uid and permissions")]
-fn permission_config_test_mock(uid: Option<u32>, gid: Option<u32>, dir_mode: Option<u16>, file_mode: Option<u16>) {
-    perm_test(fuse::mock_session::new, uid, gid, dir_mode, file_mode);
+#[tokio::test]
+async fn permission_config_test_mock(
+    uid: Option<u32>,
+    gid: Option<u32>,
+    dir_mode: Option<u16>,
+    file_mode: Option<u16>,
+) {
+    perm_test(fuse::mock_session::new, uid, gid, dir_mode, file_mode).await;
 }
 
 #[cfg(feature = "s3_tests")]
 #[test_case(None, None, Some(0o000), Some(0o000); "no permissions")]
 #[test_case(Some(500), Some(20), Some(0o700), Some(0o600); "no permissions as other users")]
-fn permission_config_test_negative_s3(
+#[tokio::test]
+async fn permission_config_test_negative_s3(
     uid: Option<u32>,
     gid: Option<u32>,
     dir_mode: Option<u16>,
     file_mode: Option<u16>,
 ) {
-    perm_test_negative(fuse::s3_session::new, uid, gid, dir_mode, file_mode);
+    perm_test_negative(fuse::s3_session::new, uid, gid, dir_mode, file_mode).await;
 }
 
 #[test_case(None, None, Some(0o000), Some(0o000); "no permissions")]
 #[test_case(Some(500), Some(20), Some(0o700), Some(0o600); "no permissions as other users")]
-fn permission_config_test_negative_mock(
+#[tokio::test]
+async fn permission_config_test_negative_mock(
     uid: Option<u32>,
     gid: Option<u32>,
     dir_mode: Option<u16>,
     file_mode: Option<u16>,
 ) {
-    perm_test_negative(fuse::mock_session::new, uid, gid, dir_mode, file_mode);
+    perm_test_negative(fuse::mock_session::new, uid, gid, dir_mode, file_mode).await;
 }

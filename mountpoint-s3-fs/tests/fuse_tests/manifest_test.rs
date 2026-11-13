@@ -39,7 +39,8 @@ use walkdir::WalkDir;
     "dir1/e.txt",
     "f.txt",
 ], "dir1", &["a.txt", "dir2"]; "with excluded keys")]
-fn test_readdir_manifest(
+#[tokio::test]
+async fn test_readdir_manifest(
     manifest_keys: &[&str],
     excluded_keys: &[&str],
     directory_to_list: &str,
@@ -47,8 +48,8 @@ fn test_readdir_manifest(
 ) {
     let (_tmp_dir, db_path) =
         create_dummy_manifest(manifest_keys, 0, "channel_0", "test_bucket").expect("manifest must be created");
-    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path));
-    put_dummy_objects(test_session.client(), manifest_keys, excluded_keys);
+    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path)).await;
+    put_dummy_objects(test_session.client(), manifest_keys, excluded_keys).await;
 
     let channel_dir = test_session.mount_path().join("channel_0");
     let read_dir_iter = fs::read_dir(channel_dir.join(directory_to_list)).unwrap();
@@ -56,8 +57,8 @@ fn test_readdir_manifest(
     assert_eq!(dir_entry_names, expected_children, "readdir test failed");
 }
 
-#[test]
-fn test_readdir_manifest_multiple_buckets() {
+#[tokio::test]
+async fn test_readdir_manifest_multiple_buckets() {
     let bucket1_files = vec![
         "dir1/a.txt",
         "dir1/dir2/b.txt",
@@ -86,7 +87,7 @@ fn test_readdir_manifest_multiple_buckets() {
 
     // Create manifest and mount
     let (_tmp_dir, db_path) = create_manifest(channel_manifests, 1000).expect("manifest must be created");
-    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path));
+    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path)).await;
 
     // Use WalkDir to validate the entire directory structure
     let mut all_files: Vec<_> = WalkDir::new(test_session.mount_path())
@@ -122,8 +123,8 @@ fn test_readdir_manifest_multiple_buckets() {
     assert_eq!(all_files, expected_files, "readdir test failed");
 }
 
-#[test]
-fn test_readdir_manifest_20k_keys() {
+#[tokio::test]
+async fn test_readdir_manifest_20k_keys() {
     let manifest_keys = (0..20000).map(|i| format!("dir1/file_{i}")).collect::<Vec<_>>();
     let excluded_keys = &["dir1/excluded_file".to_string()];
     let directory_to_list = "dir1";
@@ -132,8 +133,8 @@ fn test_readdir_manifest_20k_keys() {
 
     let (_tmp_dir, db_path) =
         create_dummy_manifest(&manifest_keys, 0, "channel_0", "test_bucket").expect("manifest must be created");
-    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path));
-    put_dummy_objects(test_session.client(), &manifest_keys, excluded_keys);
+    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path)).await;
+    put_dummy_objects(test_session.client(), &manifest_keys, excluded_keys).await;
 
     let channel_dir = test_session.mount_path().join("channel_0");
     let read_dir_iter = fs::read_dir(channel_dir.join(directory_to_list)).unwrap();
@@ -143,12 +144,13 @@ fn test_readdir_manifest_20k_keys() {
 
 #[test_case(Some("dummy_etag"), None; "missing size")]
 #[test_case(None, Some(1); "missing etag")]
-fn test_readdir_manifest_missing_metadata(etag: Option<&str>, size: Option<usize>) {
+#[tokio::test]
+async fn test_readdir_manifest_missing_metadata(etag: Option<&str>, size: Option<usize>) {
     let key = "key";
     let s3_path = S3Path::new("test_bucket".to_string().try_into().unwrap(), Prefix::empty());
     let (_tmp_dir, db_path) =
         create_dummy_manifest::<&str>(&[], 0, "channel_0", &s3_path.bucket).expect("manifest must be created");
-    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), manifest_test_session_config(&db_path));
+    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), manifest_test_session_config(&db_path)).await;
     insert_entries(
         &db_path,
         &[DbEntry::new(
@@ -174,15 +176,15 @@ fn test_readdir_manifest_missing_metadata(etag: Option<&str>, size: Option<usize
     assert!(read_dir_iter.next().is_none(), "no more items in the iterator");
 }
 
-#[test]
-fn test_lookup_unicode_keys_manifest() {
+#[tokio::test]
+async fn test_lookup_unicode_keys_manifest() {
     let file_size = 1024;
     let keys = &["مرحبًا", "🇦🇺", "🐈/🦀"];
     let excluded_keys = &["こんにちは"];
     let (_tmp_dir, db_path) =
         create_dummy_manifest(keys, file_size, "channel_0", "test_bucket").expect("manifest must be created");
-    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path));
-    put_dummy_objects(test_session.client(), keys, excluded_keys);
+    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path)).await;
+    put_dummy_objects(test_session.client(), keys, excluded_keys).await;
 
     let channel_dir = test_session.mount_path().join("channel_0");
     let m = metadata(channel_dir.join("مرحبًا")).unwrap();
@@ -200,12 +202,13 @@ fn test_lookup_unicode_keys_manifest() {
 
 #[test_case(Some("dummy_etag"), None; "missing size")]
 #[test_case(None, Some(1); "missing etag")]
-fn test_lookup_manifest_missing_metadata(etag: Option<&str>, size: Option<usize>) {
+#[tokio::test]
+async fn test_lookup_manifest_missing_metadata(etag: Option<&str>, size: Option<usize>) {
     let key = "key";
     let s3_path = S3Path::new("test_bucket".to_string().try_into().unwrap(), Prefix::empty());
     let (_tmp_dir, db_path) =
         create_dummy_manifest::<&str>(&[], 0, "channel_0", &s3_path.bucket).expect("manifest must be created");
-    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), manifest_test_session_config(&db_path));
+    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), manifest_test_session_config(&db_path)).await;
     insert_entries(
         &db_path,
         &[DbEntry::new(
@@ -228,12 +231,13 @@ fn test_lookup_manifest_missing_metadata(etag: Option<&str>, size: Option<usize>
 
 #[test_case(false; "lookup")]
 #[test_case(true; "readdir")]
-fn test_manifest_wrong_checksum(test_readdir: bool) {
+#[tokio::test]
+async fn test_manifest_wrong_checksum(test_readdir: bool) {
     let key = "key";
     let s3_path = S3Path::new("test_bucket".to_string().try_into().unwrap(), Prefix::empty());
     let (_tmp_dir, db_path) =
         create_dummy_manifest::<&str>(&[], 0, "channel_0", &s3_path.bucket).expect("manifest must be created");
-    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), manifest_test_session_config(&db_path));
+    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), manifest_test_session_config(&db_path)).await;
 
     // Create a valid DbEntry
     let mut entry = DbEntry::new(
@@ -482,7 +486,8 @@ async fn test_basic_read_manifest_multiple_buckets() {
 #[test_case(false, true; "readdir, sorted")]
 #[test_case(true, false; "lookup, unsorted")]
 #[test_case(true, true; "lookup, sorted")]
-fn test_unsorted_manifest(lookup: bool, sorted: bool) {
+#[tokio::test]
+async fn test_unsorted_manifest(lookup: bool, sorted: bool) {
     let all_files_sorted = vec![
         "dir1/a.txt",
         "dir1/dir2/b.txt",
@@ -497,7 +502,7 @@ fn test_unsorted_manifest(lookup: bool, sorted: bool) {
     }
     let (_tmp_dir, db_path) =
         create_dummy_manifest(&manifest_keys, 0, "channel_0", "test_bucket").expect("manifest must be created");
-    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path));
+    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path)).await;
     let channel_dir = &test_session.mount_path().join("channel_0");
     if lookup {
         for key in all_files_sorted {
@@ -536,10 +541,10 @@ fn manifest_test_session_config(db_path: &Path) -> TestSessionConfig {
     }
 }
 
-fn put_dummy_objects<T: AsRef<str>>(test_client: &dyn TestClient, manifest_keys: &[T], excluded_keys: &[T]) {
+async fn put_dummy_objects<T: AsRef<str>>(test_client: &dyn TestClient, manifest_keys: &[T], excluded_keys: &[T]) {
     for name in manifest_keys.iter().chain(excluded_keys.iter()) {
         let content = vec![b'0'; 1024];
-        test_client.put_object(name.as_ref(), &content).unwrap();
+        test_client.put_object(name.as_ref(), &content).await.unwrap();
     }
 }
 
