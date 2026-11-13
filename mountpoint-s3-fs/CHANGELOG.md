@@ -1,6 +1,6 @@
 ## Unreleased
 
-* Add `s3::sdk_client::build_sdk_client`, which builds an S3 client from the AWS SDK for Rust with the same endpoint options as the CRT client.
+* Add `s3::sdk_client::build_sdk_client`, which builds an S3 client from the AWS SDK for Rust with the same endpoint options as the CRT client. ([#2039](https://github.com/awslabs/mountpoint-s3/pull/2039))
 
 ## v0.12.0 (November 12, 2026)
 
