@@ -11,15 +11,13 @@ use fuser::{FileHandle, FileType};
 use mountpoint_s3_client::ObjectClient;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_client::PutObjectRequest;
-#[cfg(feature = "s3_tests")]
 use mountpoint_s3_client::S3CrtClient;
-#[cfg(feature = "s3_tests")]
 use mountpoint_s3_client::config::S3ClientConfig;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
 use mountpoint_s3_client::failure_client::{CountdownFailureConfig, countdown_failure_client};
 use mountpoint_s3_client::mock_client::{MockClient, MockClientError, MockObject, Operation};
-use mountpoint_s3_client::types::{ETag, GetObjectParams, PutObjectSingleParams, RestoreStatus};
+use mountpoint_s3_client::types::{ETag, PutObjectSingleParams, RestoreStatus};
 #[cfg(feature = "s3_tests")]
 use mountpoint_s3_fs::fs::error_metadata::MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
@@ -36,11 +34,43 @@ use test_case::test_case;
 mod common;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use common::creds::get_scoped_down_credentials;
+use common::mock_server::{AddObjectRequest, MockServer, MockServerGuard, bucket_for};
 #[cfg(feature = "s3_tests")]
 use common::s3::{get_test_bucket_and_prefix, get_test_endpoint_config};
 use common::{DirectoryReply, assert_attr, make_test_filesystem, make_test_filesystem_with_client};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use common::{get_crt_client_auth_config, s3::deny_single_object_access_policy};
+
+/// Returns a configuration for a CRT client of `server` with read backpressure and an initial read
+/// window of 256 KiB, as [make_test_filesystem] uses. The client keeps its default part size,
+/// because it doesn't accept parts below 5 MiB.
+fn test_crt_client_config(server: &MockServer) -> S3ClientConfig {
+    server
+        .crt_client_config()
+        .read_backpressure(true)
+        .initial_read_window(256 * 1024)
+}
+
+/// Create a file system like [make_test_filesystem] does, but with a CRT client that connects to
+/// a local mock server. The server's bucket follows the personality in `config` ([bucket_for]),
+/// and the client has the settings of [test_crt_client_config]. The returned guard keeps the
+/// server running, and tests seed and inspect the bucket through [MockServerGuard::server].
+async fn make_mock_server_filesystem(
+    prefix: &Prefix,
+    config: S3FilesystemConfig,
+) -> MockServerGuard<S3Filesystem<S3CrtClient>> {
+    let server = MockServer::config()
+        .bucket(bucket_for(config.s3_personality))
+        .build()
+        .await;
+    let client = S3CrtClient::new(test_crt_client_config(&server)).expect("failed to create the CRT client");
+    let pool = PagedPool::config()
+        .with_candidate_sizes([CandidateSize::new(client.read_part_size())])
+        .with_minimum_memory_limit()
+        .build();
+    let fs = make_test_filesystem_with_client(client, pool, server.bucket(), prefix, config);
+    server.guard(fs)
+}
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
@@ -531,16 +561,21 @@ async fn test_implicit_directory_shadow(prefix: &str) {
 #[test_case(50 * 1024; "large")]
 #[tokio::test]
 async fn test_sequential_write(write_size: usize) {
-    const BUCKET_NAME: &str = "test_sequential_write";
     const OBJECT_SIZE: usize = 50 * 1024;
 
-    let (client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
+    let server = fs.server();
 
     let mut rng = SmallRng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
     let mut body = vec![0u8; OBJECT_SIZE];
     rng.fill(&mut body[..]);
 
-    client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15, ETag::for_tests()));
+    server
+        .add_object(
+            "dir1/file1.bin",
+            AddObjectRequest::new(vec![0xa1; 15]).etag("test_etag"),
+        )
+        .await;
 
     // Find the dir1 directory
     let entry = fs.lookup(INodeNo::ROOT, "dir1".as_ref()).await.unwrap();
@@ -568,11 +603,7 @@ async fn test_sequential_write(write_size: usize) {
     fs.release(file_ino, fh, 0, None, false).await.unwrap();
 
     // Check that the object made it to S3 as we expected
-    let get = client
-        .get_object(BUCKET_NAME, "dir1/file2.bin", &GetObjectParams::new())
-        .await
-        .unwrap();
-    let actual = get.collect().await.unwrap();
+    let actual = server.object_content("dir1/file2.bin").await.unwrap();
     assert_eq!(&actual[..], &body[..]);
 
     // And now check that we can read it out of the file system too. We need to emulate the kernel's

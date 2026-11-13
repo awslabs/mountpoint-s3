@@ -156,7 +156,7 @@ async fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
 #[tokio::test]
 async fn basic_read_test_mock(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: bool) {
     basic_read_test(
-        fuse::mock_session::new,
+        fuse::mock_server_session::new,
         &prefix.to_string(),
         read_only,
         pass_fuse_fd,
