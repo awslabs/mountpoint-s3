@@ -1,9 +1,9 @@
 boto3
 lightning>=2.0.6
 Pillow
-torch>=2.0.1
-torchdata>=0.6.1
-torchvision
+torch>=2.0.1,<2.6
+torchdata>=0.6.1,<0.10
+torchvision<0.21
 webdataset
 s3fs
 certifi

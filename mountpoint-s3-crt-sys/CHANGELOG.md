@@ -1,4 +1,6 @@
-## Unreleased (v0.18.0)
+## Unreleased
+
+## v0.18.0 (November 12, 2026)
 
 * Update to latest CRT dependencies.
 
