@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794587936790,
+  "lastUpdate": 1794603782819,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard, Memory-Limited)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "59c7bbc1843652ccd239ef8a9235e56ad1842774",
-          "message": "Update cargo dependencies (#2009)\n\nRun cargo update to pick up in particular `crypto-bigint v0.7.10` which\naddresses RUSTSEC-2026-0387.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2026-10-28T10:56:19Z",
-          "tree_id": "7fa69936bf6b5f0af7c779be06b559d490744c43",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/59c7bbc1843652ccd239ef8a9235e56ad1842774"
-        },
-        "date": 1793193534820,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 472.91015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 471.8046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 460.6640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 55.15625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 90.23046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 56.484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 88.6171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 46.09765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 59.359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 48.296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 56.22265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 431.76171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 85.01953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 433.6796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 85.84765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 330.578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 52.7109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 331.96875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 331.32421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 53.01171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 436.328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 397.9296875,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 395.49609375,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "5381483+muddyfish@users.noreply.github.com",
+            "name": "Simon Beal",
+            "username": "muddyfish"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "40952b3f45dcec9bbfdb0f3460f364e8002abf93",
+          "message": "Add a CI check for the release binary's shared-library requirements (#2040)\n\nAdd a CI check to the release binary to verify:\n- We do not accidentally gain extra needed libraries\n- The minimum symbol version required by our needed libraries does not\nincrease by accident.\n\nIt is fine for us to drop shared libraries, and also to use a lower\nversion and have the check pass.\n\nAdding this as a prerequisite to a change to our official build system\nto help us verify no runtime dependencies have changed.\n\nYou can recreate the baseline with a Mountpoint binary using\n`--emit-baseline`\n\n### Does this change impact existing behavior?\n\nNo\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Simon Beal <simobeal@amazon.com>",
+          "timestamp": "2026-11-13T15:02:34Z",
+          "tree_id": "8b18ffe08ca35d1dfd67e8bba7190a8c9520de77",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/40952b3f45dcec9bbfdb0f3460f364e8002abf93"
+        },
+        "date": 1794603782736,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 475.65234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 477.7734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 462.31640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 55.109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 91.31640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 56.70703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 89.15625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 46.4765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 60.296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 47.375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 57.40625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 433.9140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 85.34375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 435.39453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 86.7109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 331.890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 54.26953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 330.7265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 332.0078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 54.453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 432.875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 367.16015625,
             "unit": "MiB"
           }
         ]
