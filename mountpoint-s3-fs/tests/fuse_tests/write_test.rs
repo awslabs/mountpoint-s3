@@ -21,6 +21,7 @@ use mountpoint_s3_fs::content_type::ContentTypeDetection;
 use mountpoint_s3_fs::fs::{CacheConfig, UploadChecksumAlgorithm};
 #[cfg(feature = "s3_tests")]
 use mountpoint_s3_fs::memory::write_buffer_budget_for;
+use mountpoint_s3_fs::s3::S3Personality;
 
 use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
@@ -107,6 +108,10 @@ trait S3FilesystemConfigExt {
 impl S3FilesystemConfigExt for S3FilesystemConfig {
     fn upload_mode(mut self, upload_mode: UploadMode) -> Self {
         self.incremental_upload = upload_mode.is_incremental();
+        if upload_mode.is_incremental() {
+            // Incremental uploads append, which S3 only serves in directory buckets.
+            self.s3_personality = S3Personality::ExpressOneZone;
+        }
         self
     }
 }
@@ -149,7 +154,9 @@ async fn sequential_write_test(
 
     // verify the new file is visible in readdir
     let read_dir_iter = read_dir(&subdir).unwrap();
-    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    let mut dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    // Directory buckets list keys in no particular order.
+    dir_entry_names.sort();
     assert_eq!(dir_entry_names, vec!["hello.txt", "new.txt"]);
 
     let mut rng = SmallRng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
@@ -180,7 +187,9 @@ async fn sequential_write_test(
 
     // Readdir should still work correctly
     let read_dir_iter = read_dir(&subdir).unwrap();
-    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    let mut dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    // Directory buckets list keys in no particular order.
+    dir_entry_names.sort();
     assert_eq!(dir_entry_names, vec!["hello.txt", "new.txt"]);
 }
 
@@ -1665,15 +1674,13 @@ async fn write_checksums_test_s3_incremental_upload(algorithm: Option<UploadChec
     write_checksums_test(fuse::s3_session::new, algorithm, INCREMENTAL_UPLOAD).await;
 }
 
-// `MockClient` reports the composite checksum of a multipart upload without the part count, so the
-// atomic CRC32C case fails.
 #[test_matrix(
     [CHECKSUMS_CRC32C, CHECKSUMS_CRC64NVME, CHECKSUMS_DISABLED],
     [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD]
 )]
 #[tokio::test]
 async fn write_checksums_test_mock(algorithm: Option<UploadChecksumAlgorithm>, upload_mode: UploadMode) {
-    write_checksums_test(fuse::mock_session::new, algorithm, upload_mode).await;
+    write_checksums_test(fuse::mock_server_session::new, algorithm, upload_mode).await;
 }
 
 #[derive(Debug)]
