@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v0.12.1)
+
+* Fix `DiskDataCache` exceeding its `CacheLimit` by up to one block per `put_block` in progress. A put now makes room for its own block and for the blocks that other puts are still writing before it writes.
 
 ## v0.12.0 (November 12, 2026)
 
