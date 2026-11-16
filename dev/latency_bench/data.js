@@ -1,72 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794828900764,
+  "lastUpdate": 1794831341403,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Latency Benchmark (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f5d283be78d717f3f219d82740608a1483dfa301",
-          "message": "Bump libz-sys from 1.1.30 to 1.1.31 (RUSTSEC-2026-0418) (#2013)\n\nBumps libz-sys to 1.1.31 to fix RUSTSEC-2026-0418 (the libz-sys build\nscript logs its compiler probe command, leaking environment variables\ninto the build directory), which currently fails the `cargo deny`\nadvisories check. Cargo.lock only, no code changes.\n\nlibz-sys is a build-time dependency only, reached via\n`built` -> `git2` -> `libgit2-sys` from the `mountpoint-s3` and\n`mountpoint-s3-client` build scripts.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, dependency lockfile update only.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2026-10-30T09:44:05Z",
-          "tree_id": "23b855040345b40f370758ceb7539c4582cf29a5",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/f5d283be78d717f3f219d82740608a1483dfa301"
-        },
-        "date": 1793355325704,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "One Byte File Creation - Average Total Latency",
-            "value": 224.83337199000007,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "readdir_100",
-            "value": 0.048,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.136,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.982,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 9.733,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_write_one_byte_file",
-            "value": 33.2300235,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 14.555437,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 28.8317371,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1919,6 +1855,70 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 27.5966932,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "jetong@amazon.co.uk",
+            "name": "Jensen Tong",
+            "username": "jet-tong"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "0d76acf34fc7f7fe86f76b70058ef1b8307c62fa",
+          "message": "Update publishing crates doc as fuser is in a different workspace (#2042)\n\n### Description\n\nUpdate `doc/PUBLISHING_CRATES.md` for the crate layout after #2005.\n\nSince #2005, `mountpoint-s3-fuser` declares its own `[workspace]` and is\nexcluded from the root workspace. So `cargo publish --workspace` does\nnot include it, `-p mountpoint-s3-fuser` cannot select it, and `cargo\npublish --workspace --dry-run` fails at `mountpoint-s3-fs` until the new\nfuser version is on crates.io.\n\n- Publish `mountpoint-s3-fuser` first with `--manifest-path\nmountpoint-s3-fuser/Cargo.toml`.\n- Move the workspace dry run after it.\n- Keep the per-crate steps for the other crates, and add publishing all\nfour together with `cargo publish --workspace` when they all need a\nrelease (it is the process used for the v1.25.0 release, a slightly\nquicker way to publish them all together :) )\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Jensen Tong <jetong@amazon.com>\nCo-authored-by: Jensen Tong <jetong@amazon.com>",
+          "timestamp": "2026-11-16T11:41:06Z",
+          "tree_id": "3556337ce06bdb7f7248bbd65a45fc3804b3cb96",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/0d76acf34fc7f7fe86f76b70058ef1b8307c62fa"
+        },
+        "date": 1794831339641,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "One Byte File Creation - Average Total Latency",
+            "value": 229.60617331,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "readdir_100",
+            "value": 0.06,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.13,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.121,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.075,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_write_one_byte_file",
+            "value": 32.167425,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 14.729509199999999,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 28.2765293,
             "unit": "milliseconds"
           }
         ]
