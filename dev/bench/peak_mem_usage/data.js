@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794596996116,
+  "lastUpdate": 1794835494426,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "59c7bbc1843652ccd239ef8a9235e56ad1842774",
-          "message": "Update cargo dependencies (#2009)\n\nRun cargo update to pick up in particular `crypto-bigint v0.7.10` which\naddresses RUSTSEC-2026-0387.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2026-10-28T10:56:19Z",
-          "tree_id": "7fa69936bf6b5f0af7c779be06b559d490744c43",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/59c7bbc1843652ccd239ef8a9235e56ad1842774"
-        },
-        "date": 1793193517381,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 3332.5546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 4991.3359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8432.29296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 54.12109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 90.203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 56.33984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 89.33203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 45.765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 58.91015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 47.6640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 58.85546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8268.703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 83.8671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8227.5078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 85.953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2375.83203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 52.96484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2378.09765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2376.0625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 52.671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 598.34765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 396.51953125,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 420.12109375,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "4617ada25cba10c4aaa0185ff35e669f7c965a5a",
+          "message": "Bump taiki-e/install-action from 2.89.1 to 2.90.3 (#2044)\n\nBumps\n[taiki-e/install-action](https://github.com/taiki-e/install-action) from\n2.89.1 to 2.90.3.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/taiki-e/install-action/releases\">taiki-e/install-action's\nreleases</a>.</em></p>\n<blockquote>\n<h2>2.90.3</h2>\n<ul>\n<li>\n<p>Update <code>yq@latest</code> to 4.54.2.</p>\n</li>\n<li>\n<p>Update <code>vacuum@latest</code> to 0.39.3.</p>\n</li>\n<li>\n<p>Update <code>syft@latest</code> to 1.57.0.</p>\n</li>\n<li>\n<p>Update <code>rclone@latest</code> to 1.76.0.</p>\n</li>\n<li>\n<p>Update <code>protoc-gen-connect-openapi@latest</code> to 0.30.0.</p>\n</li>\n<li>\n<p>Update <code>mise@latest</code> to 2026.11.3.</p>\n</li>\n<li>\n<p>Update <code>kingfisher@latest</code> to 2.17.0.</p>\n</li>\n<li>\n<p>Update <code>biome@latest</code> to 2.6.6.</p>\n</li>\n</ul>\n<h2>2.90.2</h2>\n<ul>\n<li>\n<p>Update <code>trivy@latest</code> to 0.76.2.</p>\n</li>\n<li>\n<p>Update <code>tombi@latest</code> to 1.10.0.</p>\n</li>\n<li>\n<p>Update <code>prek@latest</code> to 0.5.10.</p>\n</li>\n<li>\n<p>Update <code>mise@latest</code> to 2026.11.2.</p>\n</li>\n<li>\n<p>Update <code>mdbook-d2@latest</code> to 0.3.10.</p>\n</li>\n<li>\n<p>Update <code>cargo-zigbuild@latest</code> to 0.24.1.</p>\n</li>\n<li>\n<p>Update <code>cargo-tarpaulin@latest</code> to 0.37.6.</p>\n</li>\n<li>\n<p>Update <code>biome@latest</code> to 2.6.5.</p>\n</li>\n</ul>\n<h2>2.90.1</h2>\n<ul>\n<li>\n<p>Update <code>zizmor@latest</code> to 1.32.0.</p>\n</li>\n<li>\n<p>Update <code>uv@latest</code> to 0.13.7.</p>\n</li>\n<li>\n<p>Update <code>typos@latest</code> to 1.52.0.</p>\n</li>\n<li>\n<p>Update <code>tombi@latest</code> to 1.9.9.</p>\n</li>\n<li>\n<p>Update <code>syft@latest</code> to 1.56.0.</p>\n</li>\n<li>\n<p>Update <code>mise@latest</code> to 2026.11.0.</p>\n</li>\n<li>\n<p>Update <code>kache@latest</code> to 2.0.0.</p>\n</li>\n<li>\n<p>Update <code>cargo-nextest@latest</code> to 0.9.151.</p>\n</li>\n</ul>\n<!-- raw HTML omitted -->\n</blockquote>\n<p>... (truncated)</p>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/cfdb7ed4ccc7c7dce37759eae89dc5674b469b39\"><code>cfdb7ed</code></a>\nRelease 2.90.3</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/0a7121930a2b50a86493394ff371be5944d87f42\"><code>0a71219</code></a>\nUpdate <code>yq@latest</code> to 4.54.2</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/4072c983d74b307847287f7220fce7a9c141b992\"><code>4072c98</code></a>\nUpdate <code>vacuum@latest</code> to 0.39.3</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/d429e9b8ea70b66f46e73feb606ddc9ee0f4efde\"><code>d429e9b</code></a>\nUpdate <code>syft@latest</code> to 1.57.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/24c26286aac008b9637a57b31fe0b3ddb2bd4ded\"><code>24c2628</code></a>\nUpdate <code>rclone@latest</code> to 1.76.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/ab9bbc83facfaf93b4b8c40d6b13ddc1bb0169a3\"><code>ab9bbc8</code></a>\nUpdate <code>protoc-gen-connect-openapi@latest</code> to 0.30.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/4bff33fa4dd584dfccaa7582398a2b31ddd8f0cb\"><code>4bff33f</code></a>\nUpdate <code>mise@latest</code> to 2026.11.3</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/cdf8dc3a14f3d788d3da291c51381dd2849ae5cf\"><code>cdf8dc3</code></a>\nUpdate <code>kingfisher@latest</code> to 2.17.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/b8b14a4959fcb616bab58d718dcffcc06ecc6bdb\"><code>b8b14a4</code></a>\nUpdate <code>biome@latest</code> to 2.6.6</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2\"><code>3a3daaf</code></a>\nRelease 2.90.2</li>\n<li>Additional commits viewable in <a\nhref=\"https://github.com/taiki-e/install-action/compare/v2.89.1...v2.90.3\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\n\n[![Dependabot compatibility\nscore](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=taiki-e/install-action&package-manager=github_actions&previous-version=2.89.1&new-version=2.90.3)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)\n\nDependabot will resolve any conflicts with this PR as long as you don't\nalter it yourself. You can also trigger a rebase manually by commenting\n`@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits\nthat have been made to it\n- `@dependabot show <dependency name> ignore conditions` will show all\nof the ignore conditions of the specified dependency\n- `@dependabot ignore this major version` will close this PR and stop\nDependabot creating any more for this major version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this minor version` will close this PR and stop\nDependabot creating any more for this minor version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this dependency` will close this PR and stop\nDependabot creating any more for this dependency (unless you reopen the\nPR or upgrade to it yourself)\n\n\n</details>\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-16T11:01:53Z",
+          "tree_id": "fe59401dcbed86ace10f08c18d8cc0bede47e8bd",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/4617ada25cba10c4aaa0185ff35e669f7c965a5a"
+        },
+        "date": 1794835494346,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 3204.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 4733.40625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 8359.2265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 55.65625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 90.68359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 56.90234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 90,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 45.90234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 58.85546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 48.2890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 68.0234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8200.8359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 85.35546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 8195.9453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 87.48828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2374.828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 53.80078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2375.94140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2378.94921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 53.9375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 631.40625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 397.8203125,
             "unit": "MiB"
           }
         ]
