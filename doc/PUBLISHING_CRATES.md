@@ -34,7 +34,7 @@ order. For reference, this is the dependency tree of the crates in the repositor
     * `mountpoint-s3-client`
       * `mountpoint-s3-crt`
         * `mountpoint-s3-crt-sys`
-    * `mountpoint-s3-fuser` (not part of the root Cargo workspace, see [Publishing](#publishing))
+    * `mountpoint-s3-fuser` (not part of the root Cargo workspace, see [Publishing the mountpoint-s3-fuser crate](#publishing-the-mountpoint-s3-fuser-crate))
   * `mountpoint-s3-client`
     * [..]
 
@@ -90,9 +90,9 @@ Maintainers' GitHub accounts are authorized to publish new crate versions.
 cargo login
 ```
 
-`mountpoint-s3-fuser` is not part of the root Cargo workspace (since [#2005](https://github.com/awslabs/mountpoint-s3/pull/2005) it declares its own `[workspace]`), so `--workspace` and `-p` don't apply to it and it is published with `--manifest-path` instead. It must be published before the other crates, since `cargo publish --workspace --dry-run` fails for `mountpoint-s3-fs` until the `mountpoint-s3-fuser` version it depends on is on crates.io.
+### Publishing the mountpoint-s3-fuser crate
 
-If `mountpoint-s3-fuser` is being updated, complete these steps first, replacing the version number where applicable:
+`mountpoint-s3-fuser` is not part of the root Cargo workspace. If it is being updated, publish the `mountpoint-s3-fuser` crate first, replacing the version number below:
 
 1. Verify that publishing in `--dry-run` mode succeeds (there should be no warnings in logs and the version matches expectations).
 
@@ -117,6 +117,8 @@ If `mountpoint-s3-fuser` is being updated, complete these steps first, replacing
    ```
    git push upstream mountpoint-s3-fuser-9.9.9
    ```
+
+### Publishing workspace crates
 
 Next, verify that publishing in `--dry-run` mode succeeds (there should be no warnings in logs and versions match expectations):
 
@@ -150,24 +152,6 @@ For each crate replacing the crate and version number where applicable:
    ```
    git push upstream mountpoint-s3-crt-sys-9.9.9
    ```
-
-Alternatively, if all of these crates are being updated, you can instead publish them together with `cargo publish --workspace`. Create a new Git tag for each crate and version, then publish them:
-
-```
-cargo publish --workspace --dry-run
-
-git tag mountpoint-s3-crt-sys-9.9.9
-git tag mountpoint-s3-crt-9.9.9
-git tag mountpoint-s3-client-9.9.9
-git tag mountpoint-s3-fs-9.9.9
-
-cargo publish --workspace
-
-git push upstream mountpoint-s3-crt-sys-9.9.9
-git push upstream mountpoint-s3-crt-9.9.9
-git push upstream mountpoint-s3-client-9.9.9
-git push upstream mountpoint-s3-fs-9.9.9
-```
 
 Once these steps have been completed for all crates that need to be updated, you're done. You can check the new versions on crates.io:
 
