@@ -2,7 +2,10 @@
 //! proxy environment variables, and bypass it for hosts in `NO_PROXY`.
 //!
 //! Each test runs in a forked process, as it sets environment variables. The proxy, the fake S3
-//! endpoint and the fake ECS credentials endpoint listen on 127.0.0.1.
+//! endpoint and the fake ECS credentials endpoint listen on 127.0.0.1. The tests behind `s3_tests`
+//! send their requests to S3 and STS through the proxy.
+
+pub mod common;
 
 use std::net::SocketAddr;
 use std::path::Path;
@@ -335,5 +338,135 @@ rusty_fork_test! {
             assert!(ecs_requests.load(Ordering::SeqCst) >= 1, "the ECS endpoint should be queried");
             assert_eq!(proxy.targets(), Vec::<String>::new(), "nothing should go through the proxy");
         });
+    }
+}
+
+/// Tests that send their requests to S3 and STS through a proxy that opens the tunnels.
+#[cfg(feature = "s3_tests")]
+mod s3_tests {
+    use aws_credential_types::Credentials;
+    use aws_sdk_s3::primitives::{DateTime, DateTimeFormat};
+
+    use super::*;
+    use crate::common::creds::{get_sdk_default_chain_creds, get_subsession_iam_role};
+    use crate::common::{get_test_bucket, get_test_endpoint_config, get_test_region, get_unique_test_prefix};
+
+    /// The credentials of the test environment, resolved before the environment is isolated.
+    fn test_credentials() -> Credentials {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(get_sdk_default_chain_creds())
+    }
+
+    /// List the test bucket with a client that signs with `auth_config`.
+    async fn list_test_bucket(auth_config: S3ClientAuthConfig, test_name: &str) {
+        let config = S3ClientConfig::new()
+            .endpoint_config(get_test_endpoint_config())
+            .auth_config(auth_config);
+        let client = S3CrtClient::new(config).expect("create client");
+        let prefix = get_unique_test_prefix(test_name);
+        tokio::time::timeout(
+            Duration::from_secs(60),
+            client.list_objects(&get_test_bucket(), None, "/", 10, &prefix),
+        )
+        .await
+        .expect("list should not time out")
+        .expect("list should succeed");
+    }
+
+    /// A tunnel to S3: the only tunnels the tests open are to STS and S3.
+    fn is_s3_tunnel(target: &str) -> bool {
+        target.starts_with("CONNECT ") && !target.starts_with("CONNECT sts.")
+    }
+
+    rusty_fork_test! {
+        /// A client with a role profile assumes the role through the proxy, and lists the bucket
+        /// with the role's credentials through the proxy.
+        #[test]
+        fn assume_role_and_list_through_proxy() {
+            let credentials = test_credentials();
+            let (role_arn, region) = (get_subsession_iam_role(), get_test_region());
+            let home = tempfile::tempdir().unwrap();
+            write_role_profile(
+                home.path(),
+                &role_arn,
+                &region,
+                (credentials.access_key_id(), credentials.secret_access_key(), credentials.session_token()),
+            );
+            let (proxy_listener, proxy_addr) = bind_local();
+            // SAFETY: forked process. The runtime `test_credentials` used has shut down and joined
+            // its threads, so no other thread is running.
+            unsafe {
+                isolate_environment(home.path());
+                std::env::set_var("HTTPS_PROXY", format!("http://{proxy_addr}"));
+            }
+
+            runtime().block_on(async {
+                let proxy = RecordingProxy::start(proxy_listener, true);
+
+                let auth_config = S3ClientAuthConfig::Profile("proxy-test".to_owned());
+                list_test_bucket(auth_config, "assume_role_and_list_through_proxy").await;
+
+                let targets = proxy.targets();
+                assert!(
+                    targets.iter().any(|t| t.starts_with("CONNECT sts.")),
+                    "the STS request should go through the proxy: {targets:?}"
+                );
+                assert!(
+                    targets.iter().any(|t| is_s3_tunnel(t)),
+                    "the S3 request should go through the proxy: {targets:?}"
+                );
+            });
+        }
+
+        /// A client with ECS credentials fetches them through the proxy, and lists the bucket
+        /// through the proxy.
+        #[test]
+        fn ecs_credentials_and_list_through_proxy() {
+            let credentials = test_credentials();
+            let expiration = credentials
+                .expiry()
+                .map(|expiry| DateTime::from(expiry).fmt(DateTimeFormat::DateTime).unwrap())
+                .unwrap_or_else(|| "2099-01-01T00:00:00Z".to_owned());
+            let ecs_response = serde_json::json!({
+                "AccessKeyId": credentials.access_key_id(),
+                "SecretAccessKey": credentials.secret_access_key(),
+                "Token": credentials.session_token().unwrap_or_default(),
+                "Expiration": expiration,
+            })
+            .to_string();
+            let home = tempfile::tempdir().unwrap();
+            let (proxy_listener, proxy_addr) = bind_local();
+            let (ecs_listener, ecs_addr) = bind_local();
+            let ecs_url = format!("http://{ecs_addr}/credentials");
+            // SAFETY: forked process. The runtime `test_credentials` used has shut down and joined
+            // its threads, so no other thread is running.
+            unsafe {
+                isolate_environment(home.path());
+                std::env::set_var("AWS_CONTAINER_CREDENTIALS_FULL_URI", &ecs_url);
+                std::env::set_var("HTTP_PROXY", format!("http://{proxy_addr}"));
+                std::env::set_var("HTTPS_PROXY", format!("http://{proxy_addr}"));
+            }
+
+            runtime().block_on(async {
+                let proxy = RecordingProxy::start(proxy_listener, true);
+                let ecs_requests = start_server(ecs_listener, ecs_response);
+
+                list_test_bucket(S3ClientAuthConfig::Default, "ecs_credentials_and_list_through_proxy").await;
+
+                assert!(ecs_requests.load(Ordering::SeqCst) >= 1, "the ECS endpoint should be queried");
+                let targets = proxy.targets();
+                assert!(
+                    targets.contains(&format!("GET {ecs_url}")),
+                    "the ECS request should go through the proxy: {targets:?}"
+                );
+                assert!(
+                    targets.iter().any(|t| is_s3_tunnel(t)),
+                    "the S3 request should go through the proxy: {targets:?}"
+                );
+            });
+        }
     }
 }
