@@ -1,5 +1,7 @@
 ## Unreleased
 
+* The credentials providers for `S3ClientAuthConfig::Default` and `S3ClientAuthConfig::Profile` now send their requests through the proxy set by the `HTTPS_PROXY` and `HTTP_PROXY` environment variables, unless `NO_PROXY` covers their host. ([#1751](https://github.com/awslabs/mountpoint-s3/pull/1751))
+
 ## v0.23.0 (November 12, 2026)
 
 * `ImdsCrtClient` now runs on a single event loop thread instead of the CRT default of one thread for every two logical CPUs. `ImdsCrtClient::new` now returns an error instead of panicking if it fails to set up its event loop, host resolver, or client bootstrap. ([#2034](https://github.com/awslabs/mountpoint-s3/pull/2034))

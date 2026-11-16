@@ -1,5 +1,7 @@
 ## Unreleased
 
+* `CredentialsProvider::new_chain_default` and `CredentialsProvider::new_profile` now create providers that read their proxy settings from the `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` environment variables. ([#1751](https://github.com/awslabs/mountpoint-s3/pull/1751))
+
 ## v0.17.0 (November 12, 2026)
 
 * Add `checksums::crc32c::combine`, which combines the CRC32C checksums of two consecutive blocks of data using the CRT's `aws_checksums_crc32c_combine`. ([#2019](https://github.com/awslabs/mountpoint-s3/pull/2019))

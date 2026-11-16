@@ -1,5 +1,8 @@
 ## Unreleased
 
+### Other changes
+* Requests for AWS credentials now go through the proxy set by the `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` environment variables, as requests to S3 already do. See [the configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#http-proxies) for details. ([#1751](https://github.com/awslabs/mountpoint-s3/pull/1751))
+
 ## v1.25.0 (November 12, 2026)
 
 ### Breaking changes
