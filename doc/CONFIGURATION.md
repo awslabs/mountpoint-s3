@@ -229,7 +229,17 @@ Mountpoint also honours the `AWS_CA_BUNDLE` environment variable as a fallback w
 
 ### HTTP proxies
 
-Mountpoint sends its requests to S3, and its requests for AWS credentials, through the proxy set by the standard `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` environment variables. See [Using an HTTP proxy for the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-proxy.html) for how to set them, including how to exempt the instance metadata service on Amazon EC2.
+Mountpoint sends its requests to S3, and its requests for AWS credentials, through the proxy set by the standard `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` environment variables. See [Using an HTTP proxy for the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-proxy.html) for how to set them.
+
+If you set `HTTP_PROXY`, consider excluding the EC2 instance metadata service and the Amazon ECS and Amazon EKS Pod Identity credential endpoints with `NO_PROXY`, for example:
+
+```
+export NO_PROXY=169.254.169.254,169.254.170.2,169.254.170.23
+```
+
+For more information about these endpoints, see [Access instance metadata for an EC2 instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html), [Using an HTTP proxy for Amazon ECS Linux container instances](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/http_proxy_config.html) and [Set up the Amazon EKS Pod Identity Agent](https://docs.aws.amazon.com/eks/latest/userguide/pod-id-agent-setup.html).
+
+Profiles behave differently when selected with the `AWS_PROFILE` environment variable instead of the `--profile` command-line argument: with `--profile`, the requests the profile makes for credentials, such as assuming a role, go through the proxy, while with `AWS_PROFILE` they go directly.
 
 ### Data encryption
 
