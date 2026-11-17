@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v0.24.0)
+
+* The credentials providers for `S3ClientAuthConfig::Default` and `S3ClientAuthConfig::Profile` now send their requests through the proxy set by the `HTTPS_PROXY` and `HTTP_PROXY` environment variables, unless `NO_PROXY` covers their host. ([#1751](https://github.com/awslabs/mountpoint-s3/pull/1751))
 
 ## v0.23.0 (November 12, 2026)
 

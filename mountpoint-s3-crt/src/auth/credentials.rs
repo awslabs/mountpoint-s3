@@ -9,7 +9,7 @@ use mountpoint_s3_crt_sys::{
     aws_credentials_provider_new_cached, aws_credentials_provider_new_chain_default,
     aws_credentials_provider_new_profile, aws_credentials_provider_new_static,
     aws_credentials_provider_profile_options, aws_credentials_provider_release,
-    aws_credentials_provider_static_options,
+    aws_credentials_provider_static_options, aws_http_proxy_env_var_type, proxy_env_var_settings,
 };
 
 use crate::auth::auth_library_init;
@@ -81,12 +81,18 @@ impl CredentialsProvider {
     ) -> Result<Self, Error> {
         auth_library_init(allocator);
 
+        let proxy_ev_settings = proxy_env_var_settings {
+            env_var_type: aws_http_proxy_env_var_type::AWS_HPEV_ENABLE,
+            ..Default::default()
+        };
+
         let inner_options = aws_credentials_provider_chain_default_options {
             bootstrap: options.bootstrap.inner.as_ptr(),
             tls_ctx: options
                 .tls_ctx
                 .map(|t| t.inner.as_ptr())
                 .unwrap_or(std::ptr::null_mut()),
+            proxy_ev_settings: &raw const proxy_ev_settings,
             ..Default::default()
         };
 
@@ -117,6 +123,11 @@ impl CredentialsProvider {
     pub fn new_profile(allocator: &Allocator, options: CredentialsProviderProfileOptions) -> Result<Self, Error> {
         auth_library_init(allocator);
 
+        let mut proxy_ev_settings = proxy_env_var_settings {
+            env_var_type: aws_http_proxy_env_var_type::AWS_HPEV_ENABLE,
+            ..Default::default()
+        };
+
         // SAFETY: aws_credentials_provider_new_profile makes a copy of bootstrap
         // and contents of profile_name_override, and acquires a reference to tls_ctx when non-null.
         // SAFETY: aws_credentials_provider_new_cached increments the reference counter of
@@ -129,6 +140,7 @@ impl CredentialsProvider {
                     .tls_ctx
                     .map(|t| t.inner.as_ptr())
                     .unwrap_or(std::ptr::null_mut()),
+                proxy_ev_settings: &raw mut proxy_ev_settings,
                 ..Default::default()
             };
 
