@@ -30,7 +30,7 @@ pub struct GlobalConfig {
     pub sse_kms_key_id: Option<String>,
     pub checksum_algorithm: Option<ChecksumAlgorithm>,
     /// Memory monitoring polling interval. Default: 100ms.
-    #[serde(default, with = "humantime_serde")]
+    #[serde(default, with = "jiff::fmt::serde::unsigned_duration::optional")]
     pub memory_monitor_interval: Option<Duration>,
 
     // === Job defaults (optional, overridable per job) ===
@@ -54,11 +54,11 @@ pub struct JobConfig {
     /// Number of iterations in each job
     pub iterations: Option<usize>,
     /// Max duration of jobs
-    #[serde(default, with = "humantime_serde")]
+    #[serde(default, with = "jiff::fmt::serde::unsigned_duration::optional")]
     pub max_duration: Option<Duration>,
     /// Duration per iteration. Used in random read access pattern only.
     /// If specified then job is time-based instead of reading until total bytes equal to file size.
-    #[serde(default, with = "humantime_serde")]
+    #[serde(default, with = "jiff::fmt::serde::unsigned_duration::optional")]
     pub iteration_duration: Option<Duration>,
     /// Whether to generate test objects before running read benchmarks.
     /// Only applies to read workloads. Default: true.
