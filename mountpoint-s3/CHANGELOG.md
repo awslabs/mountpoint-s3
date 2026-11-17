@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v1.25.1)
+
+* Fix the local disk cache (`--cache`) exceeding `--max-cache-size`, or leaving less than 5% of its file system free without `--max-cache-size`, by up to one block per cache write in progress. ([#2041](https://github.com/awslabs/mountpoint-s3/pull/2041))
 
 ## v1.25.0 (November 12, 2026)
 
