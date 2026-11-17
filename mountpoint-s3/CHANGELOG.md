@@ -4,6 +4,10 @@
 
 * Requests for AWS credentials now go through the proxy set by the `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` environment variables, as requests to S3 already do. If you set `HTTP_PROXY`, consider excluding the EC2 instance metadata service and the Amazon ECS and Amazon EKS Pod Identity credential endpoints with `NO_PROXY`, for example `NO_PROXY=169.254.169.254,169.254.170.2,169.254.170.23`. See [the configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#http-proxies) for details. ([#1751](https://github.com/awslabs/mountpoint-s3/pull/1751))
 
+### Other changes
+
+* Fix the local disk cache (`--cache`) exceeding `--max-cache-size`, or leaving less than 5% of its file system free without `--max-cache-size`, by up to one block per cache write in progress. ([#2041](https://github.com/awslabs/mountpoint-s3/pull/2041))
+
 ## v1.25.0 (November 12, 2026)
 
 ### Breaking changes
