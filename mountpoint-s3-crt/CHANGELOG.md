@@ -1,4 +1,4 @@
-## Unreleased
+## Unreleased (v0.18.0)
 
 * `CredentialsProvider::new_chain_default` and `CredentialsProvider::new_profile` now create providers that read their proxy settings from the `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` environment variables. ([#1751](https://github.com/awslabs/mountpoint-s3/pull/1751))
 

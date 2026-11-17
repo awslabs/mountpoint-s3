@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v0.13.0)
+
+* Update to latest S3 client, which sends requests for AWS credentials through the proxy set by the `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` environment variables. ([#1751](https://github.com/awslabs/mountpoint-s3/pull/1751))
 
 ## v0.12.0 (November 12, 2026)
 

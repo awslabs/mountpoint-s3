@@ -1,4 +1,4 @@
-## Unreleased
+## Unreleased (v1.26.0)
 
 ### Breaking changes
 
