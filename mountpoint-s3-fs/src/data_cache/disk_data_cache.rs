@@ -413,13 +413,13 @@ impl DiskDataCache {
         Ok((temp_file, bytes_written))
     }
 
-    /// Returns `true` if the cache would exceed its limit with `additional` bytes on top of the
-    /// `size` bytes of its blocks.
-    fn is_limit_exceeded(&self, size: usize, additional: usize) -> bool {
-        metrics::gauge!(CACHE_TOTAL_SIZE, ATTR_CACHE => CACHE_DISK).set(size as f64);
+    /// Returns `true` if the cache exceeds its limit with its blocks and the room reserved by puts
+    /// in progress, including the caller's.
+    fn is_limit_exceeded(&self, usage_info: &UsageInfo<DiskBlockKey>) -> bool {
+        metrics::gauge!(CACHE_TOTAL_SIZE, ATTR_CACHE => CACHE_DISK).set(usage_info.size as f64);
         match self.config.limit {
             CacheLimit::Unbounded => false,
-            CacheLimit::TotalSize { max_size } => size.saturating_add(additional) > max_size,
+            CacheLimit::TotalSize { max_size } => usage_info.size.saturating_add(usage_info.reserved) > max_size,
             CacheLimit::AvailableSpace { min_ratio } => {
                 let stats = match nix::sys::statvfs::statvfs(&self.config.cache_directory) {
                     Ok(stats) if stats.blocks() == 0 => {
@@ -432,18 +432,22 @@ impl DiskDataCache {
                         return false;
                     }
                 };
+                // `blocks` and `blocks_available` count units of `fragment_size` bytes.
                 let fragment_size = stats.fragment_size() as f64;
-                let available = stats.blocks_available() as f64 * fragment_size - additional as f64;
-                available < min_ratio * stats.blocks() as f64 * fragment_size
+                let available_bytes = stats.blocks_available() as f64 * fragment_size;
+                let total_bytes = stats.blocks() as f64 * fragment_size;
+                available_bytes - (usage_info.reserved as f64) < min_ratio * total_bytes
             }
         }
     }
 
-    /// Evict blocks until the cache has room for a block of `size` bytes, on top of the blocks
-    /// that other puts are writing, and reserve that room for the caller.
+    /// Reserve room for a block of `size` bytes, on top of the room reserved by other puts in
+    /// progress, and evict blocks until the cache has room for all the reservations.
     ///
-    /// The check and the reservation happen under the usage lock, so that concurrent puts cannot
-    /// all see the same free space and overshoot the limit together. With
+    /// The room is reserved before evicting, so that the room freed by this put is not taken by
+    /// other puts. Each eviction takes the usage lock separately, so that other operations can use
+    /// the cache between evictions. A put succeeds only once the limit holds with all the reserved
+    /// room, so concurrent puts cannot overshoot the limit together. With
     /// [CacheLimit::AvailableSpace], the file system already counts the part of a reserved block
     /// that has been written, so the check is conservative while blocks are being written.
     ///
@@ -455,21 +459,31 @@ impl DiskDataCache {
             return Ok(None);
         };
 
-        let mut usage_info = usage.lock().unwrap();
-        if let CacheLimit::TotalSize { max_size } = self.config.limit
-            && usage_info.reserved.saturating_add(size) > max_size
-        {
-            debug!(
-                size,
-                reserved = usage_info.reserved,
-                max_size,
-                "no room for the block in the cache"
-            );
-            return Err(DataCacheError::EvictionFailure);
-        }
-        while self.is_limit_exceeded(usage_info.size, usage_info.reserved.saturating_add(size)) {
+        let reservation = {
+            let mut usage_info = usage.lock().unwrap();
+            if let CacheLimit::TotalSize { max_size } = self.config.limit
+                && usage_info.reserved.saturating_add(size) > max_size
+            {
+                debug!(
+                    size,
+                    reserved = usage_info.reserved,
+                    max_size,
+                    "no room for the block in the cache"
+                );
+                return Err(DataCacheError::EvictionFailure);
+            }
+            usage_info.reserved = usage_info.reserved.saturating_add(size);
+            Reservation { usage, size }
+        };
+
+        loop {
+            let mut usage_info = usage.lock().unwrap();
+            if !self.is_limit_exceeded(&usage_info) {
+                return Ok(Some(reservation));
+            }
             let Some(to_remove) = usage_info.evict_lru() else {
                 warn!("cache limit exceeded but nothing to evict");
+                reservation.release(&mut usage_info);
                 return Err(DataCacheError::EvictionFailure);
             };
             let path_to_remove = self.get_path_for_block_key(&to_remove);
@@ -480,20 +494,18 @@ impl DiskDataCache {
                 warn!("unable to evict block: {:?}", remove_err);
             }
         }
-        usage_info.reserved = usage_info.reserved.saturating_add(size);
-        Ok(Some(Reservation { usage, size }))
     }
 }
 
-/// Room that [DiskDataCache::reserve] reserved for a block that is being written. Dropping it
-/// releases the room, for example when the write fails.
+/// Room that [DiskDataCache::reserve] reserved for a put in progress. Dropping it releases the
+/// room, for example when the write fails.
 struct Reservation<'a> {
     usage: &'a Mutex<UsageInfo<DiskBlockKey>>,
     size: usize,
 }
 
 impl Reservation<'_> {
-    /// Release the room while the caller holds the usage lock, once the block is in `usage_info`.
+    /// Release the room while the caller holds the usage lock.
     fn release(mut self, usage_info: &mut UsageInfo<DiskBlockKey>) {
         usage_info.reserved = usage_info.reserved.saturating_sub(self.size);
         self.size = 0;
@@ -662,11 +674,14 @@ impl DiskBlockKey {
     }
 }
 
-/// Keeps track of entries usage and total size.
+/// Keeps track of the cached entries in LRU order, their total size, and the room reserved by puts
+/// in progress, which are evicting or writing blocks that are not in the entries yet.
 struct UsageInfo<K> {
+    /// The size of each cached entry, from the least to the most recently used.
     entries: LinkedHashMap<K, usize>,
+    /// The total size of the cached entries.
     size: usize,
-    /// Bytes reserved for blocks that are being written and are not in `entries` yet.
+    /// The room reserved by puts in progress.
     reserved: usize,
 }
 
@@ -1464,5 +1479,54 @@ mod tests {
                 handle.await
             }
         });
+    }
+
+    #[test]
+    fn test_concurrent_puts_stay_within_the_limit() {
+        const BLOCK_SIZE: usize = 1024;
+        const NUM_THREADS: usize = 16;
+        // Every put in progress can reserve room for its block, so that no put fails.
+        const MAX_BLOCKS: usize = NUM_THREADS;
+        const NUM_PUTS: usize = 4 * MAX_BLOCKS;
+        let cache_directory = tempfile::tempdir().unwrap();
+        let cache_key = ObjectId::new("key".into(), ETag::for_tests());
+        let (cache, block_disk_size) =
+            cache_with_room_for_blocks(cache_directory.path(), &cache_key, BLOCK_SIZE, MAX_BLOCKS);
+        let max_size = MAX_BLOCKS * block_disk_size;
+        let cache = Arc::new(cache);
+
+        let pool = ThreadPool::builder().pool_size(NUM_THREADS).create().unwrap();
+        let handles: Vec<_> = (0..NUM_PUTS as u64)
+            .map(|block_idx| {
+                let cache = cache.clone();
+                let cache_key = cache_key.clone();
+                pool.spawn_with_handle(async move {
+                    cache
+                        .put_block(
+                            cache_key,
+                            block_idx,
+                            block_idx * BLOCK_SIZE as u64,
+                            Bytes::from(vec![0u8; BLOCK_SIZE]).into(),
+                            NUM_PUTS * BLOCK_SIZE,
+                        )
+                        .await
+                        .expect("put_block should succeed");
+                    let size = cache.usage.as_ref().unwrap().lock().unwrap().size;
+                    assert!(size <= max_size, "the cache holds {size} bytes, more than its limit");
+                })
+                .unwrap()
+            })
+            .collect();
+        block_on(async move {
+            for handle in handles {
+                handle.await
+            }
+        });
+
+        // Puts evict only the room they need, so the cache ends up full.
+        let usage = cache.usage.as_ref().unwrap().lock().unwrap();
+        assert_eq!(usage.reserved, 0);
+        assert_eq!(usage.entries.len(), MAX_BLOCKS);
+        assert_eq!(usage.size, max_size);
     }
 }
