@@ -6,6 +6,7 @@ use mountpoint_s3_client::config::{EndpointConfig, SigningAlgorithm};
 pub mod config;
 pub mod path;
 pub mod prefix;
+pub mod sdk_client;
 
 pub use path::{Bucket, S3Path, S3PathError};
 pub use prefix::{Prefix, PrefixError};
