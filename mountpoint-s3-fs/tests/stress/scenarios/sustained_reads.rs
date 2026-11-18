@@ -13,8 +13,8 @@ use crate::stress::workers::{LARGE_READ_OBJECT, SequentialReader};
 const READ_CHUNK: usize = 8 * 1024 * 1024; // 8 MiB — matches default part size
 const NUM_WORKERS: usize = 32;
 
-#[test]
-fn sustained_reads() {
+#[tokio::test]
+async fn sustained_reads() {
     let reader: Arc<dyn Worker> = Arc::new(SequentialReader {
         target: LARGE_READ_OBJECT,
         chunk: READ_CHUNK,
@@ -29,5 +29,6 @@ fn sustained_reads() {
         workers,
         max_latency: default_max_latency,
         max_idle: default_max_idle,
-    });
+    })
+    .await;
 }

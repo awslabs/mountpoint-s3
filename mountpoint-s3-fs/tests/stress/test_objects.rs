@@ -20,7 +20,6 @@ use mountpoint_s3_fs::memory::{CandidateSize, MINIMUM_MEM_LIMIT, PagedPool, effe
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 
 use crate::common::s3::{get_test_bucket, get_test_endpoint_config, get_test_region, get_test_sdk_client};
-use crate::common::tokio_block_on;
 
 /// Stable path segment for shared stress test objects.
 pub const SHARED_OBJECTS_PREFIX: &str = "shared-stress-test-objects/";
@@ -52,19 +51,17 @@ fn shared_prefix_string() -> String {
 
 /// Upload the given `(key, size)` shared test objects if they are not already present at the
 /// expected size.
-pub fn ensure_shared_objects(objects: &[(&str, usize)]) {
+pub async fn ensure_shared_objects(objects: &[(&str, usize)]) {
     if objects.is_empty() {
         return;
     }
     let max_size = objects.iter().map(|(_, s)| *s).max().unwrap_or(0);
     let (uploader, bucket, part_size) = build_test_object_uploader(max_size);
     let region = get_test_region();
-    tokio_block_on(async {
-        let sdk_client: Client = get_test_sdk_client(&region).await;
-        for (key, size) in objects {
-            upload_test_object_with_uploader(&uploader, &sdk_client, &bucket, part_size, key, *size).await;
-        }
-    });
+    let sdk_client: Client = get_test_sdk_client(&region).await;
+    for (key, size) in objects {
+        upload_test_object_with_uploader(&uploader, &sdk_client, &bucket, part_size, key, *size).await;
+    }
 }
 
 async fn head_object_size(client: &Client, bucket: &str, key: &str) -> Option<usize> {

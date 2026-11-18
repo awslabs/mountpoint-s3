@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v0.12.1)
+
+* Fix `DiskDataCache` exceeding its `CacheLimit` by up to one block per `put_block` in progress. A put now makes room for its own block and for the blocks that other puts are still writing before it writes. ([#2041](https://github.com/awslabs/mountpoint-s3/pull/2041))
 
 * Add `s3::sdk_client::build_sdk_client`, which builds an S3 client from the AWS SDK for Rust with the same endpoint options as the CRT client. ([#2039](https://github.com/awslabs/mountpoint-s3/pull/2039))
 

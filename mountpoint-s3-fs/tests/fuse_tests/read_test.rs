@@ -34,7 +34,7 @@ impl std::fmt::Display for BucketPrefix {
     }
 }
 
-fn basic_read_test(
+async fn basic_read_test(
     creator_fn: impl TestSessionCreator,
     prefix: &str,
     read_only: bool,
@@ -49,12 +49,21 @@ fn basic_read_test(
         TestSessionConfig::default()
             .with_pass_fuse_fd(pass_fuse_fd)
             .fail_on_non_aligned_read_window(fail_on_non_aligned_read_window),
-    );
+    )
+    .await;
 
-    test_session.client().put_object("hello.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("hello.txt", b"hello world")
+        .await
+        .unwrap();
     let mut test_body = vec![0; size_mb * 1024 * 1024];
     rng.fill_bytes(&mut test_body);
-    test_session.client().put_object("test2MiB.bin", &test_body).unwrap();
+    test_session
+        .client()
+        .put_object("test2MiB.bin", &test_body)
+        .await
+        .unwrap();
 
     let read_dir_iter = read_dir(test_session.mount_path()).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
@@ -108,7 +117,8 @@ fn basic_read_test(
     [READ_ONLY, READ_WRITE],
     [FUSE_PASS_FD, FUSE_SELF_MOUNT]
 )]
-fn basic_read_test_s3(read_only: bool, pass_fuse_fd: bool) {
+#[tokio::test]
+async fn basic_read_test_s3(read_only: bool, pass_fuse_fd: bool) {
     basic_read_test(
         fuse::s3_session::new,
         "basic_read_test",
@@ -116,7 +126,8 @@ fn basic_read_test_s3(read_only: bool, pass_fuse_fd: bool) {
         pass_fuse_fd,
         2,
         false,
-    );
+    )
+    .await;
 }
 
 #[cfg(feature = "s3_tests")]
@@ -124,7 +135,8 @@ fn basic_read_test_s3(read_only: bool, pass_fuse_fd: bool) {
     [READ_ONLY, READ_WRITE],
     [FUSE_PASS_FD, FUSE_SELF_MOUNT]
 )]
-fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
+#[tokio::test]
+async fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
     basic_read_test(
         fuse::s3_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         "basic_read_test_with_cache",
@@ -132,7 +144,8 @@ fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
         pass_fuse_fd,
         2,
         false,
-    );
+    )
+    .await;
 }
 
 #[test_matrix(
@@ -140,7 +153,8 @@ fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
     [READ_ONLY, READ_WRITE],
     [FUSE_PASS_FD, FUSE_SELF_MOUNT]
 )]
-fn basic_read_test_mock(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: bool) {
+#[tokio::test]
+async fn basic_read_test_mock(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: bool) {
     basic_read_test(
         fuse::mock_session::new,
         &prefix.to_string(),
@@ -148,7 +162,8 @@ fn basic_read_test_mock(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: boo
         pass_fuse_fd,
         2,
         false,
-    );
+    )
+    .await;
 }
 
 #[test_matrix(
@@ -156,7 +171,8 @@ fn basic_read_test_mock(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: boo
     [READ_ONLY, READ_WRITE],
     [FUSE_PASS_FD, FUSE_SELF_MOUNT]
 )]
-fn basic_read_test_mock_with_cache(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: bool) {
+#[tokio::test]
+async fn basic_read_test_mock_with_cache(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: bool) {
     basic_read_test(
         fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         &prefix.to_string(),
@@ -164,11 +180,12 @@ fn basic_read_test_mock_with_cache(prefix: BucketPrefix, read_only: bool, pass_f
         pass_fuse_fd,
         2,
         false,
-    );
+    )
+    .await;
 }
 
-#[test]
-fn basic_read_test_mock_large() {
+#[tokio::test]
+async fn basic_read_test_mock_large() {
     basic_read_test(
         fuse::mock_session::new,
         "basic_read_test_mock_large",
@@ -176,7 +193,8 @@ fn basic_read_test_mock_large() {
         false,
         20,
         true,
-    );
+    )
+    .await;
 }
 
 #[cfg(not(feature = "s3express_tests"))]
@@ -193,7 +211,7 @@ enum RestorationOptions {
 }
 
 #[cfg(not(feature = "s3express_tests"))]
-fn read_flexible_retrieval_test(
+async fn read_flexible_retrieval_test(
     creator_fn: impl TestSessionCreator,
     prefix: &str,
     files: &[&str],
@@ -201,7 +219,7 @@ fn read_flexible_retrieval_test(
 ) {
     use mountpoint_s3_client::types::PutObjectSingleParams;
 
-    let test_session = creator_fn(prefix, Default::default());
+    let test_session = creator_fn(prefix, Default::default()).await;
 
     for file in files {
         let mut put_params = PutObjectSingleParams::default();
@@ -212,11 +230,12 @@ fn read_flexible_retrieval_test(
         test_session
             .client()
             .put_object_single(&key, b"hello world", put_params)
+            .await
             .unwrap();
         match restore {
             RestorationOptions::None => (),
             RestorationOptions::RestoreAndWait => {
-                test_session.client().restore_object(&key, true).unwrap();
+                test_session.client().restore_object(&key, true).await.unwrap();
                 let timeout = Duration::from_secs(300);
                 let start = Instant::now();
                 let mut timeouted = true;
@@ -224,6 +243,7 @@ fn read_flexible_retrieval_test(
                     if test_session
                         .client()
                         .is_object_restored(&key)
+                        .await
                         .expect("failed to check restoration status")
                     {
                         timeouted = false;
@@ -233,7 +253,7 @@ fn read_flexible_retrieval_test(
                 }
                 assert!(!timeouted, "timeouted while waiting for object become restored");
             }
-            RestorationOptions::RestoreInProgress => test_session.client().restore_object(&key, false).unwrap(),
+            RestorationOptions::RestoreInProgress => test_session.client().restore_object(&key, false).await.unwrap(),
         }
     }
 
@@ -261,43 +281,48 @@ fn read_flexible_retrieval_test(
 #[cfg(feature = "s3_tests")]
 // S3 Express One Zone is a distinct storage class and can't be overridden
 #[cfg(not(feature = "s3express_tests"))]
-#[test]
-fn read_flexible_retrieval_test_s3() {
+#[tokio::test]
+async fn read_flexible_retrieval_test_s3() {
     const FILES: &[&str] = &["STANDARD", "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE"];
     read_flexible_retrieval_test(
         fuse::s3_session::new,
         "read_flexible_retrieval_test",
         FILES,
         RestorationOptions::None,
-    );
+    )
+    .await;
 }
 
 #[cfg(not(feature = "s3express_tests"))]
 #[test_matrix(
     [BucketPrefix::None, BucketPrefix::Some("read_flexible_retrieval_test")]
 )]
-fn read_flexible_retrieval_test_mock(prefix: BucketPrefix) {
+#[tokio::test]
+async fn read_flexible_retrieval_test_mock(prefix: BucketPrefix) {
     const FILES: &[&str] = &["STANDARD", "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE"];
     read_flexible_retrieval_test(
         fuse::mock_session::new,
         &prefix.to_string(),
         FILES,
         RestorationOptions::None,
-    );
+    )
+    .await;
 }
 
 #[cfg(not(feature = "s3express_tests"))]
 #[test_matrix(
     [BucketPrefix::None, BucketPrefix::Some("read_flexible_retrieval_test")]
 )]
-fn read_flexible_retrieval_restored_test_mock(prefix: BucketPrefix) {
+#[tokio::test]
+async fn read_flexible_retrieval_restored_test_mock(prefix: BucketPrefix) {
     const FILES: &[&str] = &["GLACIER", "DEEP_ARCHIVE"];
     read_flexible_retrieval_test(
         fuse::mock_session::new,
         &prefix.to_string(),
         FILES,
         RestorationOptions::RestoreAndWait,
-    );
+    )
+    .await;
 }
 
 // We do not run this test for objects in DEEP_ARCHIVE storage class because
@@ -305,31 +330,33 @@ fn read_flexible_retrieval_restored_test_mock(prefix: BucketPrefix) {
 // restore object from DEEP_ARCHIVE.
 #[cfg(feature = "s3_tests")]
 #[cfg(not(feature = "s3express_tests"))]
-#[test]
-fn read_flexible_retrieval_restored_test_s3() {
+#[tokio::test]
+async fn read_flexible_retrieval_restored_test_s3() {
     const RESTORED_FILES: &[&str] = &["GLACIER"];
     read_flexible_retrieval_test(
         fuse::s3_session::new,
         "read_flexible_retrieval_restored_test_s3",
         RESTORED_FILES,
         RestorationOptions::RestoreAndWait,
-    );
+    )
+    .await;
 }
 
 #[cfg(feature = "s3_tests")]
 #[cfg(not(feature = "s3express_tests"))]
-#[test]
-fn read_flexible_retrieval_restoring_test_s3() {
+#[tokio::test]
+async fn read_flexible_retrieval_restoring_test_s3() {
     const RESTORING_FILES: &[&str] = &["GLACIER", "DEEP_ARCHIVE"];
     read_flexible_retrieval_test(
         fuse::s3_session::new,
         "read_flexible_retrieval_restoring_test_s3",
         RESTORING_FILES,
         RestorationOptions::RestoreInProgress,
-    );
+    )
+    .await;
 }
 
-fn read_errors_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+async fn read_errors_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -338,9 +365,13 @@ fn read_errors_test(creator_fn: impl TestSessionCreator, prefix: &str) {
         filesystem_config,
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_config);
+    let test_session = creator_fn(prefix, test_config).await;
 
-    test_session.client().put_object("hello.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("hello.txt", b"hello world")
+        .await
+        .unwrap();
 
     let file_path = test_session.mount_path().join("hello.txt");
 
@@ -378,26 +409,27 @@ fn read_errors_test(creator_fn: impl TestSessionCreator, prefix: &str) {
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn read_errors_test_s3() {
-    read_errors_test(fuse::s3_session::new, "read_errors_test");
+#[tokio::test]
+async fn read_errors_test_s3() {
+    read_errors_test(fuse::s3_session::new, "read_errors_test").await;
 }
 
 #[test_matrix(
     [BucketPrefix::None, BucketPrefix::Some("read_errors_test")]
 )]
-fn read_errors_test_mock(prefix: BucketPrefix) {
-    read_errors_test(fuse::mock_session::new, &prefix.to_string());
+#[tokio::test]
+async fn read_errors_test_mock(prefix: BucketPrefix) {
+    read_errors_test(fuse::mock_session::new, &prefix.to_string()).await;
 }
 
-fn read_after_flush_test(creator_fn: impl TestSessionCreator) {
+async fn read_after_flush_test(creator_fn: impl TestSessionCreator) {
     const KEY: &str = "data.bin";
-    let test_session = creator_fn("read_after_flush_test", Default::default());
+    let test_session = creator_fn("read_after_flush_test", Default::default()).await;
 
     let mut rng = SmallRng::seed_from_u64(0x87654321);
     let mut two_mib_body = vec![0; 2 * 1024 * 1024];
     rng.fill_bytes(&mut two_mib_body);
-    test_session.client().put_object(KEY, &two_mib_body).unwrap();
+    test_session.client().put_object(KEY, &two_mib_body).await.unwrap();
 
     let path = test_session.mount_path().join(KEY);
     let mut f = File::options().read(true).open(path).unwrap();
@@ -418,12 +450,12 @@ fn read_after_flush_test(creator_fn: impl TestSessionCreator) {
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn read_after_flush_test_s3() {
-    read_after_flush_test(fuse::s3_session::new);
+#[tokio::test]
+async fn read_after_flush_test_s3() {
+    read_after_flush_test(fuse::s3_session::new).await;
 }
 
-#[test]
-fn read_after_flush_test_mock() {
-    read_after_flush_test(fuse::mock_session::new);
+#[tokio::test]
+async fn read_after_flush_test_mock() {
+    read_after_flush_test(fuse::mock_session::new).await;
 }

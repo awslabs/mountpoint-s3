@@ -25,8 +25,8 @@ fn hold(mount_path: &Path) -> Box<dyn SetupGuard> {
     Box::new(hold_budget_parts(SCOPE, held_parts, mount_path))
 }
 
-#[test]
-fn many_readers_held_budget() {
+#[tokio::test]
+async fn many_readers_held_budget() {
     let reader: Arc<dyn Worker> = Arc::new(SequentialReader {
         target: LARGE_READ_OBJECT,
         chunk: READ_CHUNK,
@@ -43,5 +43,6 @@ fn many_readers_held_budget() {
         workers,
         max_latency: default_max_latency,
         max_idle: default_max_idle,
-    });
+    })
+    .await;
 }

@@ -15,8 +15,8 @@ const NUM_WORKERS: usize = 47; // Matches WriteHandleLimit for MINIMUM_MEM_LIMIT
 const WRITE_CHUNK: usize = 8 * 1024 * 1024; // 8 MiB — matches default part size
 const OBJECT_SIZE: usize = 100 * 1024 * 1024; // 100 MiB
 
-#[test]
-fn sustained_writes_incremental_upload() {
+#[tokio::test]
+async fn sustained_writes_incremental_upload() {
     let writer: Arc<dyn Worker> = Arc::new(Writer {
         scope: "sustained_writes_incremental_upload",
         object_size: OBJECT_SIZE,
@@ -38,5 +38,6 @@ fn sustained_writes_incremental_upload() {
         workers,
         max_latency: default_max_latency,
         max_idle: default_max_idle,
-    });
+    })
+    .await;
 }

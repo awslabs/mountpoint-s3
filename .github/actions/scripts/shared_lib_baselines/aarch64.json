@@ -1,0 +1,22 @@
+{
+  "libraries": {
+    "libc.so.6": {
+      "GLIBC": "2.17"
+    },
+    "libdl.so.2": {
+      "GLIBC": "2.17"
+    },
+    "libfuse.so.2": {
+      "FUSE": "2.6"
+    },
+    "libgcc_s.so.1": {
+      "GCC": "4.2.0"
+    },
+    "libm.so.6": {
+      "GLIBC": "2.17"
+    },
+    "libpthread.so.0": {
+      "GLIBC": "2.17"
+    }
+  }
+}

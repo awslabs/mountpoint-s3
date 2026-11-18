@@ -46,7 +46,7 @@ fn stress_mount_s3_path() -> S3Path {
 }
 
 /// Run the given scenario. Reads `STRESS_DURATION_SECS` from env; default 30s.
-pub fn run(scenario: Scenario) {
+pub async fn run(scenario: Scenario) {
     stress_recorder::install();
 
     let duration = read_duration_env();
@@ -81,7 +81,7 @@ pub fn run(scenario: Scenario) {
 
     let shared_objects = collect_shared_objects(&workers, scenario_name);
     let shared_refs: Vec<(&str, usize)> = shared_objects.iter().map(|(k, s)| (k.as_str(), *s)).collect();
-    ensure_shared_objects(&shared_refs);
+    ensure_shared_objects(&shared_refs).await;
 
     // The cache directory (if any) must outlive the session — hold it here.
     let _cache_dir: Option<TempDir>;
@@ -91,7 +91,7 @@ pub fn run(scenario: Scenario) {
         session_config.filesystem_config.allow_overwrite = true;
         let s3_path = stress_mount_s3_path();
         let region = crate::common::s3::get_test_region();
-        let sdk_client = crate::common::tokio_block_on(async { crate::common::s3::get_test_sdk_client(&region).await });
+        let sdk_client = crate::common::s3::get_test_sdk_client(&region).await;
         if cache {
             let dir = new_cache_dir();
             let cache_dir_path = dir.path().to_path_buf();

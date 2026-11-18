@@ -5,8 +5,8 @@ use test_case::test_case;
 
 use crate::common::fuse::{self, TestSessionCreator, read_dir_to_entry_names};
 
-fn mkdir_remote_after_file_create_test(creator_fn: impl TestSessionCreator, prefix: &str) {
-    let test_session = creator_fn(prefix, Default::default());
+async fn mkdir_remote_after_file_create_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default()).await;
 
     // Create local directory
     let dirname = "local_dir";
@@ -16,7 +16,7 @@ fn mkdir_remote_after_file_create_test(creator_fn: impl TestSessionCreator, pref
         .create(&dirpath)
         .expect("local directory creation should succeed");
 
-    assert!(!test_session.client().contains_dir(dirname).unwrap());
+    assert!(!test_session.client().contains_dir(dirname).await.unwrap());
 
     // Write an object into the directory
     let filename = "nested_file";
@@ -34,6 +34,7 @@ fn mkdir_remote_after_file_create_test(creator_fn: impl TestSessionCreator, pref
     test_session
         .client()
         .remove_object(&format!("{dirname}/{filename}"))
+        .await
         .unwrap();
 
     // Verify that the directory disappeared
@@ -43,19 +44,20 @@ fn mkdir_remote_after_file_create_test(creator_fn: impl TestSessionCreator, pref
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn mkdir_remote_after_file_create_test_s3() {
-    mkdir_remote_after_file_create_test(fuse::s3_session::new, "mkdir_test");
+#[tokio::test]
+async fn mkdir_remote_after_file_create_test_s3() {
+    mkdir_remote_after_file_create_test(fuse::s3_session::new, "mkdir_test").await;
 }
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
-fn mkdir_remote_after_file_create_test_mock(prefix: &str) {
-    mkdir_remote_after_file_create_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn mkdir_remote_after_file_create_test_mock(prefix: &str) {
+    mkdir_remote_after_file_create_test(fuse::mock_session::new, prefix).await;
 }
 
-fn mkdir_visible_locally_test(creator_fn: impl TestSessionCreator, prefix: &str) {
-    let test_session = creator_fn(prefix, Default::default());
+async fn mkdir_visible_locally_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default()).await;
 
     // Create local directory
     let dirname = "local_dir";
@@ -66,7 +68,7 @@ fn mkdir_visible_locally_test(creator_fn: impl TestSessionCreator, prefix: &str)
         .expect("local directory creation should succeed");
 
     assert!(
-        !test_session.client().contains_dir(dirname).unwrap(),
+        !test_session.client().contains_dir(dirname).await.unwrap(),
         "directory should not exist in client",
     );
 
@@ -80,13 +82,14 @@ fn mkdir_visible_locally_test(creator_fn: impl TestSessionCreator, prefix: &str)
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn mkdir_visible_locally_test_s3() {
-    mkdir_visible_locally_test(fuse::s3_session::new, "mkdir_test");
+#[tokio::test]
+async fn mkdir_visible_locally_test_s3() {
+    mkdir_visible_locally_test(fuse::s3_session::new, "mkdir_test").await;
 }
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
-fn mkdir_visible_locally_test_mock(prefix: &str) {
-    mkdir_visible_locally_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn mkdir_visible_locally_test_mock(prefix: &str) {
+    mkdir_visible_locally_test(fuse::mock_session::new, prefix).await;
 }

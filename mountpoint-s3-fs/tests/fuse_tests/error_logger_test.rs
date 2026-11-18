@@ -17,8 +17,8 @@ use crate::common::manifest::{create_dummy_manifest, insert_entries};
 
 const VERSION: &str = "1";
 
-#[test]
-fn test_manifest_error_logged() {
+#[tokio::test]
+async fn test_manifest_error_logged() {
     // define the expected output
     let expected_events = vec![
         Event::new_simple_event("mount", MOUNTPOINT_EVENT_READY),
@@ -65,7 +65,7 @@ fn test_manifest_error_logged() {
         ..Default::default()
     };
 
-    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), test_session_config);
+    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), test_session_config).await;
 
     // try to lookup and expect an EIO error
     let e = std::fs::metadata(test_session.mount_path().join("key")).expect_err("lookup must fail");
@@ -78,8 +78,8 @@ fn test_manifest_error_logged() {
     check_error_log(tmp_dir.path(), expected_events);
 }
 
-#[test]
-fn test_not_found_error_not_logged() {
+#[tokio::test]
+async fn test_not_found_error_not_logged() {
     // define the expected output
     let expected_events = vec![Event::new_simple_event("mount", MOUNTPOINT_EVENT_READY)];
 
@@ -91,7 +91,7 @@ fn test_not_found_error_not_logged() {
         ..Default::default()
     };
 
-    let test_session = fuse::mock_session::new("test_manifest_error_logged", test_session_config);
+    let test_session = fuse::mock_session::new("test_manifest_error_logged", test_session_config).await;
 
     // try to lookup and expect an ENOENT error
     let e = std::fs::metadata(test_session.mount_path().join("key")).expect_err("lookup must fail");

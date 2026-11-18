@@ -19,7 +19,6 @@ use test_case::test_case;
 use crate::common::creds::get_scoped_down_credentials;
 use crate::common::fuse::{self, TestSessionConfig, read_dir_to_entry_names};
 use crate::common::s3::{get_test_bucket, get_test_region, get_test_sdk_client};
-use crate::common::tokio_block_on;
 
 /// Demonstrate behavior of Mountpoint combined with an IAM policy that leverages attribute-based access control (ABAC)
 /// via S3 object tagging.
@@ -27,7 +26,8 @@ use crate::common::tokio_block_on;
 /// The purpose of this test is to demonstrate the adverse behavior (surprising EIO errors) when using this policy.
 #[test_case(true; "with metadata cache")]
 #[test_case(false; "without metadata cache")]
-fn get_object_req_existing_tags(metadata_cache: bool) {
+#[tokio::test]
+async fn get_object_req_existing_tags(metadata_cache: bool) {
     let bucket = get_test_bucket();
 
     let cache_config = if metadata_cache {
@@ -74,16 +74,16 @@ fn get_object_req_existing_tags(metadata_cache: bool) {
             ]
         }"#;
         let policy = policy.replace("__BUCKET__", &bucket);
-        tokio_block_on(get_scoped_down_credentials(policy))
+        get_scoped_down_credentials(policy).await
     };
     test_session_config = test_session_config.with_credentials(scoped_down_credentials);
 
-    let test_session = fuse::s3_session::new("get_object_req_existing_tags", test_session_config);
+    let test_session = fuse::s3_session::new("get_object_req_existing_tags", test_session_config).await;
     let prefix = test_session.prefix();
 
     // Stage objects using SDK with standard test credentials
     {
-        let s3_client = tokio_block_on(get_test_sdk_client(get_test_region().as_str()));
+        let s3_client = get_test_sdk_client(get_test_region().as_str()).await;
         for key in vec!["finance_1.txt", "dir1/finance_2.txt"] {
             let request = s3_client
                 .put_object()
@@ -91,7 +91,10 @@ fn get_object_req_existing_tags(metadata_cache: bool) {
                 .key(format!("{prefix}{key}"))
                 .body(ByteStream::from_static(b"Hello world"))
                 .tagging("Department=Finance");
-            tokio_block_on(request.send()).expect("should be able to upload object to S3 via SDK");
+            request
+                .send()
+                .await
+                .expect("should be able to upload object to S3 via SDK");
         }
 
         for key in vec!["untagged_1.txt", "dir1/untagged_2.txt"] {
@@ -100,7 +103,10 @@ fn get_object_req_existing_tags(metadata_cache: bool) {
                 .bucket(&bucket)
                 .key(format!("{prefix}{key}"))
                 .body(ByteStream::from_static(b"Inaccessible content"));
-            tokio_block_on(request.send()).expect("should be able to upload object to S3 via SDK");
+            request
+                .send()
+                .await
+                .expect("should be able to upload object to S3 via SDK");
         }
 
         for key in vec!["other_1.txt", "dir1/other_2.txt"] {
@@ -110,7 +116,10 @@ fn get_object_req_existing_tags(metadata_cache: bool) {
                 .key(format!("{prefix}{key}"))
                 .body(ByteStream::from_static(b"Inaccessible content"))
                 .tagging("Department=OtherDepartment");
-            tokio_block_on(request.send()).expect("should be able to upload object to S3 via SDK");
+            request
+                .send()
+                .await
+                .expect("should be able to upload object to S3 via SDK");
         }
     }
 

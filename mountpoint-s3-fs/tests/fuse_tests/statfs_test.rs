@@ -2,8 +2,8 @@ use crate::common::fuse::{self, TestSessionCreator};
 use test_case::test_case;
 
 /// Tests that static values we set are reported correctly.
-fn statfs_test_static_values(creator_fn: impl TestSessionCreator, prefix: &str) {
-    let test_session = creator_fn(prefix, Default::default());
+async fn statfs_test_static_values(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default()).await;
     let mount_dir = test_session.mount_path();
     let stats = nix::sys::statvfs::statvfs(mount_dir).unwrap();
     // Asserts that we report free space, we don't care about actual values here
@@ -24,8 +24,8 @@ fn statfs_test_static_values(creator_fn: impl TestSessionCreator, prefix: &str) 
 
 /// Test that total blocks >= blocks_free,
 /// as some tools rely on calculations with these values to determine percentage of blocks available
-fn statfs_test_block_arithmetic(creator_fn: impl TestSessionCreator, prefix: &str) {
-    let test_session = creator_fn(prefix, Default::default());
+async fn statfs_test_block_arithmetic(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default()).await;
     let mount_dir = test_session.mount_path();
     let stats = nix::sys::statvfs::statvfs(mount_dir).unwrap();
     assert!(stats.blocks() >= stats.blocks_available());
@@ -33,26 +33,30 @@ fn statfs_test_block_arithmetic(creator_fn: impl TestSessionCreator, prefix: &st
 
 #[test_case(""; "no prefix")]
 #[test_case("statfs_static_values_test"; "prefix")]
-fn statfs_report_static_values_mock(prefix: &str) {
-    statfs_test_static_values(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn statfs_report_static_values_mock(prefix: &str) {
+    statfs_test_static_values(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3_tests")]
 #[test_case(""; "no prefix")]
 #[test_case("statfs_static_values_test"; "prefix")]
-fn statfs_report_static_values_s3(prefix: &str) {
-    statfs_test_static_values(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn statfs_report_static_values_s3(prefix: &str) {
+    statfs_test_static_values(fuse::s3_session::new, prefix).await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("statfs_block_arithmetic_test"; "prefix")]
-fn statfs_block_arithmetic_mock(prefix: &str) {
-    statfs_test_block_arithmetic(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn statfs_block_arithmetic_mock(prefix: &str) {
+    statfs_test_block_arithmetic(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3_tests")]
 #[test_case(""; "no prefix")]
 #[test_case("statfs_block_arithmetic_test"; "prefix")]
-fn statfs_block_arithmetic_s3(prefix: &str) {
-    statfs_test_block_arithmetic(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn statfs_block_arithmetic_s3(prefix: &str) {
+    statfs_test_block_arithmetic(fuse::s3_session::new, prefix).await;
 }

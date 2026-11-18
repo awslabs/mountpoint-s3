@@ -19,12 +19,12 @@ use rand::distr::Alphanumeric;
 use test_case::test_case;
 use tracing::{debug, info};
 
-use crate::common::fuse::{self, TestSession, TestSessionConfig, read_dir_to_entry_names};
+use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
 
 /// Simple test cases, assuming a file isn't open for reading elsewhere.
-fn rename_basic_tests<F>(creator_fn: F, prefix: &str)
+async fn rename_basic_tests<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -33,12 +33,12 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     // Add a file directly to the bucket
-    test_client.put_object("dir/source.txt", b"hello world").unwrap();
+    test_client.put_object("dir/source.txt", b"hello world").await.unwrap();
 
     let main_dir = mount_point.join("dir");
     let nonexistent_path = main_dir.join("nonexistent.txt");
@@ -66,30 +66,31 @@ where
 
     // S3 structure should match
     assert!(
-        test_client.contains_key("dir/destination.txt").unwrap(),
+        test_client.contains_key("dir/destination.txt").await.unwrap(),
         "destination object must now exist in S3"
     );
     assert!(
-        !test_client.contains_key("dir/source.txt").unwrap(),
+        !test_client.contains_key("dir/source.txt").await.unwrap(),
         "source object must no longer exist in S3"
     );
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn rename_basic_tests_s3() {
-    rename_basic_tests(fuse::s3_session::new, "rename_basic_tests");
+#[tokio::test]
+async fn rename_basic_tests_s3() {
+    rename_basic_tests(fuse::s3_session::new, "rename_basic_tests").await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("rename_basic_tests"; "prefix")]
-fn rename_basic_tests_mock(prefix: &str) {
-    rename_basic_tests(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_basic_tests_mock(prefix: &str) {
+    rename_basic_tests(fuse::mock_session::new, prefix).await;
 }
 
-fn rename_simplewithcache_test<F>(creator_fn: F, prefix: &str)
+async fn rename_simplewithcache_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -105,12 +106,12 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     // Add a file directly to the bucket
-    test_client.put_object("dir/source.txt", b"hello world").unwrap();
+    test_client.put_object("dir/source.txt", b"hello world").await.unwrap();
 
     let main_dir = mount_point.join("dir");
     let source_path = main_dir.join("source.txt");
@@ -134,31 +135,32 @@ where
 
     // S3 structure should match
     assert!(
-        test_client.contains_key("dir/destination.txt").unwrap(),
+        test_client.contains_key("dir/destination.txt").await.unwrap(),
         "destination object must now exist in S3"
     );
     assert!(
-        !test_client.contains_key("dir/source.txt").unwrap(),
+        !test_client.contains_key("dir/source.txt").await.unwrap(),
         "source object must no longer exist in S3"
     );
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn rename_simplewithcache_test_s3() {
-    rename_simplewithcache_test(fuse::s3_session::new, "rename_simplewithcache_test");
+#[tokio::test]
+async fn rename_simplewithcache_test_s3() {
+    rename_simplewithcache_test(fuse::s3_session::new, "rename_simplewithcache_test").await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("rename_simplewithcache_test"; "prefix")]
-fn rename_simplewithcache_test_mock(prefix: &str) {
-    rename_simplewithcache_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_simplewithcache_test_mock(prefix: &str) {
+    rename_simplewithcache_test(fuse::mock_session::new, prefix).await;
 }
 
 /// Covers where object is cached by MP but gone in S3.
-fn rename_srcremovedbutcached_test<F>(creator_fn: F, prefix: &str)
+async fn rename_srcremovedbutcached_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -173,13 +175,13 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path().to_owned();
     const SOURCE_OBJ_KEY: &str = "dir/source.txt";
 
     // Add a file directly to the bucket
-    test_client.put_object(SOURCE_OBJ_KEY, b"hello world").unwrap();
+    test_client.put_object(SOURCE_OBJ_KEY, b"hello world").await.unwrap();
 
     let main_dir = mount_point.join("dir");
     let nonexistent_path = main_dir.join("nonexistent.txt");
@@ -191,7 +193,7 @@ where
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(dir_entry_names, vec!["source.txt"]);
 
-    test_client.remove_object(SOURCE_OBJ_KEY).unwrap();
+    test_client.remove_object(SOURCE_OBJ_KEY).await.unwrap();
 
     fs::metadata(&source_path).expect("stat should succeed from cache");
 
@@ -212,30 +214,31 @@ where
 
     // Assert expected S3 structure
     assert!(
-        !test_client.contains_key("dir/source.txt").unwrap(),
+        !test_client.contains_key("dir/source.txt").await.unwrap(),
         "source object must no longer exist in S3 after removal"
     );
     assert!(
-        !test_client.contains_key("dir/destination.txt").unwrap(),
+        !test_client.contains_key("dir/destination.txt").await.unwrap(),
         "destination object should not exist in S3"
     );
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn rename_srcremovedbutcached_test_s3() {
-    rename_srcremovedbutcached_test(fuse::s3_session::new, "rename_srcremovedbutcached_test");
+#[tokio::test]
+async fn rename_srcremovedbutcached_test_s3() {
+    rename_srcremovedbutcached_test(fuse::s3_session::new, "rename_srcremovedbutcached_test").await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("rename_srcremovedbutcached_test"; "prefix")]
-fn rename_srcremovedbutcached_test_mock(prefix: &str) {
-    rename_srcremovedbutcached_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_srcremovedbutcached_test_mock(prefix: &str) {
+    rename_srcremovedbutcached_test(fuse::mock_session::new, prefix).await;
 }
 
-fn rename_destexists_tests<F>(creator_fn: F, prefix: &str)
+async fn rename_destexists_tests<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -244,13 +247,13 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     // Prepare bucket content
-    test_client.put_object("dir/source.txt", b"hello world").unwrap();
-    test_client.put_object("dir/destination.txt", b"foo bar").unwrap();
+    test_client.put_object("dir/source.txt", b"hello world").await.unwrap();
+    test_client.put_object("dir/destination.txt", b"foo bar").await.unwrap();
 
     let main_dir = mount_point.join("dir");
     let source_path = main_dir.join("source.txt");
@@ -268,27 +271,28 @@ where
 
     for s3_key in ["dir/source.txt", "dir/destination.txt"] {
         assert!(
-            test_client.contains_key(s3_key).unwrap(),
+            test_client.contains_key(s3_key).await.unwrap(),
             "object with key {s3_key:?} should exist in S3"
         );
     }
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn rename_destexists_tests_s3() {
-    rename_destexists_tests(fuse::s3_session::new, "rename_destexists_tests");
+#[tokio::test]
+async fn rename_destexists_tests_s3() {
+    rename_destexists_tests(fuse::s3_session::new, "rename_destexists_tests").await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("rename_destexists_tests"; "prefix")]
-fn rename_destexists_tests_mock(prefix: &str) {
-    rename_destexists_tests(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_destexists_tests_mock(prefix: &str) {
+    rename_destexists_tests(fuse::mock_session::new, prefix).await;
 }
 
-fn rename_destparentmissing_test<F>(creator_fn: F, prefix: &str)
+async fn rename_destparentmissing_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -297,12 +301,12 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     // Prepare bucket content
-    test_client.put_object("a/source.txt", b"hello world").unwrap();
+    test_client.put_object("a/source.txt", b"hello world").await.unwrap();
 
     let source_path = mount_point.join("a/source.txt");
     let destination_path = mount_point.join("b/destination.txt");
@@ -315,31 +319,32 @@ where
 
     // S3 structure should match
     assert!(
-        test_client.contains_key("b/destination.txt").unwrap(),
+        test_client.contains_key("b/destination.txt").await.unwrap(),
         "destination object must now exist in S3"
     );
     assert!(
-        !test_client.contains_key("a/source.txt").unwrap(),
+        !test_client.contains_key("a/source.txt").await.unwrap(),
         "source object must no longer exist in S3"
     );
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn rename_destparentmissing_test_s3() {
-    rename_destparentmissing_test(fuse::s3_session::new, "rename_destparentmissing_test");
+#[tokio::test]
+async fn rename_destparentmissing_test_s3() {
+    rename_destparentmissing_test(fuse::s3_session::new, "rename_destparentmissing_test").await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("rename_destparentmissing_test"; "prefix")]
-fn rename_destparentmissing_test_mock(prefix: &str) {
-    rename_destparentmissing_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_destparentmissing_test_mock(prefix: &str) {
+    rename_destparentmissing_test(fuse::mock_session::new, prefix).await;
 }
 
 /// Testing behavior when a file is renamed in the middle of reading
-fn rename_readhandle_test<F>(creator_fn: F, prefix: &str)
+async fn rename_readhandle_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -348,13 +353,16 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     // Add a file directly to the bucket
     const B_IN_MB: usize = 1024 * 1024;
-    test_client.put_object("dir/source.txt", &[0u8; B_IN_MB * 128]).unwrap();
+    test_client
+        .put_object("dir/source.txt", &[0u8; B_IN_MB * 128])
+        .await
+        .unwrap();
 
     let main_dir = mount_point.join("dir");
     let source_path = main_dir.join("source.txt");
@@ -383,21 +391,22 @@ where
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn rename_readhandle_test_s3() {
-    rename_readhandle_test(fuse::s3_session::new, "rename_readhandle_test");
+#[tokio::test]
+async fn rename_readhandle_test_s3() {
+    rename_readhandle_test(fuse::s3_session::new, "rename_readhandle_test").await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("rename_readhandle_test"; "prefix")]
-fn rename_readhandle_test_mock(prefix: &str) {
-    rename_readhandle_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_readhandle_test_mock(prefix: &str) {
+    rename_readhandle_test(fuse::mock_session::new, prefix).await;
 }
 
 /// Testing behavior when a file is renamed during and after writing
-fn rename_writehandle_test<F>(creator_fn: F, prefix: &str)
+async fn rename_writehandle_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -406,12 +415,12 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     // Add a file directly to the bucket
-    test_client.put_object("dir/other.txt", &[0u8; 1024]).unwrap(); // Persist implicit directory for test
+    test_client.put_object("dir/other.txt", &[0u8; 1024]).await.unwrap(); // Persist implicit directory for test
 
     let main_dir = mount_point.join("dir");
     let source_path = main_dir.join("writing.txt");
@@ -462,20 +471,21 @@ where
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn rename_writehandle_test_s3() {
-    rename_writehandle_test(fuse::s3_session::new, "rename_writehandle_test");
+#[tokio::test]
+async fn rename_writehandle_test_s3() {
+    rename_writehandle_test(fuse::s3_session::new, "rename_writehandle_test").await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("rename_writehandle_test"; "prefix")]
-fn rename_writehandle_test_mock(prefix: &str) {
-    rename_writehandle_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_writehandle_test_mock(prefix: &str) {
+    rename_writehandle_test(fuse::mock_session::new, prefix).await;
 }
 
-fn rename_directory_test<F>(creator_fn: F, prefix: &str)
+async fn rename_directory_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -484,13 +494,16 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     // Prepare bucket content
-    test_client.put_object("source-dir/a.txt", b"hello world").unwrap();
-    test_client.put_object("source-dir/b.txt", b"foo bar").unwrap();
+    test_client
+        .put_object("source-dir/a.txt", b"hello world")
+        .await
+        .unwrap();
+    test_client.put_object("source-dir/b.txt", b"foo bar").await.unwrap();
 
     let src_dir_path = mount_point.join("source-dir");
     let dest_dir_path = mount_point.join("destination-dir");
@@ -504,21 +517,22 @@ where
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn rename_directory_test_s3() {
-    rename_directory_test(fuse::s3_session::new, "rename_directory_test");
+#[tokio::test]
+async fn rename_directory_test_s3() {
+    rename_directory_test(fuse::s3_session::new, "rename_directory_test").await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("rename_directory_test"; "prefix")]
-fn rename_directory_test_mock(prefix: &str) {
-    rename_directory_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_directory_test_mock(prefix: &str) {
+    rename_directory_test(fuse::mock_session::new, prefix).await;
 }
 
 /// Check that overwriting rename is forbidden when `allow_overwrites` is not passed as a flag.
-fn rename_overwrites_forbidden_test<F>(creator_fn: F, prefix: &str)
+async fn rename_overwrites_forbidden_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -527,13 +541,16 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     // Add a file directly to the bucket
-    test_client.put_object("dir/source.txt", b"hello world").unwrap();
-    test_client.put_object("dir/destination.txt", b"hello world").unwrap();
+    test_client.put_object("dir/source.txt", b"hello world").await.unwrap();
+    test_client
+        .put_object("dir/destination.txt", b"hello world")
+        .await
+        .unwrap();
 
     let main_dir = mount_point.join("dir");
     let source_path = main_dir.join("source.txt");
@@ -551,22 +568,23 @@ where
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn rename_overwrites_forbidden_s3() {
-    rename_overwrites_forbidden_test(fuse::s3_session::new, "rename_nodelete_test");
+#[tokio::test]
+async fn rename_overwrites_forbidden_s3() {
+    rename_overwrites_forbidden_test(fuse::s3_session::new, "rename_nodelete_test").await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("rename_nodelete_test"; "prefix")]
-fn rename_overwrites_forbidden_mock(prefix: &str) {
-    rename_overwrites_forbidden_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_overwrites_forbidden_mock(prefix: &str) {
+    rename_overwrites_forbidden_test(fuse::mock_session::new, prefix).await;
 }
 
 // checks that renaming a file to it's current name succeeds
 // TODO: Maybe cut this test, as this is guaranteed by the rename implementations
-fn rename_no_op_test<F>(creator_fn: F, prefix: &str)
+async fn rename_no_op_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -575,12 +593,12 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     // Put a object
-    test_client.put_object("dir/source.txt", b"hello world").unwrap();
+    test_client.put_object("dir/source.txt", b"hello world").await.unwrap();
     let main_dir = mount_point.join("dir");
     let source_path = main_dir.join("source.txt");
     let destination_path = main_dir.join("source.txt");
@@ -588,23 +606,24 @@ where
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn rename_same_file_test_s3() {
-    rename_no_op_test(fuse::s3_session::new, "rename_nodelete_test");
+#[tokio::test]
+async fn rename_same_file_test_s3() {
+    rename_no_op_test(fuse::s3_session::new, "rename_nodelete_test").await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("rename_nodelete_test"; "prefix")]
-fn rename_same_file_test_mock(prefix: &str) {
-    rename_no_op_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_same_file_test_mock(prefix: &str) {
+    rename_no_op_test(fuse::mock_session::new, prefix).await;
 }
 
 /**
  * Semantics Issue: What happens, when we call rename on a directory with itself as an argument?
  */
-fn rename_dir_noop_accepted_test<F>(creator_fn: F, prefix: &str)
+async fn rename_dir_noop_accepted_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -613,27 +632,29 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     // Put a object
-    test_client.put_object("dir/source.txt", b"hello world").unwrap();
+    test_client.put_object("dir/source.txt", b"hello world").await.unwrap();
     let main_dir = mount_point.join("dir");
 
     fs::rename(main_dir.clone(), main_dir.clone()).expect("rename of directory into itself should work");
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn rename_dir_noop_accepted_s3() {
-    crate::fuse_tests::rename_test::rename_dir_noop_accepted_test(fuse::s3_session::new, "rename_dir_rejected_test");
+#[tokio::test]
+async fn rename_dir_noop_accepted_s3() {
+    crate::fuse_tests::rename_test::rename_dir_noop_accepted_test(fuse::s3_session::new, "rename_dir_rejected_test")
+        .await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("rename_dir_rejected"; "prefix")]
-fn rename_dir_noop_accepted_mock(prefix: &str) {
-    crate::fuse_tests::rename_test::rename_dir_noop_accepted_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_dir_noop_accepted_mock(prefix: &str) {
+    crate::fuse_tests::rename_test::rename_dir_noop_accepted_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(target_os = "linux")]
@@ -665,9 +686,9 @@ pub fn renameat2_wrapper(old_path: &Path, new_path: &Path, flags: RenameFlags) -
 }
 
 #[cfg(target_os = "linux")]
-fn rename_exchange_rejected_test<F>(creator_fn: F, prefix: &str)
+async fn rename_exchange_rejected_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -676,15 +697,17 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     test_client
         .put_object("a.txt", b"hello world")
+        .await
         .expect("put object should succeed");
     test_client
         .put_object("b.txt", b"fun times")
+        .await
         .expect("put object should succeed");
     let result_exchange = renameat2_wrapper(
         &mount_point.join("a.txt"),
@@ -709,20 +732,22 @@ where
 #[cfg(target_os = "linux")]
 #[test_case(""; "no prefix")]
 #[test_case("test_multiple_renames_deep_structure"; "prefix")]
-fn rename_exchange_rejected_mock(prefix: &str) {
-    rename_exchange_rejected_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_exchange_rejected_mock(prefix: &str) {
+    rename_exchange_rejected_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(target_os = "linux")]
 #[cfg(feature = "s3express_tests")]
 #[test_case("test_multiple_renames_deep_structure"; "prefix")]
-fn rename_exchange_rejected_s3(prefix: &str) {
-    rename_exchange_rejected_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn rename_exchange_rejected_s3(prefix: &str) {
+    rename_exchange_rejected_test(fuse::s3_session::new, prefix).await;
 }
 
-fn rename_key_too_long<F>(creator_fn: F, prefix: &str)
+async fn rename_key_too_long<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -731,13 +756,14 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     // Add an object
     test_client
         .put_object("dir/a.txt", b"hello world")
+        .await
         .expect("put object should succeed");
 
     let too_long_key = "X".repeat(1027);
@@ -746,15 +772,16 @@ where
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn rename_key_too_long_s3() {
-    rename_key_too_long(fuse::s3_session::new, "rename_dir_rejected_test");
+#[tokio::test]
+async fn rename_key_too_long_s3() {
+    rename_key_too_long(fuse::s3_session::new, "rename_dir_rejected_test").await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("rename_dir_rejected"; "prefix")]
-fn rename_key_too_long_mock(prefix: &str) {
-    rename_key_too_long(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_key_too_long_mock(prefix: &str) {
+    rename_key_too_long(fuse::mock_session::new, prefix).await;
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -764,7 +791,7 @@ fn rename_key_too_long_mock(prefix: &str) {
 // If the success parameter is set to true, then each of these renames must succeed,
 // if it is false, it is required that at least one of the renames fails (i.e. track if one op failed using a boolean and check after all operations)
 // Then check that each file in the positive list is present and each file in the negative list is not present.
-fn generic_rename_test<F>(
+async fn generic_rename_test<F>(
     creator_fn: F,
     prefix: &str,
     keys: Vec<&str>,
@@ -774,7 +801,7 @@ fn generic_rename_test<F>(
     positive: Vec<&str>,
     negative: Vec<&str>,
 ) where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     // Create a test session configuration
     let test_session_config = TestSessionConfig {
@@ -786,7 +813,7 @@ fn generic_rename_test<F>(
     };
 
     // Create a test session using the provided creator function
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
@@ -795,6 +822,7 @@ fn generic_rename_test<F>(
         let content = format!("Random content for {key}");
         test_client
             .put_object(key, content.as_bytes())
+            .await
             .expect("PutObject should succeed");
     }
 
@@ -832,9 +860,9 @@ fn generic_rename_test<F>(
     }
 }
 
-fn test_multiple_renames_deep_structure_success<F>(creator_fn: F, prefix: &str)
+async fn test_multiple_renames_deep_structure_success<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     generic_rename_test(
         creator_fn,
@@ -845,18 +873,20 @@ where
         true,
         vec!["a/b/hg/sd/as/df/fd/assd"],
         vec!["a/b/cc"],
-    );
+    )
+    .await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("rename_dir_rejected"; "prefix")]
-fn test_multiple_renames_deep_structure_mock(prefix: &str) {
-    test_multiple_renames_deep_structure_success(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn test_multiple_renames_deep_structure_mock(prefix: &str) {
+    test_multiple_renames_deep_structure_success(fuse::mock_session::new, prefix).await;
 }
 
-fn test_multiple_renames_deep_structure_failure<F>(creator_fn: F, prefix: &str)
+async fn test_multiple_renames_deep_structure_failure<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     generic_rename_test(
         creator_fn,
@@ -867,18 +897,20 @@ where
         false,
         vec!["a/b/hg/sd/as/df/fd/kk"],
         vec!["a/b/cc"],
-    );
+    )
+    .await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("test_multiple_renames_deep_structure"; "prefix")]
-fn test_multiple_renames_deep_structure_failure_mock(prefix: &str) {
-    test_multiple_renames_deep_structure_failure(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn test_multiple_renames_deep_structure_failure_mock(prefix: &str) {
+    test_multiple_renames_deep_structure_failure(fuse::mock_session::new, prefix).await;
 }
 
-fn test_rename_very_long_path<F>(creator_fn: F, prefix: &str)
+async fn test_rename_very_long_path<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let long_path = "a/".repeat(5) + "file.txt";
     let new_long_dir = "b/".repeat(5);
@@ -893,24 +925,27 @@ where
         true,
         vec![&new_long_path],
         vec![&long_path],
-    );
+    )
+    .await;
 }
 #[test_case(""; "no prefix")]
 #[test_case("test_hybridrename"; "prefix")]
-fn rename_very_long_mock(prefix: &str) {
-    test_rename_very_long_path(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_very_long_mock(prefix: &str) {
+    test_rename_very_long_path(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case("test_hybridrename"; "prefix")]
-fn rename_very_long_s3(prefix: &str) {
-    test_rename_very_long_path(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn rename_very_long_s3(prefix: &str) {
+    test_rename_very_long_path(fuse::s3_session::new, prefix).await;
 }
 
 /// Tests that overwrites are enabled, if allow-overwrite is set.
-fn rename_allow_overwrites_test<F>(creator_fn: F, prefix: &str)
+async fn rename_allow_overwrites_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -920,17 +955,19 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     // Add an object
     test_client
         .put_object("dir/a.txt", b"key for a")
+        .await
         .expect("put object should succeed");
 
     test_client
         .put_object("dir/b.txt", b"key for b")
+        .await
         .expect("put object should succeed");
 
     fs::rename(mount_point.join("dir/a.txt"), mount_point.join("dir/b.txt"))
@@ -943,20 +980,22 @@ where
 
 #[test_case(""; "no prefix")]
 #[test_case("rename_allow_overwrites"; "prefix")]
-fn rename_allow_overwrites_mock(prefix: &str) {
-    rename_allow_overwrites_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_allow_overwrites_mock(prefix: &str) {
+    rename_allow_overwrites_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case("rename_allow_overwrites"; "prefix")]
-fn rename_allow_overwrites_s3(prefix: &str) {
-    rename_allow_overwrites_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn rename_allow_overwrites_s3(prefix: &str) {
+    rename_allow_overwrites_test(fuse::s3_session::new, prefix).await;
 }
 #[cfg(target_os = "linux")]
 /// Tests that even in a mode where overwrites are be enabled, flag RENAME_NOREPLACE can prevent this.
-fn rename_flag_noreplace_disables_overwrites_test<F>(creator_fn: F, prefix: &str)
+async fn rename_flag_noreplace_disables_overwrites_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -966,15 +1005,17 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     test_client
         .put_object("a.txt", b"hello world")
+        .await
         .expect("put object should succeed");
     test_client
         .put_object("b.txt", b"fun times")
+        .await
         .expect("put object should succeed");
 
     let result_noreplace = renameat2_wrapper(
@@ -996,15 +1037,17 @@ where
 #[cfg(target_os = "linux")]
 #[test_case(""; "no prefix")]
 #[test_case("rename_flag_noreplace_disables_overwrites"; "prefix")]
-fn rename_flag_noreplace_disables_overwrites_mock(prefix: &str) {
-    rename_flag_noreplace_disables_overwrites_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_flag_noreplace_disables_overwrites_mock(prefix: &str) {
+    rename_flag_noreplace_disables_overwrites_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(target_os = "linux")]
 #[cfg(feature = "s3express_tests")]
 #[test_case("rename_flag_noreplace_disables_overwrites"; "prefix")]
-fn rename_flag_noreplace_disables_overwrites_s3(prefix: &str) {
-    rename_flag_noreplace_disables_overwrites_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn rename_flag_noreplace_disables_overwrites_s3(prefix: &str) {
+    rename_flag_noreplace_disables_overwrites_test(fuse::s3_session::new, prefix).await;
 }
 
 /// This test aims at checking that concurrent renames work as expected.
@@ -1016,9 +1059,9 @@ fn rename_flag_noreplace_disables_overwrites_s3(prefix: &str) {
 ///
 /// This test is repeated 100 times, to hopefully cover many
 /// possible interleavings.
-fn test_rename_concurrent<F>(creator_fn: F, prefix: &str)
+async fn test_rename_concurrent<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let iterations = 10;
     let test_session_config = TestSessionConfig {
@@ -1030,7 +1073,7 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let mount_point = test_session.mount_path().to_owned();
 
     let mut wins = (0, 0);
@@ -1108,19 +1151,21 @@ where
 
 #[test_case(""; "no prefix")]
 #[test_case("test_rename_concurrent"; "prefix")]
-fn test_rename_concurrent_mock(prefix: &str) {
-    test_rename_concurrent(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn test_rename_concurrent_mock(prefix: &str) {
+    test_rename_concurrent(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case("test_rename_concurrent"; "prefix")]
-fn test_rename_concurrent_simple_s3(prefix: &str) {
-    test_rename_concurrent(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn test_rename_concurrent_simple_s3(prefix: &str) {
+    test_rename_concurrent(fuse::s3_session::new, prefix).await;
 }
 
-fn rename_file_contents_test<F>(creator_fn: F, prefix: &str)
+async fn rename_file_contents_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -1131,12 +1176,13 @@ where
         ..Default::default()
     };
 
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path().to_owned();
 
     test_client
         .put_object("dir/a.txt", b"hello world")
+        .await
         .expect("put object should succeed");
 
     fs::rename(mount_point.join("dir/a.txt"), mount_point.join("dir/moved.txt")).expect("rename should succeed");
@@ -1147,20 +1193,22 @@ where
 }
 
 #[test_case(""; "no prefix")]
-fn rename_file_contents_mock(prefix: &str) {
-    rename_file_contents_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_file_contents_mock(prefix: &str) {
+    rename_file_contents_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case("test_rename_file_contents"; "prefix")]
-fn rename_file_contents_s3(prefix: &str) {
-    rename_file_contents_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn rename_file_contents_s3(prefix: &str) {
+    rename_file_contents_test(fuse::s3_session::new, prefix).await;
 }
 
 /// Ensure that inode number stay identical after a rename
-fn rename_same_ino_test<F>(creator_fn: F, prefix: &str)
+async fn rename_same_ino_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -1170,19 +1218,22 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     test_client
         .put_object("dir/a.txt", b"key for a")
+        .await
         .expect("put object should succeed");
     test_client
         .put_object("dir/b.txt", b"key for b")
+        .await
         .expect("put object should succeed");
 
     test_client
         .put_object("dirtwo/b.txt", b"key for b in dir2")
+        .await
         .expect("put object should succeed");
 
     // Get the inode number for mount_point.join("dir/a.txt")
@@ -1211,20 +1262,22 @@ where
 }
 
 #[test_case(""; "no prefix")]
-fn rename_same_ino_mock(prefix: &str) {
-    rename_same_ino_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_same_ino_mock(prefix: &str) {
+    rename_same_ino_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case(""; "no prefix")]
-fn rename_same_ino_s3(prefix: &str) {
-    rename_same_ino_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn rename_same_ino_s3(prefix: &str) {
+    rename_same_ino_test(fuse::s3_session::new, prefix).await;
 }
 
 /// Tests that a file can be appended after and before a rename, and that the content is as expected.
-fn rename_append_test<F>(creator_fn: F, prefix: &str)
+async fn rename_append_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -1235,7 +1288,7 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let mount_point = test_session.mount_path();
     fs::create_dir(mount_point.join("dir")).expect("should be able to create dir");
     // Create file a.txt
@@ -1276,19 +1329,21 @@ where
 }
 
 #[test_case(""; "no prefix")]
-fn rename_append_mock(prefix: &str) {
-    rename_append_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_append_mock(prefix: &str) {
+    rename_append_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case(""; "no prefix")]
-fn rename_append_s3(prefix: &str) {
-    rename_append_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn rename_append_s3(prefix: &str) {
+    rename_append_test(fuse::s3_session::new, prefix).await;
 }
 
-fn rename_out_of_topdir_regression<F>(creator_fn: F, prefix: &str)
+async fn rename_out_of_topdir_regression<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -1299,16 +1354,18 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
     // First place two objects in S3
 
     test_client
         .put_object("dir/a/b.txt", b"key for b nested")
+        .await
         .expect("put object should succeed");
     test_client
         .put_object("dir/b.txt", b"key for b")
+        .await
         .expect("put object should succeed");
     // Try to rename
     fs::rename(mount_point.join("dir/a/b.txt"), mount_point.join("dir/b.txt")).expect("Rename should work");
@@ -1317,14 +1374,16 @@ where
 }
 
 #[test_case(""; "no prefix")]
-fn rename_out_of_topdir_regression_mock(prefix: &str) {
-    rename_out_of_topdir_regression(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_out_of_topdir_regression_mock(prefix: &str) {
+    rename_out_of_topdir_regression(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case(""; "no prefix")]
-fn rename_out_of_topdir_regression_s3(prefix: &str) {
-    rename_out_of_topdir_regression(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn rename_out_of_topdir_regression_s3(prefix: &str) {
+    rename_out_of_topdir_regression(fuse::s3_session::new, prefix).await;
 }
 
 fn compare_directories<P: AsRef<Path>>(dir1: P, dir2: P) {
@@ -1410,9 +1469,9 @@ fn compare_directories_only_readdir_on_dir1<P: AsRef<Path>>(dir1: P, dir2: P) {
 //     a/b/g.txt -> h/i.txt
 //  It performs this both on the MP and on a local directory and compares contents after each step.
 //  All of these renames are supposed to work.
-fn rename_complicated_structure_contents_test<F>(creator_fn: F, prefix: &str)
+async fn rename_complicated_structure_contents_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -1428,7 +1487,7 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
@@ -1447,6 +1506,7 @@ where
         // Create in S3
         test_client
             .put_object(path, content.as_bytes())
+            .await
             .expect("put object should succeed");
         // Create in local temp directory
         let full_path = temp_path.join(path);
@@ -1473,19 +1533,21 @@ where
 }
 
 #[test_case(""; "no prefix")]
-fn rename_complicated_structure_contents_mock(prefix: &str) {
-    rename_complicated_structure_contents_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_complicated_structure_contents_mock(prefix: &str) {
+    rename_complicated_structure_contents_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case(""; "no prefix")]
-fn rename_complicated_structure_contents_s3(prefix: &str) {
-    rename_complicated_structure_contents_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn rename_complicated_structure_contents_s3(prefix: &str) {
+    rename_complicated_structure_contents_test(fuse::s3_session::new, prefix).await;
 }
 
-fn rename_into_topdir_test<F>(creator_fn: F, prefix: &str)
+async fn rename_into_topdir_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -1496,16 +1558,18 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
     // First place two objects in S3
 
     test_client
         .put_object("dir/a/b.txt", b"key for b nested")
+        .await
         .expect("put object should succeed");
     test_client
         .put_object("dir/b.txt", b"key for b")
+        .await
         .expect("put object should succeed");
     // Try to rename
     fs::rename(mount_point.join("dir/b.txt"), mount_point.join("dir/a/b.txt")).expect("Rename should work");
@@ -1514,19 +1578,21 @@ where
 }
 
 #[test_case(""; "no prefix")]
-fn rename_into_topdir_mock(prefix: &str) {
-    rename_into_topdir_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_into_topdir_mock(prefix: &str) {
+    rename_into_topdir_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case(""; "no prefix")]
-fn rename_into_topdir_s3(prefix: &str) {
-    rename_into_topdir_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn rename_into_topdir_s3(prefix: &str) {
+    rename_into_topdir_test(fuse::s3_session::new, prefix).await;
 }
 
-fn cross_directory_rename_test<F>(creator_fn: F, prefix: &str)
+async fn cross_directory_rename_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -1537,23 +1603,27 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
     // First place three objects in S3
 
     test_client
         .put_object("dir/a/b.txt", b"dir/a/b.txt")
+        .await
         .expect("put object should succeed");
     test_client
         .put_object("dirb/b.txt", b"dirb/b.txt")
+        .await
         .expect("put object should succeed");
     // Add a file so that the directory does not disappear after rename
     test_client
         .put_object("dir/a/static", b"dir/a/b.txt")
+        .await
         .expect("put object should succeed");
     test_client
         .put_object("dirb/c/d.txt", b"dirb/c/d.txt")
+        .await
         .expect("put object should succeed");
 
     // Do two cross directory renames, then check the contents
@@ -1568,19 +1638,21 @@ where
 }
 
 #[test_case(""; "no prefix")]
-fn cross_directory_rename_mock(prefix: &str) {
-    cross_directory_rename_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn cross_directory_rename_mock(prefix: &str) {
+    cross_directory_rename_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case(""; "no prefix")]
-fn cross_directory_rename_s3(prefix: &str) {
-    cross_directory_rename_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn cross_directory_rename_s3(prefix: &str) {
+    cross_directory_rename_test(fuse::s3_session::new, prefix).await;
 }
 
-fn rename_last_file_out_of_dir_test<F>(creator_fn: F, prefix: &str)
+async fn rename_last_file_out_of_dir_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -1597,13 +1669,14 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     // Place an object
     test_client
         .put_object("dir/a/b.txt", b"dir/a/b.txt")
+        .await
         .expect("put object should succeed");
     fs::rename(mount_point.join("dir/a/b.txt"), mount_point.join("b.txt")).expect("Can move out of directory");
 
@@ -1626,32 +1699,34 @@ where
 
     // Verify with S3 client that the object has been moved
     assert!(
-        test_client.contains_key("b.txt").unwrap(),
+        test_client.contains_key("b.txt").await.unwrap(),
         "Object should exist in new location"
     );
     assert!(
-        !test_client.contains_key("dir/a/b.txt").unwrap(),
+        !test_client.contains_key("dir/a/b.txt").await.unwrap(),
         "Object should not exist in old location"
     );
 }
 
 #[test_case(""; "no prefix")]
-fn rename_last_file_out_of_dir_mock(prefix: &str) {
-    rename_last_file_out_of_dir_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_last_file_out_of_dir_mock(prefix: &str) {
+    rename_last_file_out_of_dir_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case(""; "no prefix")]
-fn rename_last_file_out_of_dir_s3(prefix: &str) {
-    rename_last_file_out_of_dir_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn rename_last_file_out_of_dir_s3(prefix: &str) {
+    rename_last_file_out_of_dir_test(fuse::s3_session::new, prefix).await;
 }
 
 /// Populates a bucket with two files "a.txt" and "b.txt", tries to spawn 20 threads that randomly rename one into the other
 /// Validates that at the end of the test, exactly one file is present, that at least one rename succeeded,
 /// and that the contents are either "a" or "b".
-fn many_simultaneous_renames_test<F>(creator_fn: F, prefix: &str)
+async fn many_simultaneous_renames_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     //
     let test_session_config = TestSessionConfig {
@@ -1663,7 +1738,7 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path().to_owned();
     let barrier = Arc::new(Barrier::new(20));
@@ -1673,9 +1748,11 @@ where
     // Write both files
     test_client
         .put_object("a.txt", b"a")
+        .await
         .expect("put object should succeed");
     test_client
         .put_object("b.txt", b"b")
+        .await
         .expect("put object should succeed");
 
     // Spawn 20 threads that try to rename files
@@ -1726,20 +1803,22 @@ where
 }
 
 #[test_case(""; "no prefix")]
-fn many_simultaneous_renames_mock(prefix: &str) {
-    many_simultaneous_renames_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn many_simultaneous_renames_mock(prefix: &str) {
+    many_simultaneous_renames_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case(""; "no prefix")]
-fn many_simultaneous_renames_s3(prefix: &str) {
-    many_simultaneous_renames_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn many_simultaneous_renames_s3(prefix: &str) {
+    many_simultaneous_renames_test(fuse::s3_session::new, prefix).await;
 }
 
 /// Ensure that renaming to a file that is being written to fails
-fn rename_dest_open_for_writing_test<F>(creator_fn: F, prefix: &str)
+async fn rename_dest_open_for_writing_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -1750,12 +1829,13 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path().to_owned();
 
     test_client
         .put_object("source.txt", b"source")
+        .await
         .expect("put object should succeed");
 
     let _file = OpenOptions::new()
@@ -1774,20 +1854,22 @@ where
 }
 
 #[test_case(""; "no prefix")]
-fn rename_dest_open_for_writing_mock(prefix: &str) {
-    rename_dest_open_for_writing_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_dest_open_for_writing_mock(prefix: &str) {
+    rename_dest_open_for_writing_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case(""; "no prefix")]
-fn rename_dest_open_for_writing_s3(prefix: &str) {
-    rename_dest_open_for_writing_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn rename_dest_open_for_writing_s3(prefix: &str) {
+    rename_dest_open_for_writing_test(fuse::s3_session::new, prefix).await;
 }
 
 /// Ensure overwriting to a file that is open for reading is possible, but read will fail at some point.
-fn rename_dest_open_for_reading_test<F>(creator_fn: F, prefix: &str)
+async fn rename_dest_open_for_reading_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -1797,15 +1879,19 @@ where
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
     // Add a file directly to the bucket
     const B_IN_MB: usize = 1024 * 1024;
-    test_client.put_object("dir/source.txt", &[0u8; B_IN_MB * 140]).unwrap();
+    test_client
+        .put_object("dir/source.txt", &[0u8; B_IN_MB * 140])
+        .await
+        .unwrap();
     test_client
         .put_object("dir/destination.txt", &[3u8; B_IN_MB * 140])
+        .await
         .unwrap();
 
     let main_dir = mount_point.join("dir");
@@ -1835,14 +1921,16 @@ where
 }
 
 #[test_case(""; "no prefix")]
-fn rename_dest_open_for_reading_mock(prefix: &str) {
-    rename_dest_open_for_reading_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_dest_open_for_reading_mock(prefix: &str) {
+    rename_dest_open_for_reading_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case(""; "no prefix")]
-fn rename_dest_open_for_reading_s3(prefix: &str) {
-    rename_dest_open_for_reading_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn rename_dest_open_for_reading_s3(prefix: &str) {
+    rename_dest_open_for_reading_test(fuse::s3_session::new, prefix).await;
 }
 
 fn generate_random_filename() -> String {
@@ -1863,9 +1951,9 @@ fn generate_random_path(max_depth: usize) -> PathBuf {
     path
 }
 
-fn large_scale_random_rename_test<F>(creator_fn: F, prefix: &str)
+async fn large_scale_random_rename_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     const INITIAL_FILES: usize = 200;
     const RENAME_OPERATIONS: usize = 50;
@@ -1886,7 +1974,7 @@ where
         ..Default::default()
     };
 
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
 
@@ -1904,15 +1992,16 @@ where
         })
         .collect();
 
-    files.iter().for_each(|(path, content)| {
+    for (path, content) in &files {
         test_client
             .put_object(path.to_str().unwrap(), content.as_bytes())
+            .await
             .expect("put object should succeed");
 
         let full_path = temp_path.join(path);
         std::fs::create_dir_all(full_path.parent().unwrap()).expect("Failed to create directories");
         std::fs::write(full_path, content.as_bytes()).expect("Failed to write file");
-    });
+    }
     // Perform rename operations
     for i in 0..RENAME_OPERATIONS {
         if i % 50 == 0 {
@@ -1967,14 +2056,16 @@ where
 }
 
 #[test_case(""; "no prefix")]
-fn large_scale_random_rename_mock(prefix: &str) {
-    large_scale_random_rename_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn large_scale_random_rename_mock(prefix: &str) {
+    large_scale_random_rename_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case(""; "no prefix")]
-fn large_scale_random_rename_s3(prefix: &str) {
-    large_scale_random_rename_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn large_scale_random_rename_s3(prefix: &str) {
+    large_scale_random_rename_test(fuse::s3_session::new, prefix).await;
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -2066,9 +2157,9 @@ fn simulate_sequence(ops: &[&str]) -> (OperationResult, FsState) {
     )
 }
 
-fn rename_concurrent_remove_test<F>(creator_fn: F, prefix: &str)
+async fn rename_concurrent_remove_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
+    F: TestSessionCreator,
 {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -2080,7 +2171,7 @@ where
         ..Default::default()
     };
 
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
     let test_client = test_session.client();
     let mount_point = test_session.mount_path().to_owned();
 
@@ -2091,6 +2182,7 @@ where
         // Create initial state: only a.txt exists
         test_client
             .put_object("a.txt", b"a_content")
+            .await
             .expect("put object should succeed");
 
         let barrier = Arc::new(Barrier::new(3));
@@ -2169,12 +2261,14 @@ where
 }
 
 #[test_case(""; "no prefix")]
-fn rename_concurrent_remove_mock(prefix: &str) {
-    rename_concurrent_remove_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rename_concurrent_remove_mock(prefix: &str) {
+    rename_concurrent_remove_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case(""; "no prefix")]
-fn rename_concurrent_remove_s3(prefix: &str) {
-    rename_concurrent_remove_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn rename_concurrent_remove_s3(prefix: &str) {
+    rename_concurrent_remove_test(fuse::s3_session::new, prefix).await;
 }

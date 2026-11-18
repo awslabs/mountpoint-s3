@@ -34,7 +34,6 @@ use mountpoint_s3_fs::{
     InMemoryMetadata, MetadataClient, Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig,
 };
 use std::collections::VecDeque;
-use std::future::Future;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
@@ -159,15 +158,6 @@ impl DirectoryReply {
     pub fn clear(&mut self) {
         self.entries.clear();
     }
-}
-
-pub fn tokio_block_on<F: Future>(future: F) -> F::Output {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_io()
-        .enable_time()
-        .build()
-        .unwrap();
-    runtime.block_on(future)
 }
 
 pub fn get_crt_client_auth_config(credentials: Credentials) -> S3ClientAuthConfig {

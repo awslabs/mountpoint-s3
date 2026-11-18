@@ -7,7 +7,7 @@ use test_case::test_case;
 use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
 
 /// Simple test cases, assuming a file isn't open for reading elsewhere.
-fn simple_unlink_tests(creator_fn: impl TestSessionCreator, prefix: &str) {
+async fn simple_unlink_tests(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
             allow_delete: true,
@@ -15,14 +15,15 @@ fn simple_unlink_tests(creator_fn: impl TestSessionCreator, prefix: &str) {
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
 
     // Add a file directly to the bucket
     test_session
         .client()
         .put_object("dir/hello.txt", b"hello world")
+        .await
         .unwrap();
-    test_session.client().put_object("dir/foo.txt", b"bar").unwrap();
+    test_session.client().put_object("dir/foo.txt", b"bar").await.unwrap();
 
     let main_dir = test_session.mount_path().join("dir");
     let path = test_session.mount_path().join("dir/hello.txt");
@@ -48,19 +49,20 @@ fn simple_unlink_tests(creator_fn: impl TestSessionCreator, prefix: &str) {
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn simple_unlink_test_s3() {
-    simple_unlink_tests(fuse::s3_session::new, "simple_unlink_tests");
+#[tokio::test]
+async fn simple_unlink_test_s3() {
+    simple_unlink_tests(fuse::s3_session::new, "simple_unlink_tests").await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("simple_unlink_test"; "prefix")]
-fn simple_unlink_test_mock(prefix: &str) {
-    simple_unlink_tests(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn simple_unlink_test_mock(prefix: &str) {
+    simple_unlink_tests(fuse::mock_session::new, prefix).await;
 }
 
 /// Testing behavior when a file is unlinked in the middle of reading
-fn unlink_readhandle_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+async fn unlink_readhandle_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
             allow_delete: true,
@@ -68,15 +70,20 @@ fn unlink_readhandle_test(creator_fn: impl TestSessionCreator, prefix: &str) {
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
 
     // Add a file directly to the bucket
     const B_IN_MB: usize = 1024 * 1024;
     test_session
         .client()
         .put_object("dir/this.txt", &[0u8; B_IN_MB * 128])
+        .await
         .unwrap();
-    test_session.client().put_object("dir/other.txt", &[0u8; 1024]).unwrap(); // Persist implicit directory for test
+    test_session
+        .client()
+        .put_object("dir/other.txt", &[0u8; 1024])
+        .await
+        .unwrap(); // Persist implicit directory for test
 
     let main_dir = test_session.mount_path().join("dir");
     let path = test_session.mount_path().join("dir/this.txt");
@@ -104,19 +111,20 @@ fn unlink_readhandle_test(creator_fn: impl TestSessionCreator, prefix: &str) {
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn unlink_readhandle_test_s3() {
-    unlink_readhandle_test(fuse::s3_session::new, "unlink_readhandle_test");
+#[tokio::test]
+async fn unlink_readhandle_test_s3() {
+    unlink_readhandle_test(fuse::s3_session::new, "unlink_readhandle_test").await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("unlink_readhandle_test"; "prefix")]
-fn unlink_readhandle_test_mock(prefix: &str) {
-    unlink_readhandle_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn unlink_readhandle_test_mock(prefix: &str) {
+    unlink_readhandle_test(fuse::mock_session::new, prefix).await;
 }
 
 /// Testing behavior when a file is unlinked during and after writing
-fn unlink_writehandle_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+async fn unlink_writehandle_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
             allow_delete: true,
@@ -124,10 +132,14 @@ fn unlink_writehandle_test(creator_fn: impl TestSessionCreator, prefix: &str) {
         },
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config).await;
 
     // Add a file directly to the bucket
-    test_session.client().put_object("dir/other.txt", &[0u8; 1024]).unwrap(); // Persist implicit directory for test
+    test_session
+        .client()
+        .put_object("dir/other.txt", &[0u8; 1024])
+        .await
+        .unwrap(); // Persist implicit directory for test
 
     let main_dir = test_session.mount_path().join("dir");
     let path = main_dir.join("writing.txt");
@@ -169,18 +181,19 @@ fn unlink_writehandle_test(creator_fn: impl TestSessionCreator, prefix: &str) {
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn unlink_writehandle_test_s3() {
-    unlink_writehandle_test(fuse::s3_session::new, "unlink_writehandle_test");
+#[tokio::test]
+async fn unlink_writehandle_test_s3() {
+    unlink_writehandle_test(fuse::s3_session::new, "unlink_writehandle_test").await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("unlink_writehandle_test"; "prefix")]
-fn unlink_writehandle_test_mock(prefix: &str) {
-    unlink_writehandle_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn unlink_writehandle_test_mock(prefix: &str) {
+    unlink_writehandle_test(fuse::mock_session::new, prefix).await;
 }
 
-fn unlink_fail_on_delete_not_allowed_test(creator_fn: impl TestSessionCreator) {
+async fn unlink_fail_on_delete_not_allowed_test(creator_fn: impl TestSessionCreator) {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
             allow_delete: false,
@@ -188,9 +201,13 @@ fn unlink_fail_on_delete_not_allowed_test(creator_fn: impl TestSessionCreator) {
         },
         ..Default::default()
     };
-    let test_session = creator_fn(Default::default(), test_session_config);
+    let test_session = creator_fn(Default::default(), test_session_config).await;
 
-    test_session.client().put_object("dir/file.txt", &[0u8; 4]).unwrap();
+    test_session
+        .client()
+        .put_object("dir/file.txt", &[0u8; 4])
+        .await
+        .unwrap();
 
     let main_dir = test_session.mount_path().join("dir");
     let path = main_dir.join("file.txt");
@@ -200,12 +217,12 @@ fn unlink_fail_on_delete_not_allowed_test(creator_fn: impl TestSessionCreator) {
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn unlink_fail_on_delete_not_allowed_test_s3() {
-    unlink_fail_on_delete_not_allowed_test(fuse::s3_session::new);
+#[tokio::test]
+async fn unlink_fail_on_delete_not_allowed_test_s3() {
+    unlink_fail_on_delete_not_allowed_test(fuse::s3_session::new).await;
 }
 
-#[test]
-fn unlink_fail_on_delete_not_allowed_test_mock() {
-    unlink_fail_on_delete_not_allowed_test(fuse::mock_session::new);
+#[tokio::test]
+async fn unlink_fail_on_delete_not_allowed_test_mock() {
+    unlink_fail_on_delete_not_allowed_test(fuse::mock_session::new).await;
 }

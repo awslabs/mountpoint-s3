@@ -97,7 +97,7 @@ jobs:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
     - name: Install nextest
-      uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+      uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
       with:
         tool: nextest
     - name: Install operating system dependencies
@@ -162,7 +162,7 @@ jobs:
         # Allow warnings in `mountpoint-s3-fuser`.
         build-warnings: "warn"
     - name: Install nextest
-      uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+      uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
       with:
         tool: nextest
     - name: Install operating system dependencies
@@ -273,7 +273,7 @@ jobs:
         build-warnings: "warn"
         components: rust-src
     - name: Install nextest
-      uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+      uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
       with:
         tool: nextest
     - name: Install operating system dependencies
@@ -359,8 +359,8 @@ jobs:
     - name: Install build tools and dependencies
       run: |
         dnf -y install git rpm-build rpmdevtools rust cargo wget
-        wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.8.2/cargo-about-0.8.2-$(uname -m)-unknown-linux-musl.tar.gz" && \
-        wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.8.2/cargo-about-0.8.2-$(uname -m)-unknown-linux-musl.tar.gz.sha256" && \
+        wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.9.2/cargo-about-0.9.2-$(uname -m)-unknown-linux-musl.tar.gz" && \
+        wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.9.2/cargo-about-0.9.2-$(uname -m)-unknown-linux-musl.tar.gz.sha256" && \
         echo -n "$(sha256sum cargo-about-*.tar.gz | cut -d' ' -f1)" > checksum.sha256 && \
         diff cargo-about-*.tar.gz.sha256 checksum.sha256 && \
         tar xzf cargo-about-*.tar.gz && \
@@ -552,6 +552,13 @@ jobs:
 
     - name: Check release binary
       run: mkdir ./pkg-out && tar -xzf ./out/mount-s3*.tar.gz -C ./pkg-out && ./pkg-out/bin/mount-s3 --version
+
+    - name: Check the binary's shared-library requirements against the baseline
+      env:
+        ARCH: ${{ matrix.runner.name }}
+      run: |
+        python3 .github/actions/scripts/check_shared_libs.py --binary ./pkg-out/bin/mount-s3 \
+          --baseline ".github/actions/scripts/shared_lib_baselines/${ARCH}.json"
 
     - name: Upload unofficial packages
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

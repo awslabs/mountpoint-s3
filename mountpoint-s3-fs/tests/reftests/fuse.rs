@@ -17,6 +17,7 @@ use proptest::collection;
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use tempfile::TempDir;
+use tokio::runtime::Runtime;
 use tracing::{info, info_span};
 
 use crate::common::fuse::{TestSession, TestSessionConfig, mock_session};
@@ -59,7 +60,13 @@ impl Filesystem for DirectoryFileSystem {
 }
 
 /// A file system backed by Mountpoint
-struct MountpointFileSystem(TestSession);
+///
+/// The test cases are synchronous (proptest runs them as plain closures), so the file system owns
+/// a Tokio runtime to create the test session and to drive its client.
+struct MountpointFileSystem {
+    session: TestSession,
+    runtime: Runtime,
+}
 
 impl MountpointFileSystem {
     fn new(config: S3FilesystemConfig) -> anyhow::Result<Self> {
@@ -68,21 +75,21 @@ impl MountpointFileSystem {
             max_worker_threads: 1,
             ..Default::default()
         };
-        let session = mock_session::new("", test_config);
-        Ok(Self(session))
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+        let session = runtime.block_on(mock_session::new("", test_config));
+        Ok(Self { session, runtime })
     }
 }
 
 impl Filesystem for MountpointFileSystem {
     fn root(&self) -> &Path {
-        self.0.mount_path()
+        self.session.mount_path()
     }
 
     fn put(&mut self, path: impl AsRef<Path>, contents: &[u8]) -> anyhow::Result<()> {
         let key = path.as_ref().to_str().unwrap();
-        self.0
-            .client()
-            .put_object(key, contents)
+        self.runtime
+            .block_on(self.session.client().put_object(key, contents))
             .map_err(|e| anyhow::anyhow!("put failed: {:?}", e))
     }
 }

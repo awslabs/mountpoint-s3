@@ -74,8 +74,13 @@ pub enum SdkClientError {
 /// and [SdkClientError::EndpointNotUtf8] if the endpoint URL in [EndpointConfig] isn't valid UTF-8.
 pub fn build_sdk_client(config: &SdkClientConfig) -> Result<aws_sdk_s3::Client, SdkClientError> {
     let endpoint_config = &config.endpoint_config;
+    // Later behavior versions change the retry behavior (Retry Behavior 2.1) and add read timeouts.
+    // The SDK deprecates each behavior version once a newer one exists, so the pinned version is
+    // deprecated until Mountpoint moves to a newer one.
+    #[allow(deprecated)]
+    let behavior_version = BehaviorVersion::v2026_01_12();
     let mut builder = aws_sdk_s3::Config::builder()
-        .behavior_version(BehaviorVersion::v2026_01_12())
+        .behavior_version(behavior_version)
         .region(Region::new(endpoint_config.get_region().to_owned()))
         .use_fips(endpoint_config.get_fips())
         .use_dual_stack(endpoint_config.get_dual_stack())

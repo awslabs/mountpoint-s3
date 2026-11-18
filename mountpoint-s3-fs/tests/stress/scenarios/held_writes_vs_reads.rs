@@ -17,8 +17,8 @@ const WRITE_BEFORE_HOLD: usize = PART_SIZE + 4 * 1024;
 const HOLD: Duration = Duration::from_secs(60);
 const READ_CHUNK: usize = PART_SIZE;
 
-#[test]
-fn held_writes_vs_reads() {
+#[tokio::test]
+async fn held_writes_vs_reads() {
     let writer: Arc<dyn Worker> = Arc::new(HoldingWriter {
         scope: "held_writes_vs_reads",
         write_before_hold: WRITE_BEFORE_HOLD,
@@ -40,5 +40,6 @@ fn held_writes_vs_reads() {
         workers,
         max_latency: default_max_latency,
         max_idle: default_max_idle,
-    });
+    })
+    .await;
 }

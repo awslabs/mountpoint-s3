@@ -18,8 +18,8 @@ const READ_PART_SIZE: usize = MINIMUM_MEM_LIMIT - 128 * 1024 * 1024; // 384 MiB
 const READ_CHUNK: usize = 8 * 1024 * 1024; // 8 MiB
 const NUM_WORKERS: usize = 1;
 
-#[test]
-fn single_reader_budget_part() {
+#[tokio::test]
+async fn single_reader_budget_part() {
     let reader: Arc<dyn Worker> = Arc::new(SequentialReader {
         target: LARGE_READ_OBJECT,
         chunk: READ_CHUNK,
@@ -36,5 +36,6 @@ fn single_reader_budget_part() {
         workers,
         max_latency: default_max_latency,
         max_idle: default_max_idle,
-    });
+    })
+    .await;
 }

@@ -111,7 +111,7 @@ impl S3FilesystemConfigExt for S3FilesystemConfig {
     }
 }
 
-fn sequential_write_test(
+async fn sequential_write_test(
     creator_fn: impl TestSessionCreator,
     append_mode: AppendMode,
     rw_mode: ReadWriteMode,
@@ -124,12 +124,13 @@ fn sequential_write_test(
         filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
         ..Default::default()
     };
-    let test_session = creator_fn("sequential_write_test", config);
+    let test_session = creator_fn("sequential_write_test", config).await;
 
     // Make sure there's an existing directory
     test_session
         .client()
         .put_object("dir/hello.txt", b"hello world")
+        .await
         .unwrap();
 
     let subdir = test_session.mount_path().join("dir");
@@ -185,31 +186,35 @@ fn sequential_write_test(
 
 #[cfg(feature = "s3_tests")]
 #[test_matrix([APPEND, NO_APPEND], [WRITE_ONLY, READ_WRITE])]
-fn sequential_write_test_s3(append_mode: AppendMode, rw_mode: ReadWriteMode) {
-    sequential_write_test(fuse::s3_session::new, append_mode, rw_mode, ATOMIC_UPLOAD);
+#[tokio::test]
+async fn sequential_write_test_s3(append_mode: AppendMode, rw_mode: ReadWriteMode) {
+    sequential_write_test(fuse::s3_session::new, append_mode, rw_mode, ATOMIC_UPLOAD).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_matrix([APPEND, NO_APPEND], [WRITE_ONLY, READ_WRITE])]
-fn sequential_write_test_s3_incremental_upload(append_mode: AppendMode, rw_mode: ReadWriteMode) {
-    sequential_write_test(fuse::s3_session::new, append_mode, rw_mode, INCREMENTAL_UPLOAD);
+#[tokio::test]
+async fn sequential_write_test_s3_incremental_upload(append_mode: AppendMode, rw_mode: ReadWriteMode) {
+    sequential_write_test(fuse::s3_session::new, append_mode, rw_mode, INCREMENTAL_UPLOAD).await;
 }
 
 #[test_matrix([APPEND, NO_APPEND], [WRITE_ONLY, READ_WRITE], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
-fn sequential_write_test_mock(append_mode: AppendMode, rw_mode: ReadWriteMode, upload_mode: UploadMode) {
-    sequential_write_test(fuse::mock_session::new, append_mode, rw_mode, upload_mode);
+#[tokio::test]
+async fn sequential_write_test_mock(append_mode: AppendMode, rw_mode: ReadWriteMode, upload_mode: UploadMode) {
+    sequential_write_test(fuse::mock_session::new, append_mode, rw_mode, upload_mode).await;
 }
 
-fn write_errors_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
+async fn write_errors_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
     let config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
         ..Default::default()
     };
-    let test_session = creator_fn("write_errors_test", config);
+    let test_session = creator_fn("write_errors_test", config).await;
 
     test_session
         .client()
         .put_object("dir/hello.txt", b"hello world")
+        .await
         .unwrap();
 
     let existing_file_path = test_session.mount_path().join("dir/hello.txt");
@@ -287,31 +292,37 @@ fn write_errors_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMod
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn write_errors_test_s3() {
-    write_errors_test(fuse::s3_session::new, ATOMIC_UPLOAD);
+#[tokio::test]
+async fn write_errors_test_s3() {
+    write_errors_test(fuse::s3_session::new, ATOMIC_UPLOAD).await;
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn write_errors_test_s3_incremental_update() {
-    write_errors_test(fuse::s3_session::new, INCREMENTAL_UPLOAD);
+#[tokio::test]
+async fn write_errors_test_s3_incremental_update() {
+    write_errors_test(fuse::s3_session::new, INCREMENTAL_UPLOAD).await;
 }
 
 #[test_matrix([ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
-fn write_errors_test_mock(upload_mode: UploadMode) {
-    write_errors_test(fuse::mock_session::new, upload_mode);
+#[tokio::test]
+async fn write_errors_test_mock(upload_mode: UploadMode) {
+    write_errors_test(fuse::mock_session::new, upload_mode).await;
 }
 
-fn sequential_write_streaming_test(creator_fn: impl TestSessionCreator, object_size: usize, write_chunk_size: usize) {
+async fn sequential_write_streaming_test(
+    creator_fn: impl TestSessionCreator,
+    object_size: usize,
+    write_chunk_size: usize,
+) {
     const KEY: &str = "dir/new.txt";
 
-    let test_session = creator_fn("sequential_write_streaming_test", Default::default());
+    let test_session = creator_fn("sequential_write_streaming_test", Default::default()).await;
 
     // Make sure there's an existing directory
     test_session
         .client()
         .put_object("dir/hello.txt", b"hello world")
+        .await
         .unwrap();
 
     let path = test_session.mount_path().join(KEY);
@@ -342,6 +353,7 @@ fn sequential_write_streaming_test(creator_fn: impl TestSessionCreator, object_s
         let status = test_session
             .client()
             .is_upload_in_progress(KEY)
+            .await
             .expect("the upload should be in-progress");
         assert!(status);
     }
@@ -362,19 +374,21 @@ fn sequential_write_streaming_test(creator_fn: impl TestSessionCreator, object_s
 #[test_case(1, 1)]
 #[test_case(32, 32)]
 #[test_case(32 * 1024 * 1024, 1024 * 1024 + 1)]
-fn sequential_write_streaming_test_s3(object_size: usize, write_chunk_size: usize) {
-    sequential_write_streaming_test(fuse::s3_session::new, object_size, write_chunk_size);
+#[tokio::test]
+async fn sequential_write_streaming_test_s3(object_size: usize, write_chunk_size: usize) {
+    sequential_write_streaming_test(fuse::s3_session::new, object_size, write_chunk_size).await;
 }
 
 #[test_case(0, 1)]
 #[test_case(1, 1)]
 #[test_case(32, 32)]
 #[test_case(32 * 1024 * 1024, 1024 * 1024 + 1)]
-fn sequential_write_streaming_test_mock(object_size: usize, write_chunk_size: usize) {
-    sequential_write_streaming_test(fuse::mock_session::new, object_size, write_chunk_size);
+#[tokio::test]
+async fn sequential_write_streaming_test_mock(object_size: usize, write_chunk_size: usize) {
+    sequential_write_streaming_test(fuse::mock_session::new, object_size, write_chunk_size).await;
 }
 
-fn fsync_test(creator_fn: impl TestSessionCreator, rw_mode: ReadWriteMode, upload_mode: UploadMode) {
+async fn fsync_test(creator_fn: impl TestSessionCreator, rw_mode: ReadWriteMode, upload_mode: UploadMode) {
     const OBJECT_SIZE: usize = 32;
     const KEY: &str = "new.txt";
 
@@ -382,7 +396,7 @@ fn fsync_test(creator_fn: impl TestSessionCreator, rw_mode: ReadWriteMode, uploa
         filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
         ..Default::default()
     };
-    let test_session = creator_fn("fsync_test", config);
+    let test_session = creator_fn("fsync_test", config).await;
     let path = test_session.mount_path().join(KEY);
 
     let mut f = File::options().rw_mode(rw_mode).create(true).open(&path).unwrap();
@@ -397,11 +411,11 @@ fn fsync_test(creator_fn: impl TestSessionCreator, rw_mode: ReadWriteMode, uploa
 
     f.write_all(&body).unwrap();
 
-    assert!(upload_mode.is_incremental() || test_session.client().is_upload_in_progress(KEY).unwrap());
+    assert!(upload_mode.is_incremental() || test_session.client().is_upload_in_progress(KEY).await.unwrap());
 
     f.sync_all().unwrap();
 
-    assert!(upload_mode.is_incremental() || !test_session.client().is_upload_in_progress(KEY).unwrap());
+    assert!(upload_mode.is_incremental() || !test_session.client().is_upload_in_progress(KEY).await.unwrap());
 
     let m = metadata(&path).unwrap();
     assert_eq!(m.len(), body.len() as u64);
@@ -421,22 +435,25 @@ fn fsync_test(creator_fn: impl TestSessionCreator, rw_mode: ReadWriteMode, uploa
 
 #[cfg(feature = "s3_tests")]
 #[test_matrix([WRITE_ONLY, READ_WRITE])]
-fn fsync_test_s3(rw_mode: ReadWriteMode) {
-    fsync_test(fuse::s3_session::new, rw_mode, ATOMIC_UPLOAD);
+#[tokio::test]
+async fn fsync_test_s3(rw_mode: ReadWriteMode) {
+    fsync_test(fuse::s3_session::new, rw_mode, ATOMIC_UPLOAD).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_matrix([WRITE_ONLY, READ_WRITE])]
-fn fsync_test_s3_incremental_upload(rw_mode: ReadWriteMode) {
-    fsync_test(fuse::s3_session::new, rw_mode, INCREMENTAL_UPLOAD);
+#[tokio::test]
+async fn fsync_test_s3_incremental_upload(rw_mode: ReadWriteMode) {
+    fsync_test(fuse::s3_session::new, rw_mode, INCREMENTAL_UPLOAD).await;
 }
 
 #[test_matrix([WRITE_ONLY, READ_WRITE], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
-fn fsync_test_mock(rw_mode: ReadWriteMode, upload_mode: UploadMode) {
-    fsync_test(fuse::mock_session::new, rw_mode, upload_mode);
+#[tokio::test]
+async fn fsync_test_mock(rw_mode: ReadWriteMode, upload_mode: UploadMode) {
+    fsync_test(fuse::mock_session::new, rw_mode, upload_mode).await;
 }
 
-fn fstat_after_writing(creator_fn: impl TestSessionCreator, sync_mode: FSyncMode, upload_mode: UploadMode) {
+async fn fstat_after_writing(creator_fn: impl TestSessionCreator, sync_mode: FSyncMode, upload_mode: UploadMode) {
     const OBJECT_SIZE: usize = 32;
     const KEY: &str = "new.txt";
 
@@ -453,7 +470,7 @@ fn fstat_after_writing(creator_fn: impl TestSessionCreator, sync_mode: FSyncMode
         filesystem_config,
         ..Default::default()
     };
-    let test_session = creator_fn("fstat_after_writing", session_config);
+    let test_session = creator_fn("fstat_after_writing", session_config).await;
 
     let path = test_session.mount_path().join(KEY);
 
@@ -492,22 +509,25 @@ fn fstat_after_writing(creator_fn: impl TestSessionCreator, sync_mode: FSyncMode
 
 #[cfg(feature = "s3_tests")]
 #[test_matrix([FSYNC, NO_FSYNC])]
-fn fstat_after_writing_s3(sync_mode: FSyncMode) {
-    fstat_after_writing(fuse::s3_session::new, sync_mode, ATOMIC_UPLOAD);
+#[tokio::test]
+async fn fstat_after_writing_s3(sync_mode: FSyncMode) {
+    fstat_after_writing(fuse::s3_session::new, sync_mode, ATOMIC_UPLOAD).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_matrix([FSYNC, NO_FSYNC])]
-fn fstat_after_writing_s3_incremental_upload(sync_mode: FSyncMode) {
-    fstat_after_writing(fuse::s3_session::new, sync_mode, INCREMENTAL_UPLOAD);
+#[tokio::test]
+async fn fstat_after_writing_s3_incremental_upload(sync_mode: FSyncMode) {
+    fstat_after_writing(fuse::s3_session::new, sync_mode, INCREMENTAL_UPLOAD).await;
 }
 
 #[test_matrix([FSYNC, NO_FSYNC], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
-fn fstat_after_writing_mock(sync_mode: FSyncMode, upload_mode: UploadMode) {
-    fstat_after_writing(fuse::mock_session::new, sync_mode, upload_mode);
+#[tokio::test]
+async fn fstat_after_writing_mock(sync_mode: FSyncMode, upload_mode: UploadMode) {
+    fstat_after_writing(fuse::mock_session::new, sync_mode, upload_mode).await;
 }
 
-fn write_too_big_test(creator_fn: impl TestSessionCreator, write_size: usize) {
+async fn write_too_big_test(creator_fn: impl TestSessionCreator, write_size: usize) {
     const KEY: &str = "new.txt";
     const PART_SIZE: usize = 64;
     const MAX_S3_MULTIPART_UPLOAD_PARTS: usize = 10000;
@@ -516,7 +536,7 @@ fn write_too_big_test(creator_fn: impl TestSessionCreator, write_size: usize) {
         part_size: PART_SIZE,
         ..Default::default()
     };
-    let test_session = creator_fn("write_too_big_test", config);
+    let test_session = creator_fn("write_too_big_test", config).await;
 
     let path = test_session.mount_path().join(KEY);
 
@@ -550,11 +570,12 @@ fn write_too_big_test(creator_fn: impl TestSessionCreator, write_size: usize) {
 #[test_case(8000; "divisible by max size")]
 #[test_case(7000; "not divisible by max size")]
 #[test_case(640001; "single write too big")]
-fn write_too_big_test_mock(write_size: usize) {
-    write_too_big_test(fuse::mock_session::new, write_size);
+#[tokio::test]
+async fn write_too_big_test_mock(write_size: usize) {
+    write_too_big_test(fuse::mock_session::new, write_size).await;
 }
 
-fn out_of_order_write_test(creator_fn: impl TestSessionCreator, offset: i64, upload_mode: UploadMode) {
+async fn out_of_order_write_test(creator_fn: impl TestSessionCreator, offset: i64, upload_mode: UploadMode) {
     const OBJECT_SIZE: usize = 32;
     const KEY: &str = "new.txt";
 
@@ -563,7 +584,7 @@ fn out_of_order_write_test(creator_fn: impl TestSessionCreator, offset: i64, upl
         filesystem_config,
         ..Default::default()
     };
-    let test_session = creator_fn("out_of_order_write_test", test_config);
+    let test_session = creator_fn("out_of_order_write_test", test_config).await;
 
     let path = test_session.mount_path().join(KEY);
 
@@ -611,23 +632,26 @@ const LATER_OFFSET: i64 = 1;
 
 #[cfg(feature = "s3_tests")]
 #[test_matrix([EARLIER_OFFSET, LATER_OFFSET])]
-fn out_of_order_write_test_s3(offset: i64) {
-    out_of_order_write_test(fuse::s3_session::new, offset, ATOMIC_UPLOAD);
+#[tokio::test]
+async fn out_of_order_write_test_s3(offset: i64) {
+    out_of_order_write_test(fuse::s3_session::new, offset, ATOMIC_UPLOAD).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_matrix([EARLIER_OFFSET, LATER_OFFSET])]
-fn out_of_order_write_test_s3_incremental_upload(offset: i64) {
-    out_of_order_write_test(fuse::s3_session::new, offset, INCREMENTAL_UPLOAD);
+#[tokio::test]
+async fn out_of_order_write_test_s3_incremental_upload(offset: i64) {
+    out_of_order_write_test(fuse::s3_session::new, offset, INCREMENTAL_UPLOAD).await;
 }
 
 #[test_matrix([EARLIER_OFFSET, LATER_OFFSET], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
-fn out_of_order_write_test_mock(offset: i64, upload_mode: UploadMode) {
-    out_of_order_write_test(fuse::mock_session::new, offset, upload_mode);
+#[tokio::test]
+async fn out_of_order_write_test_mock(offset: i64, upload_mode: UploadMode) {
+    out_of_order_write_test(fuse::mock_session::new, offset, upload_mode).await;
 }
 
 #[cfg(not(feature = "s3express_tests"))]
-fn write_with_storage_class_test(creator_fn: impl TestSessionCreator, storage_class: Option<&str>) {
+async fn write_with_storage_class_test(creator_fn: impl TestSessionCreator, storage_class: Option<&str>) {
     const KEY: &str = "new.txt";
 
     let config = TestSessionConfig {
@@ -637,7 +661,7 @@ fn write_with_storage_class_test(creator_fn: impl TestSessionCreator, storage_cl
         },
         ..Default::default()
     };
-    let test_session = creator_fn("write_with_storage_class_test", config);
+    let test_session = creator_fn("write_with_storage_class_test", config).await;
 
     let path = test_session.mount_path().join(KEY);
 
@@ -645,7 +669,7 @@ fn write_with_storage_class_test(creator_fn: impl TestSessionCreator, storage_cl
 
     assert_eq!(
         storage_class.map(String::from),
-        test_session.client().get_object_storage_class(KEY).unwrap()
+        test_session.client().get_object_storage_class(KEY).await.unwrap()
     );
 }
 
@@ -654,20 +678,22 @@ fn write_with_storage_class_test(creator_fn: impl TestSessionCreator, storage_cl
 #[cfg(not(feature = "s3express_tests"))]
 #[test_case(Some("INTELLIGENT_TIERING"))]
 #[test_case(Some("GLACIER"))]
-fn write_with_storage_class_test_s3(storage_class: Option<&str>) {
-    write_with_storage_class_test(fuse::s3_session::new, storage_class);
+#[tokio::test]
+async fn write_with_storage_class_test_s3(storage_class: Option<&str>) {
+    write_with_storage_class_test(fuse::s3_session::new, storage_class).await;
 }
 
 #[cfg(not(feature = "s3express_tests"))]
 // S3 Express One Zone is a distinct storage class and can't be overridden
 #[test_case(Some("INTELLIGENT_TIERING"))]
 #[test_case(Some("GLACIER"))]
-fn write_with_storage_class_test_s3_mock(storage_class: Option<&str>) {
-    write_with_storage_class_test(fuse::mock_session::new, storage_class);
+#[tokio::test]
+async fn write_with_storage_class_test_s3_mock(storage_class: Option<&str>) {
+    write_with_storage_class_test(fuse::mock_session::new, storage_class).await;
 }
 
 #[cfg_attr(not(feature = "s3_tests"), allow(unused))] // Mock client doesn't validate storage classes
-fn write_with_invalid_storage_class_test(creator_fn: impl TestSessionCreator, storage_class: &str) {
+async fn write_with_invalid_storage_class_test(creator_fn: impl TestSessionCreator, storage_class: &str) {
     const KEY: &str = "new.txt";
 
     let config = TestSessionConfig {
@@ -677,7 +703,7 @@ fn write_with_invalid_storage_class_test(creator_fn: impl TestSessionCreator, st
         },
         ..Default::default()
     };
-    let test_session = creator_fn("write_with_storage_class_test", config);
+    let test_session = creator_fn("write_with_storage_class_test", config).await;
 
     let path = test_session.mount_path().join(KEY);
     write_file(path).expect_err("write with invalid storage class should fail");
@@ -693,11 +719,12 @@ fn write_file(path: impl AsRef<Path>) -> std::io::Result<()> {
 
 #[cfg(feature = "s3_tests")]
 #[test_case("INVALID_CLASS")]
-fn write_with_invalid_storage_class_test_s3(storage_class: &str) {
-    write_with_invalid_storage_class_test(fuse::s3_session::new, storage_class);
+#[tokio::test]
+async fn write_with_invalid_storage_class_test_s3(storage_class: &str) {
+    write_with_invalid_storage_class_test(fuse::s3_session::new, storage_class).await;
 }
 
-fn flush_test(creator_fn: impl TestSessionCreator, append_mode: AppendMode, upload_mode: UploadMode) {
+async fn flush_test(creator_fn: impl TestSessionCreator, append_mode: AppendMode, upload_mode: UploadMode) {
     const OBJECT_SIZE: usize = 50 * 1024;
     const WRITE_SIZE: usize = 1024;
     const KEY: &str = "new.txt";
@@ -706,7 +733,7 @@ fn flush_test(creator_fn: impl TestSessionCreator, append_mode: AppendMode, uplo
         filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
         ..Default::default()
     };
-    let test_session = creator_fn("flush_test", config);
+    let test_session = creator_fn("flush_test", config).await;
 
     let path = test_session.mount_path().join(KEY);
 
@@ -724,12 +751,12 @@ fn flush_test(creator_fn: impl TestSessionCreator, append_mode: AppendMode, uplo
         f.write_all(part).unwrap();
     }
 
-    assert!(upload_mode.is_incremental() || test_session.client().is_upload_in_progress(KEY).unwrap());
+    assert!(upload_mode.is_incremental() || test_session.client().is_upload_in_progress(KEY).await.unwrap());
 
     // Close the file. Will trigger a call to flush.
     drop(f);
 
-    assert!(upload_mode.is_incremental() || !test_session.client().is_upload_in_progress(KEY).unwrap());
+    assert!(upload_mode.is_incremental() || !test_session.client().is_upload_in_progress(KEY).await.unwrap());
 
     // Now it's closed, we can stat or read it
     let m = metadata(&path).unwrap();
@@ -741,29 +768,32 @@ fn flush_test(creator_fn: impl TestSessionCreator, append_mode: AppendMode, uplo
 
 #[cfg(feature = "s3_tests")]
 #[test_matrix([APPEND, NO_APPEND])]
-fn flush_test_s3(append_mode: AppendMode) {
-    flush_test(fuse::s3_session::new, append_mode, ATOMIC_UPLOAD);
+#[tokio::test]
+async fn flush_test_s3(append_mode: AppendMode) {
+    flush_test(fuse::s3_session::new, append_mode, ATOMIC_UPLOAD).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_matrix([APPEND, NO_APPEND])]
-fn flush_test_s3_incremental_upload(append_mode: AppendMode) {
-    flush_test(fuse::s3_session::new, append_mode, INCREMENTAL_UPLOAD);
+#[tokio::test]
+async fn flush_test_s3_incremental_upload(append_mode: AppendMode) {
+    flush_test(fuse::s3_session::new, append_mode, INCREMENTAL_UPLOAD).await;
 }
 
 #[test_matrix([APPEND, NO_APPEND], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
-fn flush_test_mock(append_mode: AppendMode, upload_mode: UploadMode) {
-    flush_test(fuse::mock_session::new, append_mode, upload_mode);
+#[tokio::test]
+async fn flush_test_mock(append_mode: AppendMode, upload_mode: UploadMode) {
+    flush_test(fuse::mock_session::new, append_mode, upload_mode).await;
 }
 
-fn touch_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
+async fn touch_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
     const KEY: &str = "new.txt";
 
     let config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
         ..Default::default()
     };
-    let test_session = creator_fn("touch_test", config);
+    let test_session = creator_fn("touch_test", config).await;
 
     let path = test_session.mount_path().join(KEY);
 
@@ -780,8 +810,8 @@ fn touch_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
         if st.elapsed() > MAX_WAIT_DURATION {
             panic!("wait for result timeout")
         }
-        if !test_session.client().is_upload_in_progress(KEY).unwrap()
-            && test_session.client().contains_key(KEY).unwrap()
+        if !test_session.client().is_upload_in_progress(KEY).await.unwrap()
+            && test_session.client().contains_key(KEY).await.unwrap()
         {
             break;
         }
@@ -793,23 +823,24 @@ fn touch_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn touch_test_s3() {
-    touch_test(fuse::s3_session::new, ATOMIC_UPLOAD);
+#[tokio::test]
+async fn touch_test_s3() {
+    touch_test(fuse::s3_session::new, ATOMIC_UPLOAD).await;
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn touch_test_s3_incremental_upload() {
-    touch_test(fuse::s3_session::new, INCREMENTAL_UPLOAD);
+#[tokio::test]
+async fn touch_test_s3_incremental_upload() {
+    touch_test(fuse::s3_session::new, INCREMENTAL_UPLOAD).await;
 }
 
 #[test_matrix([ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
-fn touch_test_mock(upload_mode: UploadMode) {
-    touch_test(fuse::mock_session::new, upload_mode);
+#[tokio::test]
+async fn touch_test_mock(upload_mode: UploadMode) {
+    touch_test(fuse::mock_session::new, upload_mode).await;
 }
 
-fn dd_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
+async fn dd_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
     const KEY: &str = "new.txt";
     const SIZE: u64 = 128;
 
@@ -817,7 +848,7 @@ fn dd_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
         filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
         ..Default::default()
     };
-    let test_session = creator_fn("dd_test", config);
+    let test_session = creator_fn("dd_test", config).await;
 
     let path = test_session.mount_path().join(KEY);
 
@@ -830,38 +861,40 @@ fn dd_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
         .expect("Unable to spawn dd");
     assert!(exit_status.success());
 
-    assert!(!test_session.client().is_upload_in_progress(KEY).unwrap());
-    assert!(test_session.client().contains_key(KEY).unwrap());
+    assert!(!test_session.client().is_upload_in_progress(KEY).await.unwrap());
+    assert!(test_session.client().contains_key(KEY).await.unwrap());
 
     let m = metadata(&path).unwrap();
     assert_eq!(m.len(), SIZE);
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn dd_test_s3() {
-    dd_test(fuse::s3_session::new, ATOMIC_UPLOAD);
+#[tokio::test]
+async fn dd_test_s3() {
+    dd_test(fuse::s3_session::new, ATOMIC_UPLOAD).await;
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn dd_test_s3_incremental_upload() {
-    dd_test(fuse::s3_session::new, INCREMENTAL_UPLOAD);
+#[tokio::test]
+async fn dd_test_s3_incremental_upload() {
+    dd_test(fuse::s3_session::new, INCREMENTAL_UPLOAD).await;
 }
 
 #[test_matrix([ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
-fn dd_test_mock(upload_mode: UploadMode) {
-    dd_test(fuse::mock_session::new, upload_mode);
+#[tokio::test]
+async fn dd_test_mock(upload_mode: UploadMode) {
+    dd_test(fuse::mock_session::new, upload_mode).await;
 }
 
 #[test_matrix([ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
-fn spawn_test(upload_mode: UploadMode) {
+#[tokio::test]
+async fn spawn_test(upload_mode: UploadMode) {
     const KEY: &str = "new.txt";
     let config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
         ..Default::default()
     };
-    let test_session = fuse::mock_session::new("spawn_test", config);
+    let test_session = fuse::mock_session::new("spawn_test", config).await;
 
     let path = test_session.mount_path().join(KEY);
     let mut f = File::options().append(true).create(true).open(&path).unwrap();
@@ -881,13 +914,14 @@ fn spawn_test(upload_mode: UploadMode) {
 }
 
 #[test_matrix([ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
-fn multi_thread_test(upload_mode: UploadMode) {
+#[tokio::test]
+async fn multi_thread_test(upload_mode: UploadMode) {
     const KEY: &str = "new.txt";
     let config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
         ..Default::default()
     };
-    let test_session = fuse::mock_session::new("multi_thread_test", config);
+    let test_session = fuse::mock_session::new("multi_thread_test", config).await;
 
     let path = test_session.mount_path().join(KEY);
     let mut f = File::options().append(true).create(true).open(&path).unwrap();
@@ -895,21 +929,28 @@ fn multi_thread_test(upload_mode: UploadMode) {
     let data = vec![0xaa; 32 * 1024 * 1024];
     f.write_all(&data).unwrap();
 
+    // Write again and close the file from another thread.
+    let data_len = data.len();
     thread::spawn(move || {
         f.write_all(&data).unwrap();
         drop(f);
-
-        assert!(!test_session.client().is_upload_in_progress(KEY).unwrap());
-        assert!(test_session.client().contains_key(KEY).unwrap());
-
-        let m = metadata(&path).unwrap();
-        assert_eq!(m.len(), (data.len() * 2) as u64);
     })
     .join()
     .unwrap();
+
+    assert!(!test_session.client().is_upload_in_progress(KEY).await.unwrap());
+    assert!(test_session.client().contains_key(KEY).await.unwrap());
+
+    let m = metadata(&path).unwrap();
+    assert_eq!(m.len(), (data_len * 2) as u64);
 }
 
-fn overwrite_test(creator_fn: impl TestSessionCreator, prefix: &str, rw_mode: ReadWriteMode, upload_mode: UploadMode) {
+async fn overwrite_test(
+    creator_fn: impl TestSessionCreator,
+    prefix: &str,
+    rw_mode: ReadWriteMode,
+    upload_mode: UploadMode,
+) {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -919,12 +960,13 @@ fn overwrite_test(creator_fn: impl TestSessionCreator, prefix: &str, rw_mode: Re
         filesystem_config,
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_config);
+    let test_session = creator_fn(prefix, test_config).await;
 
     // Make sure there's an existing directory and a file
     test_session
         .client()
         .put_object("dir/hello.txt", b"hello world")
+        .await
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
@@ -947,22 +989,25 @@ fn overwrite_test(creator_fn: impl TestSessionCreator, prefix: &str, rw_mode: Re
 
 #[cfg(feature = "s3_tests")]
 #[test_matrix([WRITE_ONLY, READ_WRITE])]
-fn overwrite_test_s3(rw_mode: ReadWriteMode) {
-    overwrite_test(fuse::s3_session::new, "overwrite_test", rw_mode, ATOMIC_UPLOAD);
+#[tokio::test]
+async fn overwrite_test_s3(rw_mode: ReadWriteMode) {
+    overwrite_test(fuse::s3_session::new, "overwrite_test", rw_mode, ATOMIC_UPLOAD).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_matrix([WRITE_ONLY, READ_WRITE])]
-fn overwrite_test_s3_incremental_upload(rw_mode: ReadWriteMode) {
-    overwrite_test(fuse::s3_session::new, "overwrite_test", rw_mode, INCREMENTAL_UPLOAD);
+#[tokio::test]
+async fn overwrite_test_s3_incremental_upload(rw_mode: ReadWriteMode) {
+    overwrite_test(fuse::s3_session::new, "overwrite_test", rw_mode, INCREMENTAL_UPLOAD).await;
 }
 
 #[test_matrix([WRITE_ONLY, READ_WRITE], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
-fn overwrite_test_mock(rw_mode: ReadWriteMode, upload_mode: UploadMode) {
-    overwrite_test(fuse::mock_session::new, "overwrite_test", rw_mode, upload_mode);
+#[tokio::test]
+async fn overwrite_test_mock(rw_mode: ReadWriteMode, upload_mode: UploadMode) {
+    overwrite_test(fuse::mock_session::new, "overwrite_test", rw_mode, upload_mode).await;
 }
 
-fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+async fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -971,12 +1016,13 @@ fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCrea
         filesystem_config,
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_config);
+    let test_session = creator_fn(prefix, test_config).await;
 
     // Make sure there's an existing directory and a file
     test_session
         .client()
         .put_object("dir/hello.txt", b"hello world")
+        .await
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
@@ -1005,20 +1051,22 @@ fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCrea
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn overwrite_disallowed_on_concurrent_read_test_s3() {
-    overwrite_disallowed_on_concurrent_read_test(fuse::s3_session::new, "overwrite_disallowed_on_concurrent_read_test");
+#[tokio::test]
+async fn overwrite_disallowed_on_concurrent_read_test_s3() {
+    overwrite_disallowed_on_concurrent_read_test(fuse::s3_session::new, "overwrite_disallowed_on_concurrent_read_test")
+        .await;
 }
 
-#[test]
-fn overwrite_disallowed_on_concurrent_read_test_mock() {
+#[tokio::test]
+async fn overwrite_disallowed_on_concurrent_read_test_mock() {
     overwrite_disallowed_on_concurrent_read_test(
         fuse::mock_session::new,
         "overwrite_disallowed_on_concurrent_read_test",
-    );
+    )
+    .await;
 }
 
-fn overwrite_fail_on_write_without_truncate_test(
+async fn overwrite_fail_on_write_without_truncate_test(
     creator_fn: impl TestSessionCreator,
     prefix: &str,
     rw_mode: ReadWriteMode,
@@ -1031,12 +1079,13 @@ fn overwrite_fail_on_write_without_truncate_test(
         filesystem_config,
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_config);
+    let test_session = creator_fn(prefix, test_config).await;
 
     // Make sure there's an existing directory and a file
     test_session
         .client()
         .put_object("dir/hello.txt", b"hello world")
+        .await
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
@@ -1068,24 +1117,28 @@ fn overwrite_fail_on_write_without_truncate_test(
 
 #[cfg(feature = "s3_tests")]
 #[test_matrix([WRITE_ONLY, READ_WRITE])]
-fn overwrite_fail_on_write_without_truncate_test_s3(rw_mode: ReadWriteMode) {
+#[tokio::test]
+async fn overwrite_fail_on_write_without_truncate_test_s3(rw_mode: ReadWriteMode) {
     overwrite_fail_on_write_without_truncate_test(
         fuse::s3_session::new,
         "overwrite_fail_on_write_without_truncate_test",
         rw_mode,
-    );
+    )
+    .await;
 }
 
 #[test_matrix([WRITE_ONLY, READ_WRITE])]
-fn overwrite_fail_on_write_without_truncate_test_mock(rw_mode: ReadWriteMode) {
+#[tokio::test]
+async fn overwrite_fail_on_write_without_truncate_test_mock(rw_mode: ReadWriteMode) {
     overwrite_fail_on_write_without_truncate_test(
         fuse::mock_session::new,
         "overwrite_fail_on_write_without_truncate_test",
         rw_mode,
-    );
+    )
+    .await;
 }
 
-fn overwrite_truncate_test(creator_fn: impl TestSessionCreator, prefix: &str, rw_mode: ReadWriteMode) {
+async fn overwrite_truncate_test(creator_fn: impl TestSessionCreator, prefix: &str, rw_mode: ReadWriteMode) {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -1094,12 +1147,13 @@ fn overwrite_truncate_test(creator_fn: impl TestSessionCreator, prefix: &str, rw
         filesystem_config,
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_config);
+    let test_session = creator_fn(prefix, test_config).await;
 
     // Make sure there's an existing directory and a file
     test_session
         .client()
         .put_object("dir/hello.txt", b"hello world")
+        .await
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
@@ -1122,16 +1176,18 @@ fn overwrite_truncate_test(creator_fn: impl TestSessionCreator, prefix: &str, rw
 
 #[cfg(feature = "s3_tests")]
 #[test_matrix([WRITE_ONLY, READ_WRITE])]
-fn overwrite_truncate_test_s3(rw_mode: ReadWriteMode) {
-    overwrite_truncate_test(fuse::s3_session::new, "overwrite_truncate_test", rw_mode);
+#[tokio::test]
+async fn overwrite_truncate_test_s3(rw_mode: ReadWriteMode) {
+    overwrite_truncate_test(fuse::s3_session::new, "overwrite_truncate_test", rw_mode).await;
 }
 
 #[test_matrix([WRITE_ONLY, READ_WRITE])]
-fn overwrite_truncate_test_mock(rw_mode: ReadWriteMode) {
-    overwrite_truncate_test(fuse::mock_session::new, "overwrite_truncate_test", rw_mode);
+#[tokio::test]
+async fn overwrite_truncate_test_mock(rw_mode: ReadWriteMode) {
+    overwrite_truncate_test(fuse::mock_session::new, "overwrite_truncate_test", rw_mode).await;
 }
 
-fn overwrite_after_read_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+async fn overwrite_after_read_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -1140,12 +1196,13 @@ fn overwrite_after_read_test(creator_fn: impl TestSessionCreator, prefix: &str) 
         filesystem_config,
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_config);
+    let test_session = creator_fn(prefix, test_config).await;
 
     // Make sure there's an existing directory and a file
     test_session
         .client()
         .put_object("dir/hello.txt", b"hello world")
+        .await
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
@@ -1168,18 +1225,19 @@ fn overwrite_after_read_test(creator_fn: impl TestSessionCreator, prefix: &str) 
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn overwrite_after_read_test_s3() {
-    overwrite_after_read_test(fuse::s3_session::new, "overwrite_after_read_test");
+#[tokio::test]
+async fn overwrite_after_read_test_s3() {
+    overwrite_after_read_test(fuse::s3_session::new, "overwrite_after_read_test").await;
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("overwrite_after_read_test"; "prefix")]
-fn overwrite_after_read_test_mock(prefix: &str) {
-    overwrite_after_read_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn overwrite_after_read_test_mock(prefix: &str) {
+    overwrite_after_read_test(fuse::mock_session::new, prefix).await;
 }
 
-fn concurrent_open_after_overwrite_truncate_test(
+async fn concurrent_open_after_overwrite_truncate_test(
     creator_fn: impl TestSessionCreator,
     prefix: &str,
     rw_mode: ReadWriteMode,
@@ -1192,12 +1250,13 @@ fn concurrent_open_after_overwrite_truncate_test(
         filesystem_config,
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_config);
+    let test_session = creator_fn(prefix, test_config).await;
 
     // Make sure there's an existing directory and a file
     test_session
         .client()
         .put_object("dir/hello.txt", b"hello world")
+        .await
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
@@ -1230,24 +1289,28 @@ fn concurrent_open_after_overwrite_truncate_test(
 
 #[cfg(feature = "s3_tests")]
 #[test_matrix([WRITE_ONLY, READ_WRITE])]
-fn concurrent_open_after_overwrite_truncate_test_s3(rw_mode: ReadWriteMode) {
+#[tokio::test]
+async fn concurrent_open_after_overwrite_truncate_test_s3(rw_mode: ReadWriteMode) {
     concurrent_open_after_overwrite_truncate_test(
         fuse::s3_session::new,
         "concurrent_open_after_overwrite_truncate_test",
         rw_mode,
-    );
+    )
+    .await;
 }
 
 #[test_matrix([WRITE_ONLY, READ_WRITE])]
-fn concurrent_open_after_overwrite_truncate_test_mock(rw_mode: ReadWriteMode) {
+#[tokio::test]
+async fn concurrent_open_after_overwrite_truncate_test_mock(rw_mode: ReadWriteMode) {
     concurrent_open_after_overwrite_truncate_test(
         fuse::mock_session::new,
         "concurrent_open_after_overwrite_truncate_test",
         rw_mode,
-    );
+    )
+    .await;
 }
 
-fn write_handle_no_update_existing_empty_file(
+async fn write_handle_no_update_existing_empty_file(
     creator_fn: impl TestSessionCreator,
     prefix: &str,
     allow_overwrite: bool,
@@ -1260,10 +1323,10 @@ fn write_handle_no_update_existing_empty_file(
         filesystem_config,
         ..Default::default()
     };
-    let test_session = creator_fn(prefix, test_config);
+    let test_session = creator_fn(prefix, test_config).await;
 
     // Make sure there's an existing directory and a file
-    test_session.client().put_object("dir/hello.txt", b"").unwrap();
+    test_session.client().put_object("dir/hello.txt", b"").await.unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
     let path = test_session.mount_path().join("dir/hello.txt");
@@ -1278,22 +1341,26 @@ fn write_handle_no_update_existing_empty_file(
 #[cfg(feature = "s3_tests")]
 #[test_case(true; "allow overwrite")]
 #[test_case(false; "disallow overwrite")]
-fn write_handle_no_update_existing_empty_file_s3(allow_overwrite: bool) {
+#[tokio::test]
+async fn write_handle_no_update_existing_empty_file_s3(allow_overwrite: bool) {
     write_handle_no_update_existing_empty_file(
         fuse::s3_session::new,
         "write_handle_no_update_existing_empty_file",
         allow_overwrite,
-    );
+    )
+    .await;
 }
 
 #[test_case(true; "allow overwrite")]
 #[test_case(false; "disallow overwrite")]
-fn write_handle_no_update_existing_empty_file_mock(allow_overwrite: bool) {
+#[tokio::test]
+async fn write_handle_no_update_existing_empty_file_mock(allow_overwrite: bool) {
     write_handle_no_update_existing_empty_file(
         fuse::mock_session::new,
         "write_handle_no_update_existing_empty_file",
         allow_overwrite,
-    );
+    )
+    .await;
 }
 
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
@@ -1345,16 +1412,14 @@ const SSE_S3_POLICY: &str = r#"{"Statement": [
 #[test_case(SSE_KMS_POLICY, ServerSideEncryption::new(Some("aws:kms".to_owned()), Some(get_test_kms_key_id())), false)]
 #[test_case(SSE_S3_POLICY, ServerSideEncryption::new(Some("aws:kms".to_owned()), None), true)]
 #[test_case(SSE_S3_POLICY, ServerSideEncryption::new(Some("AES256".to_owned()), None), false)]
-fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_fail: bool) {
-    use crate::common::tokio_block_on;
-
+#[tokio::test]
+async fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_fail: bool) {
     let policy = policy
         .to_string()
         .replace("__SSE_KEY_ARN__", get_test_kms_key_id().as_str());
-    let mut test_config =
-        TestSessionConfig::default().with_credentials(tokio_block_on(get_scoped_down_credentials(&policy)));
+    let mut test_config = TestSessionConfig::default().with_credentials(get_scoped_down_credentials(&policy).await);
     test_config.filesystem_config.server_side_encryption = sse;
-    let test_session = fuse::s3_session::new("sse_with_policy_test", test_config);
+    let test_session = fuse::s3_session::new("sse_with_policy_test", test_config).await;
     let file_name = "hello";
     let path = test_session.mount_path().join(file_name);
     let mut f = File::options().write(true).create(true).open(&path).unwrap();
@@ -1377,7 +1442,7 @@ fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_
         "filesystem must report correct size for the file"
     );
     assert!(
-        test_session.client().contains_key(file_name).unwrap(),
+        test_session.client().contains_key(file_name).await.unwrap(),
         "object must exist in S3"
     );
 }
@@ -1390,14 +1455,15 @@ fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_
 // limiter.
 #[test_case(512 * 1024 * 1024; "minimum_mem_limit")]
 #[test_case(2 * 1024 * 1024 * 1024; "2gib_mem_limit")]
-fn concurrent_open_for_write_test(mem_limit: usize) {
+#[tokio::test]
+async fn concurrent_open_for_write_test(mem_limit: usize) {
     let test_config = TestSessionConfig {
         mem_limit,
         ..Default::default()
     };
     let part_size = test_config.part_size;
     let max_files = write_buffer_budget_for(mem_limit, part_size) / part_size;
-    let test_session = fuse::s3_session::new("concurrent_open_for_write_test", test_config);
+    let test_session = fuse::s3_session::new("concurrent_open_for_write_test", test_config).await;
 
     let file_names: Vec<_> = (0..max_files).map(|i| format!("file-{i}")).collect();
 
@@ -1426,15 +1492,15 @@ fn concurrent_open_for_write_test(mem_limit: usize) {
 
     for file_name in file_names {
         assert!(
-            test_session.client().contains_key(&file_name).unwrap(),
+            test_session.client().contains_key(&file_name).await.unwrap(),
             "object must exist in S3"
         );
     }
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn open_for_write_returns_enomem_when_cap_exhausted() {
+#[tokio::test]
+async fn open_for_write_returns_enomem_when_cap_exhausted() {
     // With `mem_limit = 512 MiB`, `additional_mem_reserved = 128 MiB`, a one-part (8 MiB) read
     // reserve, and the default 8 MiB write part size, the cap is `(512 - 128 - 8) / 8 = 47` writers.
     // Derived from `write_buffer_budget_for` so it can't drift from the limiter.
@@ -1446,7 +1512,7 @@ fn open_for_write_returns_enomem_when_cap_exhausted() {
     };
     let part_size = test_config.part_size;
     let cap = write_buffer_budget_for(MEM_LIMIT, part_size) / part_size;
-    let test_session = fuse::s3_session::new("open_for_write_returns_enomem_when_cap_exhausted", test_config);
+    let test_session = fuse::s3_session::new("open_for_write_returns_enomem_when_cap_exhausted", test_config).await;
 
     // Open `cap` files for write — all should succeed.
     let mut open_files = Vec::with_capacity(cap);
@@ -1498,7 +1564,7 @@ const CHECKSUMS_CRC32C: Option<UploadChecksumAlgorithm> = Some(UploadChecksumAlg
 const CHECKSUMS_CRC64NVME: Option<UploadChecksumAlgorithm> = Some(UploadChecksumAlgorithm::Crc64nvme);
 const CHECKSUMS_DISABLED: Option<UploadChecksumAlgorithm> = None;
 
-fn write_checksums_test(
+async fn write_checksums_test(
     creator_fn: impl TestSessionCreator,
     algorithm: Option<UploadChecksumAlgorithm>,
     upload_mode: UploadMode,
@@ -1514,12 +1580,13 @@ fn write_checksums_test(
         .upload_mode(upload_mode),
         ..Default::default()
     };
-    let test_session = creator_fn("write_checksums_test", config);
+    let test_session = creator_fn("write_checksums_test", config).await;
 
     // Make sure there's an existing directory
     test_session
         .client()
         .put_object("dir/hello.txt", b"hello world")
+        .await
         .unwrap();
 
     let path = test_session.mount_path().join(KEY);
@@ -1540,7 +1607,7 @@ fn write_checksums_test(
     drop(f);
 
     // Now it's fsync'ed and closed, it should be present in S3
-    let (object_checksum, part_checksums) = test_session.client().get_object_checksums(KEY).unwrap();
+    let (object_checksum, part_checksums) = test_session.client().get_object_checksums(KEY).await.unwrap();
     match algorithm {
         Some(UploadChecksumAlgorithm::Crc64nvme) => {
             // CRC64NVME must be a full-object checksum (S3 doesn't support composite for it), so its
@@ -1615,22 +1682,25 @@ fn write_checksums_test(
 
 #[cfg(feature = "s3_tests")]
 #[test_matrix([CHECKSUMS_CRC32C, CHECKSUMS_CRC64NVME, CHECKSUMS_DISABLED])]
-fn write_checksums_test_s3(algorithm: Option<UploadChecksumAlgorithm>) {
-    write_checksums_test(fuse::s3_session::new, algorithm, ATOMIC_UPLOAD);
+#[tokio::test]
+async fn write_checksums_test_s3(algorithm: Option<UploadChecksumAlgorithm>) {
+    write_checksums_test(fuse::s3_session::new, algorithm, ATOMIC_UPLOAD).await;
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_matrix([CHECKSUMS_CRC32C, CHECKSUMS_CRC64NVME, CHECKSUMS_DISABLED])]
-fn write_checksums_test_s3_incremental_upload(algorithm: Option<UploadChecksumAlgorithm>) {
-    write_checksums_test(fuse::s3_session::new, algorithm, INCREMENTAL_UPLOAD);
+#[tokio::test]
+async fn write_checksums_test_s3_incremental_upload(algorithm: Option<UploadChecksumAlgorithm>) {
+    write_checksums_test(fuse::s3_session::new, algorithm, INCREMENTAL_UPLOAD).await;
 }
 
 #[test_matrix(
     [CHECKSUMS_CRC32C, CHECKSUMS_CRC64NVME, CHECKSUMS_DISABLED],
     [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD]
 )]
-fn write_checksums_test_mock(algorithm: Option<UploadChecksumAlgorithm>, upload_mode: UploadMode) {
-    write_checksums_test(fuse::mock_session::new, algorithm, upload_mode);
+#[tokio::test]
+async fn write_checksums_test_mock(algorithm: Option<UploadChecksumAlgorithm>, upload_mode: UploadMode) {
+    write_checksums_test(fuse::mock_session::new, algorithm, upload_mode).await;
 }
 
 #[derive(Debug)]
@@ -1640,7 +1710,7 @@ struct AppendTestConfig {
     fsync_after_write: bool,
 }
 
-fn append_test(creator_fn: impl TestSessionCreator, append_config: AppendTestConfig) {
+async fn append_test(creator_fn: impl TestSessionCreator, append_config: AppendTestConfig) {
     const KEY: &str = "append.txt";
 
     let config = TestSessionConfig {
@@ -1650,7 +1720,7 @@ fn append_test(creator_fn: impl TestSessionCreator, append_config: AppendTestCon
         },
         ..Default::default()
     };
-    let test_session = creator_fn("append_test", config);
+    let test_session = creator_fn("append_test", config).await;
 
     let path = test_session.mount_path().join(KEY);
 
@@ -1659,7 +1729,7 @@ fn append_test(creator_fn: impl TestSessionCreator, append_config: AppendTestCon
         expected.extend_from_slice(initial_content.as_bytes());
 
         // Create the file with the initial content
-        test_session.client().put_object(KEY, &expected).unwrap();
+        test_session.client().put_object(KEY, &expected).await.unwrap();
 
         // Check the file already exists and has the expected size
         let m = metadata(&path).unwrap();
@@ -1688,7 +1758,7 @@ fn append_test(creator_fn: impl TestSessionCreator, append_config: AppendTestCon
             let m = metadata(&path).unwrap();
             assert_eq!(m.len(), expected.len() as u64);
 
-            let new_size = test_session.client().get_object_size(KEY).unwrap();
+            let new_size = test_session.client().get_object_size(KEY).await.unwrap();
             assert_eq!(new_size, expected.len());
         }
     }
@@ -1711,8 +1781,9 @@ fn append_test(creator_fn: impl TestSessionCreator, append_config: AppendTestCon
 #[test_case(AppendTestConfig { initial_content: None, writes: vec!["one."], fsync_after_write: false })]
 #[test_case(AppendTestConfig { initial_content: Some(""), writes: vec!["one."], fsync_after_write: true })]
 #[test_case(AppendTestConfig { initial_content: Some(""), writes: vec!["one."], fsync_after_write: false })]
-fn append_test_s3(config: AppendTestConfig) {
-    append_test(fuse::s3_session::new, config);
+#[tokio::test]
+async fn append_test_s3(config: AppendTestConfig) {
+    append_test(fuse::s3_session::new, config).await;
 }
 
 #[test_case(AppendTestConfig { initial_content: Some("initial."), writes: vec!["one."], fsync_after_write: true })]
@@ -1723,11 +1794,12 @@ fn append_test_s3(config: AppendTestConfig) {
 #[test_case(AppendTestConfig { initial_content: None, writes: vec!["one."], fsync_after_write: false })]
 #[test_case(AppendTestConfig { initial_content: Some(""), writes: vec!["one."], fsync_after_write: true })]
 #[test_case(AppendTestConfig { initial_content: Some(""), writes: vec!["one."], fsync_after_write: false })]
-fn append_test_mock(config: AppendTestConfig) {
-    append_test(fuse::mock_session::new, config);
+#[tokio::test]
+async fn append_test_mock(config: AppendTestConfig) {
+    append_test(fuse::mock_session::new, config).await;
 }
 
-fn append_with_checksums(creator_fn: impl TestSessionCreator, checksum_algorithm: Option<ChecksumAlgorithm>) {
+async fn append_with_checksums(creator_fn: impl TestSessionCreator, checksum_algorithm: Option<ChecksumAlgorithm>) {
     const KEY: &str = "append.txt";
 
     let config = TestSessionConfig {
@@ -1737,7 +1809,7 @@ fn append_with_checksums(creator_fn: impl TestSessionCreator, checksum_algorithm
         },
         ..Default::default()
     };
-    let test_session = creator_fn("append_with_checksums", config);
+    let test_session = creator_fn("append_with_checksums", config).await;
 
     let path = test_session.mount_path().join(KEY);
 
@@ -1766,6 +1838,7 @@ fn append_with_checksums(creator_fn: impl TestSessionCreator, checksum_algorithm
     test_session
         .client()
         .put_object_single(KEY, INITIAL_CONTENT, params)
+        .await
         .unwrap();
 
     let mut f = File::options().read(false).append(true).open(&path).unwrap();
@@ -1787,8 +1860,9 @@ fn append_with_checksums(creator_fn: impl TestSessionCreator, checksum_algorithm
 #[test_case(Some(ChecksumAlgorithm::Crc32))]
 #[test_case(Some(ChecksumAlgorithm::Sha1))]
 #[test_case(Some(ChecksumAlgorithm::Sha256))]
-fn append_with_checksums_s3(checksum_algorithm: Option<ChecksumAlgorithm>) {
-    append_with_checksums(fuse::s3_session::new, checksum_algorithm);
+#[tokio::test]
+async fn append_with_checksums_s3(checksum_algorithm: Option<ChecksumAlgorithm>) {
+    append_with_checksums(fuse::s3_session::new, checksum_algorithm).await;
 }
 
 #[test_case(None)]
@@ -1797,11 +1871,12 @@ fn append_with_checksums_s3(checksum_algorithm: Option<ChecksumAlgorithm>) {
 #[test_case(Some(ChecksumAlgorithm::Crc32))]
 #[test_case(Some(ChecksumAlgorithm::Sha1))]
 #[test_case(Some(ChecksumAlgorithm::Sha256))]
-fn append_with_checksums_mock(checksum_algorithm: Option<ChecksumAlgorithm>) {
-    append_with_checksums(fuse::mock_session::new, checksum_algorithm);
+#[tokio::test]
+async fn append_with_checksums_mock(checksum_algorithm: Option<ChecksumAlgorithm>) {
+    append_with_checksums(fuse::mock_session::new, checksum_algorithm).await;
 }
 
-fn append_fails_on_object_replaced(creator_fn: impl TestSessionCreator, initial_content: &[u8]) {
+async fn append_fails_on_object_replaced(creator_fn: impl TestSessionCreator, initial_content: &[u8]) {
     const KEY: &str = "append.txt";
 
     let config = TestSessionConfig {
@@ -1811,12 +1886,12 @@ fn append_fails_on_object_replaced(creator_fn: impl TestSessionCreator, initial_
         },
         ..Default::default()
     };
-    let test_session = creator_fn("append_fails_on_object_replaced", config);
+    let test_session = creator_fn("append_fails_on_object_replaced", config).await;
 
     let path = test_session.mount_path().join(KEY);
 
     // Create the file with the initial content
-    test_session.client().put_object(KEY, initial_content).unwrap();
+    test_session.client().put_object(KEY, initial_content).await.unwrap();
 
     let f = File::options().read(false).append(true).open(&path).unwrap();
 
@@ -1825,7 +1900,7 @@ fn append_fails_on_object_replaced(creator_fn: impl TestSessionCreator, initial_
     // `initial_content` appends at offset 0, which is always valid.
     const REPLACED_CONTENT: &[u8] = b"replaced";
     assert!(initial_content.is_empty() || initial_content.len() == REPLACED_CONTENT.len());
-    test_session.client().put_object(KEY, REPLACED_CONTENT).unwrap();
+    test_session.client().put_object(KEY, REPLACED_CONTENT).await.unwrap();
 
     fn append_to_file(mut f: File) -> std::io::Result<()> {
         f.write_all(b"append")?;
@@ -1836,25 +1911,31 @@ fn append_fails_on_object_replaced(creator_fn: impl TestSessionCreator, initial_
     append_to_file(f).expect_err("appending to a replaced file should fail");
 
     // The rejected append must have left the replacing writer's content intact.
-    assert_eq!(test_session.client().get_object_content(KEY).unwrap(), REPLACED_CONTENT);
+    assert_eq!(
+        test_session.client().get_object_content(KEY).await.unwrap(),
+        REPLACED_CONTENT
+    );
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case(b"original"; "non-empty object")]
 #[test_case(b""; "empty object")]
-fn append_fails_on_object_replaced_s3(initial_content: &[u8]) {
-    append_fails_on_object_replaced(fuse::s3_session::new, initial_content);
+#[tokio::test]
+async fn append_fails_on_object_replaced_s3(initial_content: &[u8]) {
+    append_fails_on_object_replaced(fuse::s3_session::new, initial_content).await;
 }
 
 #[test_case(b"original"; "non-empty object")]
 #[test_case(b""; "empty object")]
-fn append_fails_on_object_replaced_mock(initial_content: &[u8]) {
-    append_fails_on_object_replaced(fuse::mock_session::new, initial_content);
+#[tokio::test]
+async fn append_fails_on_object_replaced_mock(initial_content: &[u8]) {
+    append_fails_on_object_replaced(fuse::mock_session::new, initial_content).await;
 }
 
-const MOCK: fn(&str, TestSessionConfig) -> fuse::TestSession = fuse::mock_session::new;
+// The test matrix below names its test cases after these aliases of the session creators.
+use fuse::mock_session::new as MOCK;
 #[cfg(feature = "s3_tests")]
-const S3: fn(&str, TestSessionConfig) -> fuse::TestSession = fuse::s3_session::new;
+use fuse::s3_session::new as S3;
 
 enum Open {
     ForReading,
@@ -1864,7 +1945,8 @@ enum Open {
 #[cfg_attr(feature = "s3_tests", test_matrix(S3, [Open::ForReading, Open::ForWriting], [ATOMIC_UPLOAD]))]
 #[cfg_attr(feature = "s3express_tests", test_matrix(S3, [Open::ForReading, Open::ForWriting], [INCREMENTAL_UPLOAD]))]
 #[test_matrix(MOCK, [Open::ForReading, Open::ForWriting], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
-fn open_after_closing_empty_file_test(
+#[tokio::test]
+async fn open_after_closing_empty_file_test(
     creator_fn: impl TestSessionCreator,
     second_open_type: Open,
     upload_mode: UploadMode,
@@ -1879,7 +1961,7 @@ fn open_after_closing_empty_file_test(
         .upload_mode(upload_mode),
         ..Default::default()
     };
-    let test_session = creator_fn("open_after_closing_empty_file_test", config);
+    let test_session = creator_fn("open_after_closing_empty_file_test", config).await;
 
     let path = test_session.mount_path().join(KEY);
 
@@ -1908,8 +1990,8 @@ fn open_after_closing_empty_file_test(
     drop(f2);
 }
 
-#[test]
-fn write_allowed_on_flushed_handle() {
+#[tokio::test]
+async fn write_allowed_on_flushed_handle() {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -1920,12 +2002,13 @@ fn write_allowed_on_flushed_handle() {
     };
 
     let prefix = "write_allowed_on_flushed_handle";
-    let test_session = fuse::mock_session::new(prefix, test_config);
+    let test_session = fuse::mock_session::new(prefix, test_config).await;
 
     // Make sure there's an existing directory and a file
     test_session
         .client()
         .put_object(&format!("dir/{}.txt", prefix), b"hello world")
+        .await
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
@@ -1947,8 +2030,8 @@ fn write_allowed_on_flushed_handle() {
     drop(dup_fh);
 }
 
-#[test]
-fn open_allowed_only_after_all_readers_flushed() {
+#[tokio::test]
+async fn open_allowed_only_after_all_readers_flushed() {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -1959,12 +2042,13 @@ fn open_allowed_only_after_all_readers_flushed() {
     };
 
     let prefix = "open_allowed_only_after_all_readers_flushed";
-    let test_session = fuse::mock_session::new(prefix, test_config);
+    let test_session = fuse::mock_session::new(prefix, test_config).await;
 
     // Make sure there's an existing directory and a file
     test_session
         .client()
         .put_object(&format!("dir/{}.txt", prefix), b"hello world")
+        .await
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
@@ -2020,8 +2104,8 @@ fn open_allowed_only_after_all_readers_flushed() {
     drop(write_fh);
 }
 
-#[test]
-fn open_disallowed_when_writer_exists() {
+#[tokio::test]
+async fn open_disallowed_when_writer_exists() {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -2032,12 +2116,13 @@ fn open_disallowed_when_writer_exists() {
     };
 
     let prefix = "open_disallowed_when_writer_exists";
-    let test_session = fuse::mock_session::new(prefix, test_config);
+    let test_session = fuse::mock_session::new(prefix, test_config).await;
 
     // Make sure there's an existing directory and a file
     test_session
         .client()
         .put_object(&format!("dir/{}.txt", prefix), b"hello world")
+        .await
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
@@ -2093,7 +2178,7 @@ fn open_disallowed_when_writer_exists() {
 }
 
 #[cfg(feature = "s3_tests")]
-fn infer_content_type_test(
+async fn infer_content_type_test(
     creator_fn: impl TestSessionCreator,
     test_name: &str,
     upload_mode: UploadMode,
@@ -2106,7 +2191,7 @@ fn infer_content_type_test(
         filesystem_config,
         ..Default::default()
     };
-    let test_session = creator_fn(test_name, config);
+    let test_session = creator_fn(test_name, config).await;
 
     let path = test_session.mount_path().join(key);
 
@@ -2115,12 +2200,12 @@ fn infer_content_type_test(
     f.sync_all().unwrap();
     drop(f);
 
-    let content_type = test_session.client().get_object_content_type(key).unwrap();
+    let content_type = test_session.client().get_object_content_type(key).await.unwrap();
     assert_eq!(content_type.as_deref(), Some(expected_content_type));
 }
 
 #[cfg(feature = "s3_tests")]
-fn infer_content_type_overwrite_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
+async fn infer_content_type_overwrite_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
     let mut filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -2131,10 +2216,14 @@ fn infer_content_type_overwrite_test(creator_fn: impl TestSessionCreator, upload
         filesystem_config,
         ..Default::default()
     };
-    let test_session = creator_fn("infer_content_type_overwrite_test", config);
+    let test_session = creator_fn("infer_content_type_overwrite_test", config).await;
 
     let key = "image.png";
-    test_session.client().put_object(key, b"existing content").unwrap();
+    test_session
+        .client()
+        .put_object(key, b"existing content")
+        .await
+        .unwrap();
 
     let path = test_session.mount_path().join(key);
     let mut f = File::options().write(true).truncate(true).open(&path).unwrap();
@@ -2142,66 +2231,70 @@ fn infer_content_type_overwrite_test(creator_fn: impl TestSessionCreator, upload
     f.sync_all().unwrap();
     drop(f);
 
-    let content_type = test_session.client().get_object_content_type(key).unwrap();
+    let content_type = test_session.client().get_object_content_type(key).await.unwrap();
     assert_eq!(content_type.as_deref(), Some("image/png"));
 }
 
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
-#[test]
-fn infer_content_type_test_s3_atomic() {
+#[tokio::test]
+async fn infer_content_type_test_s3_atomic() {
     infer_content_type_test(
         fuse::s3_session::new,
         "infer_content_type_test_s3_atomic",
         ATOMIC_UPLOAD,
         "image.png",
         "image/png",
-    );
+    )
+    .await;
 }
 
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
-#[test]
-fn infer_content_type_without_extension_test_s3_atomic() {
+#[tokio::test]
+async fn infer_content_type_without_extension_test_s3_atomic() {
     infer_content_type_test(
         fuse::s3_session::new,
         "infer_content_type_without_extension_test_s3_atomic",
         ATOMIC_UPLOAD,
         "no_extension",
         "binary/octet-stream",
-    );
+    )
+    .await;
 }
 
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
-#[test]
-fn infer_content_type_overwrite_test_s3_atomic() {
-    infer_content_type_overwrite_test(fuse::s3_session::new, ATOMIC_UPLOAD);
+#[tokio::test]
+async fn infer_content_type_overwrite_test_s3_atomic() {
+    infer_content_type_overwrite_test(fuse::s3_session::new, ATOMIC_UPLOAD).await;
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn infer_content_type_test_s3_incremental() {
+#[tokio::test]
+async fn infer_content_type_test_s3_incremental() {
     infer_content_type_test(
         fuse::s3_session::new,
         "infer_content_type_test_s3_incremental",
         INCREMENTAL_UPLOAD,
         "image.png",
         "image/png",
-    );
+    )
+    .await;
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn infer_content_type_without_extension_test_s3_incremental() {
+#[tokio::test]
+async fn infer_content_type_without_extension_test_s3_incremental() {
     infer_content_type_test(
         fuse::s3_session::new,
         "infer_content_type_without_extension_test_s3_incremental",
         INCREMENTAL_UPLOAD,
         "no_extension",
         "binary/octet-stream",
-    );
+    )
+    .await;
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test]
-fn infer_content_type_overwrite_test_s3_incremental() {
-    infer_content_type_overwrite_test(fuse::s3_session::new, INCREMENTAL_UPLOAD);
+#[tokio::test]
+async fn infer_content_type_overwrite_test_s3_incremental() {
+    infer_content_type_overwrite_test(fuse::s3_session::new, INCREMENTAL_UPLOAD).await;
 }

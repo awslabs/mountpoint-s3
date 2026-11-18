@@ -30,8 +30,8 @@ fn setup(mount_path: &Path) -> Box<dyn SetupGuard> {
     Box::new(hold_budget_parts(SCOPE, held_parts, mount_path))
 }
 
-#[test]
-fn cache_hit_vs_miss_held_budget() {
+#[tokio::test]
+async fn cache_hit_vs_miss_held_budget() {
     let hit_reader: Arc<dyn Worker> = Arc::new(SequentialReader {
         target: MEDIUM_READ_OBJECT,
         chunk: PART_SIZE,
@@ -57,5 +57,6 @@ fn cache_hit_vs_miss_held_budget() {
         workers,
         max_latency: default_max_latency,
         max_idle: default_max_idle,
-    });
+    })
+    .await;
 }

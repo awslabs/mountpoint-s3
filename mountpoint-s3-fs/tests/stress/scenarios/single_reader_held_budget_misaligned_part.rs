@@ -24,8 +24,8 @@ fn hold(mount_path: &Path) -> Box<dyn SetupGuard> {
     Box::new(hold_budget_parts(SCOPE, held_parts, mount_path))
 }
 
-#[test]
-fn single_reader_held_budget_misaligned_part() {
+#[tokio::test]
+async fn single_reader_held_budget_misaligned_part() {
     let reader: Arc<dyn Worker> = Arc::new(SequentialReader {
         target: LARGE_READ_OBJECT,
         chunk: READ_CHUNK,
@@ -42,5 +42,6 @@ fn single_reader_held_budget_misaligned_part() {
         workers,
         max_latency: default_max_latency,
         max_idle: default_max_idle,
-    });
+    })
+    .await;
 }

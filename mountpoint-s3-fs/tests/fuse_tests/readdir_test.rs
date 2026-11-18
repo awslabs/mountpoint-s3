@@ -26,14 +26,14 @@ impl File {
     }
 }
 
-fn prepare_fs(test_client: &dyn TestClient, map: &HashMap<String, File>) {
+async fn prepare_fs(test_client: &dyn TestClient, map: &HashMap<String, File>) {
     for (name, file) in map {
         let content = vec![file.pat; file.len];
-        test_client.put_object(name, &content).unwrap();
+        test_client.put_object(name, &content).await.unwrap();
     }
 }
 
-fn readdir(creator_fn: impl TestSessionCreator, prefix: &str, rng_seed: u64) {
+async fn readdir(creator_fn: impl TestSessionCreator, prefix: &str, rng_seed: u64) {
     let readdir_size = 5;
     let filesystem_config = S3FilesystemConfig {
         readdir_size,
@@ -57,9 +57,10 @@ fn readdir(creator_fn: impl TestSessionCreator, prefix: &str, rng_seed: u64) {
             filesystem_config,
             ..Default::default()
         },
-    );
+    )
+    .await;
 
-    prepare_fs(test_session.client(), &map);
+    prepare_fs(test_session.client(), &map).await;
 
     let read_dir_iter = fs::read_dir(test_session.mount_path()).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
@@ -69,7 +70,7 @@ fn readdir(creator_fn: impl TestSessionCreator, prefix: &str, rng_seed: u64) {
     );
 }
 
-fn readdir_while_writing(creator_fn: impl TestSessionCreator, prefix: &str, rng_seed: u64) {
+async fn readdir_while_writing(creator_fn: impl TestSessionCreator, prefix: &str, rng_seed: u64) {
     let readdir_size = 5;
     let filesystem_config = S3FilesystemConfig {
         readdir_size,
@@ -92,9 +93,10 @@ fn readdir_while_writing(creator_fn: impl TestSessionCreator, prefix: &str, rng_
             filesystem_config,
             ..Default::default()
         },
-    );
+    )
+    .await;
 
-    prepare_fs(test_session.client(), &map);
+    prepare_fs(test_session.client(), &map).await;
 
     const OBJECT_SIZE: usize = 1024;
     // open some new files for write and leave it open
@@ -127,33 +129,33 @@ fn readdir_while_writing(creator_fn: impl TestSessionCreator, prefix: &str, rng_
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn readdir_s3() {
+#[tokio::test]
+async fn readdir_s3() {
     let rng_seed = rand::rng().random();
-    readdir(fuse::s3_session::new, "", rng_seed);
+    readdir(fuse::s3_session::new, "", rng_seed).await;
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn readdir_while_writing_s3() {
+#[tokio::test]
+async fn readdir_while_writing_s3() {
     let rng_seed = rand::rng().random();
-    readdir_while_writing(fuse::s3_session::new, "", rng_seed);
+    readdir_while_writing(fuse::s3_session::new, "", rng_seed).await;
 }
 
-#[test]
-fn readdir_mock() {
+#[tokio::test]
+async fn readdir_mock() {
     let iteration = 10;
     for _ in 0..iteration {
         let rng_seed = rand::rng().random();
-        readdir(fuse::mock_session::new, "", rng_seed);
+        readdir(fuse::mock_session::new, "", rng_seed).await;
     }
 }
 
-#[test]
-fn readdir_while_writing_mock() {
+#[tokio::test]
+async fn readdir_while_writing_mock() {
     let iteration = 10;
     for _ in 0..iteration {
         let rng_seed = rand::rng().random();
-        readdir_while_writing(fuse::mock_session::new, "", rng_seed);
+        readdir_while_writing(fuse::mock_session::new, "", rng_seed).await;
     }
 }

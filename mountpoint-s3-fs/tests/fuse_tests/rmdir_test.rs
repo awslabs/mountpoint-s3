@@ -3,8 +3,8 @@ use std::fs::{self, DirBuilder, File};
 use std::io::Write;
 use test_case::test_case;
 
-fn rmdir_local_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
-    let test_session = creator_fn(prefix, Default::default());
+async fn rmdir_local_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default()).await;
 
     // Create local directory
     let main_dirname = "test_dir";
@@ -63,19 +63,21 @@ fn rmdir_local_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
 
 #[test_case(""; "no prefix")]
 #[test_case("rmdir_test"; "prefix")]
-fn rmdir_local_dir_test_mock(prefix: &str) {
-    rmdir_local_dir_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rmdir_local_dir_test_mock(prefix: &str) {
+    rmdir_local_dir_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3_tests")]
 #[test_case(""; "no prefix")]
 #[test_case("rmdir_test"; "prefix")]
-fn rmdir_local_dir_test_s3(prefix: &str) {
-    rmdir_local_dir_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn rmdir_local_dir_test_s3(prefix: &str) {
+    rmdir_local_dir_test(fuse::s3_session::new, prefix).await;
 }
 
-fn rmdir_remote_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
-    let test_session = creator_fn(prefix, Default::default());
+async fn rmdir_remote_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default()).await;
 
     let main_dirname = "test_dir";
     let main_path = test_session.mount_path().join(main_dirname);
@@ -84,6 +86,7 @@ fn rmdir_remote_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     test_session
         .client()
         .put_object(&format!("{main_dirname}/{remote_dirname}/hello.txt"), b"hello world")
+        .await
         .unwrap();
     let remote_path = main_path.join(remote_dirname);
     let err = fs::remove_dir(remote_path).expect_err("removing remote directory should fail");
@@ -99,6 +102,7 @@ fn rmdir_remote_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     test_session
         .client()
         .put_object(&format!("{main_dirname}/{empty_remote_dirname}/"), b"")
+        .await
         .unwrap();
     let empty_remote_path = main_path.join(empty_remote_dirname);
     let err = fs::remove_dir(empty_remote_path).expect_err("removing remote directory should fail");
@@ -108,6 +112,7 @@ fn rmdir_remote_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     test_session
         .client()
         .put_object(&format!("{main_dirname}/{remote_filename}"), b"Hello World")
+        .await
         .unwrap();
     let remote_file_path = main_path.join(remote_filename);
     let err = fs::remove_dir(remote_file_path).expect_err("removing file through rmdir should fail");
@@ -124,19 +129,21 @@ fn rmdir_remote_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
 
 #[test_case(""; "no prefix")]
 #[test_case("rmdir_test"; "prefix")]
-fn rmdir_remote_dir_test_mock(prefix: &str) {
-    rmdir_remote_dir_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn rmdir_remote_dir_test_mock(prefix: &str) {
+    rmdir_remote_dir_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3_tests")]
 #[test_case(""; "no prefix")]
 #[test_case("rmdir_test"; "prefix")]
-fn rmdir_remote_dir_test_s3(prefix: &str) {
-    rmdir_remote_dir_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn rmdir_remote_dir_test_s3(prefix: &str) {
+    rmdir_remote_dir_test(fuse::s3_session::new, prefix).await;
 }
 
-fn create_after_rmdir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
-    let test_session = creator_fn(prefix, Default::default());
+async fn create_after_rmdir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default()).await;
 
     // Create local directory
     let main_dirname = "test_dir";
@@ -166,13 +173,15 @@ fn create_after_rmdir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
 
 #[test_case(""; "no prefix")]
 #[test_case("rmdir_test"; "prefix")]
-fn create_after_rmdir_test_mock(prefix: &str) {
-    create_after_rmdir_test(fuse::mock_session::new, prefix);
+#[tokio::test]
+async fn create_after_rmdir_test_mock(prefix: &str) {
+    create_after_rmdir_test(fuse::mock_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3_tests")]
 #[test_case(""; "no prefix")]
 #[test_case("rmdir_test"; "prefix")]
-fn create_after_rmdir_test_s3(prefix: &str) {
-    create_after_rmdir_test(fuse::s3_session::new, prefix);
+#[tokio::test]
+async fn create_after_rmdir_test_s3(prefix: &str) {
+    create_after_rmdir_test(fuse::s3_session::new, prefix).await;
 }
