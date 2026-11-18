@@ -2,39 +2,69 @@
 
 use std::fmt::Write;
 
-use crate::model::{Fetch, FetchResult, Outcome, Request};
+use crate::model::{Chain, Fetch, FetchResult, Outcome, Request, Scenario, Sdk};
 use crate::run::Run;
 
 /// The cell of one chain in one scenario.
 pub enum Cell {
-    /// The outcome matches the expectation.
+    /// The outcome matches the scenario's expectation.
     Pass(Outcome),
-    /// The outcome doesn't match the expectation.
+    /// The outcome matches a known difference, which `fix` will remove.
+    Todo { fix: &'static str, outcome: Outcome },
+    /// The outcome matches a difference adopted and documented at `doc`.
+    Adopted { doc: &'static str, outcome: Outcome },
+    /// The outcome doesn't match what the chain is expected to do.
     Mismatch { expected: Outcome, actual: Run },
-    /// The chain doesn't run.
-    NotRun,
     /// The scenario is slow, and runs only with `--include-slow`.
     Skipped,
 }
 
 impl Cell {
+    /// The cell of `chain` in `scenario`, which did `run`.
+    pub fn new(scenario: &Scenario, chain: Chain, run: Run) -> Self {
+        let expected = scenario.expected(chain);
+        match run {
+            Run::Done(outcome, _) if &outcome == expected => match (chain, &scenario.sdk) {
+                (Chain::Sdk, Sdk::Todo { fix, .. }) => Cell::Todo { fix, outcome },
+                (Chain::Sdk, Sdk::Adopted { doc, .. }) => Cell::Adopted { doc, outcome },
+                _ => Cell::Pass(outcome),
+            },
+            actual => Cell::Mismatch {
+                expected: expected.clone(),
+                actual,
+            },
+        }
+    }
+
     pub fn failed(&self) -> bool {
         matches!(self, Cell::Mismatch { .. })
     }
 
-    fn render(&self) -> String {
+    fn symbol(&self) -> &'static str {
         match self {
-            Cell::Pass(outcome) => format!("✅ {}", summary(outcome)),
+            Cell::Pass(_) => "✅",
+            Cell::Todo { .. } => "🚧",
+            Cell::Adopted { .. } => "📝",
+            Cell::Mismatch { .. } => "🚨",
+            Cell::Skipped => "⏭",
+        }
+    }
+
+    fn render(&self) -> String {
+        let symbol = self.symbol();
+        match self {
+            Cell::Pass(outcome) => format!("{symbol} {}", summary(outcome)),
+            Cell::Todo { fix, outcome } => format!("{symbol} {} · TODO: {fix}", summary(outcome)),
+            Cell::Adopted { doc, outcome } => format!("{symbol} {} · see `{doc}`", summary(outcome)),
             Cell::Mismatch {
                 actual: Run::Done(outcome, _),
                 ..
-            } => format!("🚨 {}", summary(outcome)),
+            } => format!("{symbol} {}", summary(outcome)),
             Cell::Mismatch {
                 actual: Run::Crashed(_),
                 ..
-            } => "🚨 crashed".to_string(),
-            Cell::NotRun => "➖".to_string(),
-            Cell::Skipped => "⏭ slow, not run".to_string(),
+            } => format!("{symbol} crashed"),
+            Cell::Skipped => format!("{symbol} slow, not run"),
         }
     }
 }
@@ -45,7 +75,7 @@ pub struct Row {
     pub sdk: Cell,
 }
 
-/// The report's Markdown, then the details of every mismatch.
+/// The report's Markdown: the table, a summary, then the details of every mismatch.
 pub fn render(rows: &[Row]) -> String {
     let mut out = String::from("| Scenario | CRT | SDK |\n|---|---|---|\n");
     for row in rows {
@@ -58,14 +88,10 @@ pub fn render(rows: &[Row]) -> String {
         )
         .unwrap();
     }
-    let count = |cell: fn(&Row) -> &Cell, pick: fn(&Cell) -> bool| rows.iter().filter(|row| pick(cell(row))).count();
-    let column = |name: &str, cell: fn(&Row) -> &Cell| {
-        let passed = count(cell, |c| matches!(c, Cell::Pass(_)));
-        let failed = count(cell, Cell::failed);
-        let not_run = count(cell, |c| matches!(c, Cell::NotRun));
-        let skipped = count(cell, |c| matches!(c, Cell::Skipped));
+    let column = |name: &str, cells: Vec<&Cell>| {
         let mut parts = vec![];
-        for (n, symbol) in [(passed, "✅"), (failed, "🚨"), (not_run, "➖"), (skipped, "⏭")] {
+        for symbol in ["✅", "📝", "🚧", "🚨", "⏭"] {
+            let n = cells.iter().filter(|cell| cell.symbol() == symbol).count();
             if n > 0 {
                 parts.push(format!("{n} {symbol}"));
             }
@@ -76,8 +102,26 @@ pub fn render(rows: &[Row]) -> String {
         out,
         "\n{} scenarios. {}. {}.",
         rows.len(),
-        column("CRT", |row| &row.crt),
-        column("SDK", |row| &row.sdk)
+        column("CRT", rows.iter().map(|row| &row.crt).collect()),
+        column("SDK", rows.iter().map(|row| &row.sdk).collect())
+    )
+    .unwrap();
+    let mut fixes = rows
+        .iter()
+        .filter_map(|row| match &row.sdk {
+            Cell::Todo { fix, .. } => Some(*fix),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    fixes.sort();
+    fixes.dedup();
+    if !fixes.is_empty() {
+        writeln!(out, "\nTODO: {}.", fixes.join("; ")).unwrap();
+    }
+    writeln!(
+        out,
+        "\n✅ as expected (today's CRT behaviour) · 📝 adopted and documented difference · 🚧 known difference, \
+         with the change that removes it · 🚨 unexpected outcome · ⏭ slow, run with `--include-slow`"
     )
     .unwrap();
     for row in rows {
