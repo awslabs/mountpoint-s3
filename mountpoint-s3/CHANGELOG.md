@@ -1,6 +1,6 @@
 ## Unreleased (v1.25.1)
 
-* Fix Mountpoint switching to a different AWS credentials source when the one it is using fails. ([#XXXX](https://github.com/awslabs/mountpoint-s3/pull/XXXX))
+* Fix Mountpoint switching to a different AWS credentials source when the one it is using fails. ([#2049](https://github.com/awslabs/mountpoint-s3/pull/2049))
 * Fix the local disk cache (`--cache`) exceeding `--max-cache-size`, or leaving less than 5% of its file system free without `--max-cache-size`, by up to one block per cache write in progress. ([#2041](https://github.com/awslabs/mountpoint-s3/pull/2041))
 
 ## v1.25.0 (November 12, 2026)
