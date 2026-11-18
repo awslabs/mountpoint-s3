@@ -11,7 +11,6 @@ const SSO_TOKEN_CACHE: &str = ".aws/sso/cache/a0f1490a20d0211c997b44bc357e1972de
 
 // The changes that remove the known differences of the SDK chain.
 const STS: &str = "STS region and endpoint chosen as the CRT does";
-const IMDS: &str = "IMDS credentials through the CRT's IMDS provider";
 const METADATA_DISABLED: &str = "adopt the SDK's AWS_EC2_METADATA_DISABLED rule";
 const PROCESS_VERSION: &str = "adopt the SDK's credential_process output check";
 const REREAD: &str = "read the shared files again on every refresh";
@@ -528,22 +527,17 @@ fn instance_metadata() -> Vec<Scenario> {
         scenario("IMDS: IMDSv2")
             .imds(imds("IMDS-1"))
             .expect([signed_with_token("IMDS-1").requests(imds_v2())]),
-        token_failure("IMDS: token 403, IMDSv1 fallback", TokenResponse::Status(403))
-            .sdk_todo(IMDS, [no_credentials().requests([imds_token()])]),
-        token_failure("IMDS: token 404, IMDSv1 fallback", TokenResponse::Status(404))
-            .sdk_todo(IMDS, [no_credentials().requests([imds_token()])]),
-        token_failure("IMDS: token 405, IMDSv1 fallback", TokenResponse::Status(405))
-            .sdk_todo(IMDS, [no_credentials().requests([imds_token()])]),
-        token_failure("IMDS: token 500, IMDSv1 fallback", TokenResponse::Status(500))
-            .sdk_todo(IMDS, [no_credentials().requests(vec![imds_token(); 4])]),
+        token_failure("IMDS: token 403, IMDSv1 fallback", TokenResponse::Status(403)),
+        token_failure("IMDS: token 404, IMDSv1 fallback", TokenResponse::Status(404)),
+        token_failure("IMDS: token 405, IMDSv1 fallback", TokenResponse::Status(405)),
+        token_failure("IMDS: token 500, IMDSv1 fallback", TokenResponse::Status(500)),
         scenario("IMDS: token request hangs, retry then IMDSv1 fallback")
             .imds(imds("IMDS-1").token(TokenResponse::Hang))
             .expect([signed_with_token("IMDS-1").requests({
                 let mut requests = vec![imds_token()];
                 requests.extend(imds_v1_after_token());
                 requests
-            })])
-            .sdk_todo(IMDS, [no_credentials().requests([imds_token()])]),
+            })]),
         scenario("IMDS: token 400")
             .imds(imds("IMDS-1").token(TokenResponse::Status(400)))
             .expect([no_credentials().requests([imds_token()])]),
@@ -552,13 +546,13 @@ fn instance_metadata() -> Vec<Scenario> {
             TokenResponse::Status(403),
         )
         .env("AWS_EC2_METADATA_V1_DISABLED", "true")
-        .sdk_todo(IMDS, [no_credentials().requests([imds_token()])]),
+        .sdk_adopted(CHANGELOG, [no_credentials().requests([imds_token()])]),
         token_failure(
             "IMDS: token 403 with ec2_metadata_v1_disabled in the profile",
             TokenResponse::Status(403),
         )
         .file(CONFIG, "[default]\nec2_metadata_v1_disabled = true\n")
-        .sdk_todo(IMDS, [no_credentials().requests([imds_token()])]),
+        .sdk_adopted(CHANGELOG, [no_credentials().requests([imds_token()])]),
         scenario("IMDS: AWS_EC2_METADATA_DISABLED=true")
             .env("AWS_EC2_METADATA_DISABLED", "true")
             .imds(imds("IMDS-1"))
@@ -585,14 +579,7 @@ fn instance_metadata() -> Vec<Scenario> {
             .expect([
                 signed_with_token("IMDS-1").requests(imds_v2()),
                 no_credentials().requests([imds_v2_credentials()[0].clone()]),
-            ])
-            .sdk_todo(
-                IMDS,
-                [
-                    signed_with_token("IMDS-1").requests(imds_v2()),
-                    signed_with_token("IMDS-1").requests(vec![imds_v2_credentials()[0].clone(); 4]),
-                ],
-            ),
+            ]),
         scenario("IMDS: concurrent requests share one fetch")
             .imds(imds("IMDS-1"))
             .steps([Action::FetchConcurrently(8)])
