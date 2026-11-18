@@ -33,6 +33,8 @@ We recommend you use short-term AWS credentials whenever possible. Mountpoint su
 
 If you need to use long-term AWS credentials, you can [store them in the configuration and credentials files](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html) in `~/.aws`, or [specify them with environment variables](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html) (`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`).
 
+On Amazon EC2, Mountpoint gets credentials from the instance metadata service (IMDS) with IMDSv2. If the IMDSv2 token request fails, for example in a container when the instance's [response hop limit](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-IMDS-existing-instances.html) is 1, Mountpoint falls back to IMDSv1. The IMDSv1 fallback is deprecated, and a future release will use only IMDSv2. To use only IMDSv2 now, set the `AWS_EC2_METADATA_V1_DISABLED` environment variable, or the `ec2_metadata_v1_disabled` setting of the profile, to `true`.
+
 To manage multiple AWS credentials, you can use the `--profile` command-line argument or `AWS_PROFILE` environment variable to select a profile from the configuration and credentials files.
 
 For public buckets that do not require AWS credentials, you can use the `--no-sign-request` command-line flag to disable AWS credentials.

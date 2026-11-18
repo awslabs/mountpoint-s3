@@ -14,12 +14,12 @@ use mountpoint_s3_crt_sys::{
     aws_credentials_options, aws_credentials_provider, aws_credentials_provider_acquire,
     aws_credentials_provider_cached_options, aws_credentials_provider_chain_default_options,
     aws_credentials_provider_delegate_options, aws_credentials_provider_get_credentials,
-    aws_credentials_provider_new_anonymous, aws_credentials_provider_new_cached,
+    aws_credentials_provider_imds_options, aws_credentials_provider_new_anonymous, aws_credentials_provider_new_cached,
     aws_credentials_provider_new_chain_default, aws_credentials_provider_new_delegate,
-    aws_credentials_provider_new_profile, aws_credentials_provider_new_static,
+    aws_credentials_provider_new_imds, aws_credentials_provider_new_profile, aws_credentials_provider_new_static,
     aws_credentials_provider_profile_options, aws_credentials_provider_release,
     aws_credentials_provider_shutdown_options, aws_credentials_provider_static_options, aws_credentials_release,
-    aws_on_get_credentials_callback_fn,
+    aws_http_proxy_env_var_type, aws_on_get_credentials_callback_fn, proxy_env_var_settings,
 };
 
 use crate::auth::{ErrorCode, auth_library_init};
@@ -55,6 +55,15 @@ pub struct CredentialsProviderProfileOptions<'a> {
     pub profile_name_override: &'a str,
     /// Optional custom TLS context. See [`CredentialsProviderChainDefaultOptions::tls_ctx`].
     pub tls_ctx: Option<&'a TlsContext>,
+}
+
+/// Options for creating an instance metadata (IMDS) credentials provider
+#[derive(Debug)]
+pub struct CredentialsProviderImdsOptions<'a> {
+    /// The client bootstrap this credentials provider should use to setup channels
+    pub bootstrap: &'a mut ClientBootstrap,
+    /// Don't fall back to IMDSv1 when the IMDSv2 token request fails.
+    pub ec2_metadata_v1_disabled: bool,
 }
 
 /// Options for creating a static credentials provider
@@ -126,6 +135,32 @@ impl CredentialsProvider {
         let inner = unsafe {
             aws_credentials_provider_new_anonymous(allocator.inner.as_ptr(), std::ptr::null_mut()).ok_or_last_error()?
         };
+
+        Ok(Self { inner })
+    }
+
+    /// Creates the EC2 instance metadata (IMDS) credentials provider, without a cache. It uses
+    /// IMDSv2, and falls back to IMDSv1 when the token request fails, unless
+    /// [CredentialsProviderImdsOptions::ec2_metadata_v1_disabled] is set. Its requests go through the
+    /// proxy in `HTTP_PROXY`, unless `NO_PROXY` covers the IMDS address.
+    pub fn new_imds(allocator: &Allocator, options: CredentialsProviderImdsOptions) -> Result<Self, Error> {
+        auth_library_init(allocator);
+
+        let proxy_ev_settings = proxy_env_var_settings {
+            env_var_type: aws_http_proxy_env_var_type::AWS_HPEV_ENABLE,
+            ..Default::default()
+        };
+        let inner_options = aws_credentials_provider_imds_options {
+            bootstrap: options.bootstrap.inner.as_ptr(),
+            ec2_metadata_v1_disabled: options.ec2_metadata_v1_disabled,
+            proxy_ev_settings: &raw const proxy_ev_settings,
+            ..Default::default()
+        };
+
+        // SAFETY: aws_credentials_provider_new_imds acquires a reference to the bootstrap, and reads
+        // the proxy settings only during the call.
+        let inner =
+            unsafe { aws_credentials_provider_new_imds(allocator.inner.as_ptr(), &inner_options).ok_or_last_error()? };
 
         Ok(Self { inner })
     }
