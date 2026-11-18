@@ -4,140 +4,6 @@ window.BENCHMARK_DATA = {
       {
         "commit": {
           "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "7c8d62364774d42086c0ac62de1693ef2bc68fc2",
-          "message": "Fix `max_attempts = 1` still retrying failed requests (#1996)\n\nSetting the maximum number of attempts to 1\n(`S3ClientConfig::max_attempts` or `AWS_MAX_ATTEMPTS=1`) did not disable\nretries: failed requests were still attempted up to 4 times. The client\npasses `max_retries = attempts - 1` to the CRT's standard retry\nstrategy, which treats `max_retries = 0` as \"use the default\" (3\nretries).\n\nThe client now configures retries through the S3 client's built-in retry\nconfig, with the new `ClientConfig::retry_config` in\n`mountpoint-s3-crt`, instead of building a retry strategy: the no-retry\nmode (`AWS_S3_RETRY_MODE_NONE`, from awslabs/aws-c-s3#705) for 1\nattempt, and the standard mode with `max_attempts - 1` retries\notherwise, with the same backoff settings as before. In the no-retry\nmode the S3 client makes each request once, without acquiring a retry\ntoken, and also turns off the first-byte timeout it otherwise sets on\nUploadPart requests, which relies on retrying the parts that time out.\n\n`AWS_MAX_ATTEMPTS` must now be a positive integer. Other values make\nclient creation fail with `NewClientError::InvalidConfiguration`, so\nMountpoint fails to start with a clear error. Previously `0` selected\nthe CRT's default of 4 attempts, and other invalid values were silently\nignored.\n\nNew tests run against a local mock server (wiremock). They count the\nrequests made for failing ListObjectsV2 and HeadObject calls with 1, 2\nand 3 attempts, set from the client config or the environment, and check\nthat invalid `AWS_MAX_ATTEMPTS` values are rejected. The single-attempt\nand invalid-value tests fail without this fix.\n\n### Does this change impact existing behavior?\n\nYes:\n- Bug fix: `AWS_MAX_ATTEMPTS=1` and `max_attempts(1)` now make a single\nattempt.\n- Breaking change: Mountpoint and `S3CrtClient::new` now fail when\n`AWS_MAX_ATTEMPTS` is set to anything other than a positive integer (for\nexample `0`, `-1`, `\"\"` or `many`). These values were silently ignored,\nexcept `0`, which gave 4 attempts instead of no retries. Failing at\nstartup is safer than running with a different number of attempts than\nthe user asked for.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes. There are changelog entries for `mountpoint-s3-crt`,\n`mountpoint-s3-client` and `mountpoint-s3`.\n- `mountpoint-s3` is bumped to 1.25.0 for the breaking change.\n- `mountpoint-s3-crt` 0.17.0 (new `ClientConfig::retry_config`, which\nreplaces the removed `ClientConfig::retry_strategy`) and\n`mountpoint-s3-client` 0.23.0 are already bumped past their latest\nreleases.\n- `mountpoint-s3-fs` gets the change through its existing \"Update to\nlatest S3 client\" entry (0.12.0, already bumped).\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
-          "timestamp": "2026-10-30T18:39:55Z",
-          "tree_id": "a98db25d75e805a696db1f0ab5a364c65c8df83f",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/7c8d62364774d42086c0ac62de1693ef2bc68fc2"
-        },
-        "date": 1793397453953,
-        "tool": "customBiggerIsBetter",
-        "benches": [
-          {
-            "name": "sequential_read,sequential_write_four_threads",
-            "value": 4861.4671875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_two_threads,sequential_write_two_threads",
-            "value": 4363.023242187501,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads,sequential_write",
-            "value": 5739.39638671875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io",
-            "value": 8.45146484375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io_small_file",
-            "value": 41.3408203125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads",
-            "value": 8.47138671875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_small_file",
-            "value": 41.81171875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io",
-            "value": 2.1755859375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io_small_file",
-            "value": 11.01845703125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read",
-            "value": 2.00908203125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_small_file",
-            "value": 10.95693359375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io",
-            "value": 6262.058203125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io_small_file",
-            "value": 229.73232421875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads",
-            "value": 5124.44921875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_small_file",
-            "value": 233.07978515625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io",
-            "value": 1701.418359375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io_small_file",
-            "value": 57.0912109375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read",
-            "value": 1397.87626953125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 1308.45263671875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_small_file",
-            "value": 58.39375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write_direct_io",
-            "value": 1436.2646484375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write",
-            "value": 1118.785546875,
-            "unit": "MiB/s"
-          }
-        ]
-      },
-      {
-        "commit": {
-          "author": {
             "email": "20302932+yerzhan7@users.noreply.github.com",
             "name": "Yerzhan Mazhkenov",
             "username": "yerzhan7"
@@ -4020,9 +3886,143 @@ window.BENCHMARK_DATA = {
             "unit": "MiB/s"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "20302932+yerzhan7@users.noreply.github.com",
+            "name": "Yerzhan Mazhkenov",
+            "username": "yerzhan7"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d1045f2aa9bef19903219296b71775ac3ebd568a",
+          "message": "Update CRT submodules to latest releases and pin the default credentials chain (#2049)\n\nUpdate the CRT submodules to the latest releases:\n\n* `aws-c-auth` `v1.0.3` -> `v1.1.0`\n* `aws-c-http` `v1.1.1` -> `v1.3.0`\n* `aws-c-io` `v1.1.1` -> `v1.1.2`\n* `aws-lc` `v5.12.0` -> `v5.15.0`\n* `s2n-tls` `v1.7.13` -> `v1.7.14`\n\nAll other submodules are already at their latest release.\n\nThe new `aws-c-auth` adds an option to pin the default credentials\nprovider chain to the first provider that returns credentials\n(awslabs/aws-c-auth#317). This PR exposes it in `mountpoint-s3-crt` as\n`CredentialsProviderChainDefaultOptions::pin_credential_provider`, and\n`S3CrtClient` always sets it for `S3ClientAuthConfig::Default`.\n\n### Does this change impact existing behavior?\n\nNo breaking changes for Mountpoint users. Changes in behavior:\n- Mountpoint no longer switches to a different AWS credentials source\nwhen the one it is using fails to refresh credentials. Requests that\nneed new credentials fail until that source recovers.\n\nThe compressed `mountpoint-s3-crt-sys` crate is 9.55MiB, within the\n10MiB crates.io limit.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes. \n\n<details>\n  <summary>Full CRT changelog:</summary>\n\n```\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-auth 6f9496f2f..cf69fb7ed:\n  > chore(release): minor-update to VERSION - 1.1.0\n  > Fix a crash triggered by failure to fully construct an IMDS client (#316)\n  > Add optional sticky provider chain (#317)\n  > Actually use the tls context in the imds client if appropriate (#313)\n  > chore(release): patch-update to VERSION - 1.0.4\n  > Preserve and use the sign-in region in the login token (#308)\n  > updating macos runner (#310)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-http d19eabf4c..f97e6cfeb:\n  > chore(release): minor-update to VERSION - 1.3.0\n  > feat: stream acquision timeout (#597)\n  > HTTP/2 stream manager updates (#596)\n  > chore(release): minor-update to VERSION - 1.2.0\n  > Stream manager config (#595)\n  > Reject duplicate Content-Length header in h1_encoder (#571)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-io cbc368573..eac372568:\n  > chore(release): patch-update to VERSION - 1.1.2\n  > Add a static default event loop group with a loop cap (#861)\n  > updating macos runner (#859)\n  > [s2n_tls] Fix const ALPN buffers (#856)\n  > Fix epoll event loop delays tasks after device suspend  (#840)\nSubmodule mountpoint-s3-crt-sys/crt/aws-lc cd481c207..4378134b6:\n  > Prepare v5.15.0 (#3805)\n  > ci: bump xwin to 0.10.0 to fix cross-clang-cl-ninja toolchain setup (#3789)\n  > Add OPENSSL_cpuid_setup for aarch64 QNX (#3780)\n  > delocate: handle .set aliases inside relro sections (#3681)\n  > Test that RSA_X931_PADDING is rejected (#3778)\n  > fix(evp): Preserve zero-length update behavior (#3771)\n  > Bump AWSLC_API_VERSION to 38 (#3786)\n  > test(tool-openssl): Verify x509 serial persistence (#3745)\n  > Rename SHAKE128_Init_x4, expose batched SHAKE256 and add into MLDSA (#2917)\n  > Enforce CN name constraints for boundary hyphens and trailing dots (#3708)\n  > Mark FIPS 1.x branches as no longer actively maintained (#3776)\n  > Use macos-latest for aws-lc-rs iOS CI (#3774)\n  > Reject ChaCha20-Poly1305 counter wrap in EVP_CIPHER (#3722)\n  > fix(tool-openssl): Accept trusted CA certificates (#3760)\n  > Gate Neoverse x4 Keccak dispatch on runtime SHA3 support (#3720)\n  >  Isolate fork-PR fuzz storage from trusted builds (#3580)\n  > Reject a zero modulus in RSA_verify_PKCS1_PSS_mgf1 (#3706)\n  > CI: move image promotion to a dedicated role and remove image writes from the shared runner role (#3573)\n  > Add overflow checks to a2i/PEM/name/TXT_DB parsers (#3673)\n  > Exclude generated obj_dat.h from clang-tidy review (#3757)\n  > Prepare v5.14.0 (#3758)\n  > Separate VM setup from the tests in BSD CI so infra flakes do not alarm (#3752)\n  > Match OpenSSL s_client cipher parsing (#3756)\n  > ci: drop SM4 hunk from tpm2-tss integration patch (#3755)\n  > Fix libwebsockets v5.1.0 integration tests (#3750)\n  > Make SSL_set_SSL_CTX apply the new context's cipher suites and verify sigalgs (#3633)\n  > Fix flaky pkeyutl decryption failure test (#3748)\n  > Freeze mainline ABI against AWS-LC-FIPS 5 until 6.0.0 (#3667)\n  > Restrict permissions on secret files written by the CLI tools (#3577)\n  > cmake: set Win7 target for old mingw-w64 gcc only (#3660)\n  > Fix Ubuntu 26.04 integration test failures (#3747)\n  > Cleanse ML-DSA SHAKE contexts on release (#3737)\n  > fix(console): pass correct buffer size to WideCharToMultiByte (#3641)\n  > Prepare v5.13.0 (#3749)\n  > Pin RFC 6125 CN-fallback behavior for duplicate SANs (#3668)\n  > Harden ACVP large-data hash handling (#3628)\n  > Validate Ed25519 inputs in ACVP modulewrapper (#3626)\n  > Add raw ChaCha20 EVP_CIPHER (EVP_chacha20) (#3704)\n  > Reject repeated AES-CCM encryption updates (#3721)\n  > Retry BSD CI package installs to tolerate transient mirror errors (#3736)\n  > feat(tool-openssl): Add digest selection to x509 signing (#3710)\n  > Validate SHAKE output lengths in ACVP tooling (#3718)\n  > Clear unreported bytes written on early data reject (#3581)\n  > Zeroise on Windows for all build mode types (#3684)\n  > aws-lc-provider Refactors (#3694)\n  > Reject critical CRL distribution points when CRL checking is disabled (#3652)\n  > Preserve the TLS 1.3 cipher policy when a cipher setter fails (#3638)\n  > Fix use-after-free in copied AES key-wrap contexts (#3711)\n  > feat(tool-openssl): Accept x509 -CAcreateserial for OpenSSL compatiility (#3709)\n  > Return the default section from NCONF_get_section(conf, NULL) (#3732)\n  > Update security.md (#3734)\n  > For distrusted SPKIs, change error code to rejected (#3733)\n  > Don't crash on deep copy error in EC_GROUP_new and fix wrong time zone offset calculation (#3731)\n  > test(tool-openssl): Cover dgst -r -binary precedence and clean up temp dir (#3729)\n  > Normalize trailing dot in email name constraints (#3650)\n  > Validate SHAKE MCT length inputs (#3719)\n  > CI: stop giving containers the Docker socket and PR-run credentials (#3572)\n  > Publish a failure metric from the nightly BSD CI run (#3692)\n  > feat(tool-openssl): Add dgst -r coreutils output flag (#3703)\n  > Fix wrapper escape in tool-openssl rand (#3690)\n  > Apply the name-constraints CN fallback to the end-entity certificate only (#3603)\n  > Harden ChaCha20-Poly1305 EVP_CIPHER state handling (#3644)\n  > Pin MySQL CI to 26.10.0 and sort release tags by version (#3714)\n  > Check for int overflow in ASN1_STRING_print_ex and X509_NAME_print_ex output lengths (#3629)\n  > fix(ssl): check handshake state in ClientHello getters (#3602)\n  > [ci] fix: Make s_client TLS 1.1 integration tests self-contained (#3687)\n  > Make NEON SHA3 assembler probe robust to -march overrides in CFLAGS (#3655)\nSubmodule mountpoint-s3-crt-sys/crt/s2n-tls e7ce83a27..036986196:\n  > fix: suppress clang-tidy warnings for test macros (#6170)\n  > test: compare s2n_psk_parameters fields instead of raw bytes (#6169)\n  > chore: bindings release 0.3.48 (#6168)\n  > perf: reuse hybrid key as standalone classical key share (#6129)\n  > fix: Revert throughput default change (#6167)\n  > ci: add AI security review workflow (#6159)\n  > chore: version bump s2n-tls-metrics-subscriber and s2n-tls-metrics-schema (#6165)\n  > fix: (bindings/rust) use as_mut_ptr for recv buffers passed to C (#6158)\n  > fix: Several github actions updates causing CI failures (#6164)\n  > build(deps): bump cross-platform-actions/action from 1.6.0 to 1.7.0 in /.github/workflows in the all-gha-updates group across 1 directory (#6151)\n  > fix: prevent hostname callback switch when set_config fails (#6144)\n  > fix(bindings): avoid assuming receive buffers are initialized (#6156)\n  > refactor(unit-test): use pipes for synchronization (#6157)\n  > fix: remove SHA-1 signatures from 20261021 security policies (#6153)\n  > ci: add clang-tidy to linting (#6057)\n  > chore: s2n-tls rust bindings release v0.3.47 (#6145)\n  > fix: s2n_set_server_name should clear the previous SNI (#6136)\n  > fix: config build shouldn't reloads system cert after wipe_trust_store (#6134)\n```\n\n</details>\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Yerzhan Mazhkenov <20302932+yerzhan7@users.noreply.github.com>",
+          "timestamp": "2026-11-18T16:13:26Z",
+          "tree_id": "098127a429b80927540105d719e4f89985feb260",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/d1045f2aa9bef19903219296b71775ac3ebd568a"
+        },
+        "date": 1795027508487,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "sequential_read,sequential_write_four_threads",
+            "value": 4906.30234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_two_threads,sequential_write_two_threads",
+            "value": 4414.9533203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads,sequential_write",
+            "value": 5681.7802734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 7.93671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 41.92001953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 8.405859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 40.785546875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.08466796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 10.78505859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read",
+            "value": 2.0912109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 10.83759765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6124.5162109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 238.7083984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 5143.51279296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 227.13974609375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 1408.6876953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 56.6572265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1616.21650390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 1277.8001953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 58.0302734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write_direct_io",
+            "value": 1816.0623046875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write",
+            "value": 1127.930859375,
+            "unit": "MiB/s"
+          }
+        ]
       }
     ]
   },
-  "lastUpdate": 1794999645504,
+  "lastUpdate": 1795027510377,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3"
 }
