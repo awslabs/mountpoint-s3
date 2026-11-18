@@ -10,18 +10,22 @@ use serde::{Deserialize, Serialize};
 pub enum Chain {
     /// The CRT's default chain, or its profile provider with `--profile`, built by `S3CrtClient`.
     Crt,
+    /// The AWS SDK for Rust chain of `mountpoint_s3_fs::s3::credentials`, behind `SharedCredentials`.
+    Sdk,
 }
 
 impl Chain {
     pub fn name(self) -> &'static str {
         match self {
             Chain::Crt => "crt",
+            Chain::Sdk => "sdk",
         }
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "crt" => Some(Chain::Crt),
+            "sdk" => Some(Chain::Sdk),
             _ => None,
         }
     }
@@ -34,8 +38,21 @@ pub struct Scenario {
     pub steps: Vec<Action>,
     /// The outcome expected on every chain: today's CRT behaviour.
     pub expect: Outcome,
+    /// How the SDK chain differs from `expect`, if it does.
+    pub sdk: Sdk,
     /// Whether the scenario takes minutes, and runs only when asked for.
     pub slow: bool,
+}
+
+/// The outcome expected on the SDK chain.
+pub enum Sdk {
+    /// The same as the scenario's expectation.
+    Same,
+    /// A known difference, which the change named by `fix` removes. `outcome` is what the SDK
+    /// chain does until then.
+    Todo { fix: &'static str, outcome: Outcome },
+    /// A difference adopted as the new behaviour, documented at `doc`.
+    Adopted { doc: &'static str, outcome: Outcome },
 }
 
 /// The environment a scenario runs in. In environment values and file contents, `{home}` is
@@ -204,6 +221,7 @@ pub fn scenario(name: &'static str) -> Scenario {
         setup: Setup::default(),
         steps: vec![Action::Fetch],
         expect: Outcome { fetches: vec![] },
+        sdk: Sdk::Same,
         slow: false,
     }
 }
@@ -264,6 +282,32 @@ impl Scenario {
             fetches: fetches.into_iter().collect(),
         };
         self
+    }
+
+    /// The SDK chain differs until the change named by `fix`: what it does until then.
+    pub fn sdk_todo(mut self, fix: &'static str, fetches: impl IntoIterator<Item = Fetch>) -> Self {
+        let outcome = Outcome {
+            fetches: fetches.into_iter().collect(),
+        };
+        self.sdk = Sdk::Todo { fix, outcome };
+        self
+    }
+
+    /// The SDK chain's different behaviour is adopted and documented at `doc`.
+    pub fn sdk_adopted(mut self, doc: &'static str, fetches: impl IntoIterator<Item = Fetch>) -> Self {
+        let outcome = Outcome {
+            fetches: fetches.into_iter().collect(),
+        };
+        self.sdk = Sdk::Adopted { doc, outcome };
+        self
+    }
+
+    /// The outcome expected on `chain`.
+    pub fn expected(&self, chain: Chain) -> &Outcome {
+        match (chain, &self.sdk) {
+            (Chain::Crt, _) | (Chain::Sdk, Sdk::Same) => &self.expect,
+            (Chain::Sdk, Sdk::Todo { outcome, .. } | Sdk::Adopted { outcome, .. }) => outcome,
+        }
     }
 }
 
@@ -371,5 +415,12 @@ pub fn sts(host: &str, action: &str, signed_by: Option<&str>) -> Request {
         host: host.to_string(),
         action: action.to_string(),
         signed_by: signed_by.map(str::to_string),
+    }
+}
+
+pub fn sso(role: &str, token: &str) -> Request {
+    Request::Sso {
+        role: role.to_string(),
+        token: Some(token.to_string()),
     }
 }
