@@ -1,7 +1,8 @@
 use std::sync::OnceLock;
 
 use aws_config::{BehaviorVersion, Region};
-use mountpoint_s3_client::config::{Allocator, EndpointConfig, Uri};
+use mountpoint_s3_client::config::{Allocator, EndpointConfig, S3ClientAuthConfig, Uri};
+use mountpoint_s3_fs::s3::credentials::{SdkCredentialsChain, SdkCredentialsConfig, SharedCredentials};
 use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
 use rand::TryRng;
 use rand::rngs::SysRng;
@@ -60,6 +61,41 @@ pub fn get_express_sse_kms_bucket() -> String {
 
 pub fn get_test_region() -> String {
     std::env::var("S3_REGION").expect("Set S3_REGION to run integration tests")
+}
+
+/// A handle to a Tokio runtime shared by the tests in this process, which lives until it exits.
+pub fn tokio_handle() -> Handle {
+    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("Tokio runtime should build")
+        })
+        .handle()
+        .clone()
+}
+
+/// The authentication configuration for a test's CRT client, as Mountpoint's client factory
+/// chooses it: shared credentials over the SDK chain that `auth_config` selects, if any, so the
+/// tests sign with credentials resolved by the SDK.
+pub fn get_crt_client_auth_config_for(auth_config: S3ClientAuthConfig) -> S3ClientAuthConfig {
+    let Some(chain) = SdkCredentialsChain::for_auth_config(&auth_config) else {
+        return auth_config;
+    };
+    let config = SdkCredentialsConfig::new(chain);
+    // Block on the shared runtime from a thread of its own: some callers are async tests, which
+    // already run on a runtime and can't block on another one.
+    let handle = tokio_handle();
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| handle.block_on(SharedCredentials::from_sdk(config, handle.clone())))
+            .join()
+            .expect("SDK credentials creation should not panic")
+    })
+    .expect("SDK credentials should be created")
+    .auth_config()
 }
 
 /// Account ID owning buckets specified in `S3_BUCKET_NAME` and `S3_EXPRESS_ONE_ZONE_BUCKET_NAME`
@@ -142,18 +178,4 @@ pub fn deny_single_object_access_policy(bucket: &str, key: &str) -> String {
         ]
     }"#;
     template.replace("__BUCKET__", bucket).replace("__KEY__", key)
-}
-
-/// A handle to a Tokio runtime shared by the tests in this process, which lives until it exits.
-pub fn tokio_handle() -> Handle {
-    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
-    RUNTIME
-        .get_or_init(|| {
-            Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .expect("Tokio runtime should build")
-        })
-        .handle()
-        .clone()
 }

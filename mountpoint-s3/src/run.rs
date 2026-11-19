@@ -383,16 +383,17 @@ where
 
 /// Create a real S3 client.
 ///
-/// The CRT client runs on its own event loop group and does not use the Tokio runtime.
+/// The CRT client runs on its own event loop group. The credentials chain it signs with runs on the
+/// Tokio runtime.
 pub fn create_s3_client(
     client_config: ClientConfig,
     pool: PagedPool,
     s3_path: &S3Path,
     personality: Option<S3Personality>,
-    _tokio_handle: Handle,
+    tokio_handle: Handle,
 ) -> anyhow::Result<(S3CrtClient, Runtime, S3Personality)> {
-    let client = client_config
-        .create_client(pool, Some(s3_path))
+    let client = tokio_handle
+        .block_on(client_config.create_client(pool, Some(s3_path), tokio_handle.clone()))
         .context("Failed to create S3 client")?;
 
     let runtime = Runtime::new(client.event_loop_group());

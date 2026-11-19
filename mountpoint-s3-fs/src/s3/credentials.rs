@@ -19,6 +19,8 @@
 //! before they expire, or every 15 minutes if they don't expire, with one fetch from the chain per
 //! refresh. The CRT client reads the cache through [SharedCredentials::auth_config], and an SDK
 //! client through [SdkClientAuth::SharedCredentials](super::sdk_client::SdkClientAuth::SharedCredentials).
+//! Mountpoint's client factory, [ClientConfig::create_client](super::config::ClientConfig::create_client),
+//! uses them for [S3ClientAuthConfig::Default] and [S3ClientAuthConfig::Profile].
 //!
 //! Credentials from EC2 instance metadata come from the CRT's IMDS provider, in the default chain and
 //! for profiles with `credential_source = Ec2InstanceMetadata`, so they keep the CRT's IMDSv1
@@ -62,7 +64,7 @@ use aws_smithy_http_client::ConnectorBuilder;
 use aws_smithy_http_client::proxy::ProxyConfig;
 use aws_smithy_http_client::tls::{self, TlsContext, TrustStore};
 use aws_types::os_shim_internal::{Env, Fs};
-use mountpoint_s3_client::config::{CredentialsProvider, TlsConfig, imds_credentials_provider};
+use mountpoint_s3_client::config::{CredentialsProvider, S3ClientAuthConfig, TlsConfig, imds_credentials_provider};
 use mountpoint_s3_client::error::CrtError;
 use thiserror::Error;
 use tracing::{debug, error};
@@ -95,6 +97,20 @@ pub enum SdkCredentialsChain {
     /// variables, web identity, ECS and instance metadata are used only through the profile's own
     /// settings (such as `credential_source`).
     Profile(String),
+}
+
+impl SdkCredentialsChain {
+    /// The chain that resolves the credentials `auth_config` selects: the default chain for
+    /// [S3ClientAuthConfig::Default], and the profile's chain for [S3ClientAuthConfig::Profile].
+    /// None for [S3ClientAuthConfig::NoSigning], which signs nothing, and for
+    /// [S3ClientAuthConfig::Provider], whose provider is used as given.
+    pub fn for_auth_config(auth_config: &S3ClientAuthConfig) -> Option<Self> {
+        match auth_config {
+            S3ClientAuthConfig::Default => Some(Self::Default),
+            S3ClientAuthConfig::Profile(name) => Some(Self::Profile(name.clone())),
+            S3ClientAuthConfig::NoSigning | S3ClientAuthConfig::Provider(_) => None,
+        }
+    }
 }
 
 /// Configuration of an [SdkCredentialsSource].
@@ -742,7 +758,7 @@ mod tests {
     use std::path::Path;
     use std::time::Instant;
 
-    use mountpoint_s3_client::config::Credentials;
+    use mountpoint_s3_client::config::{Allocator, Credentials};
     use rusty_fork::rusty_fork_test;
 
     use super::*;
@@ -965,5 +981,26 @@ echo '{{"Version": 1, "AccessKeyId": "{PROCESS_ACCESS_KEY_ID}", "SecretAccessKey
             let err = test_handle().block_on(SharedCredentials::from_sdk(config, test_handle())).unwrap_err();
             assert!(matches!(err, SdkCredentialsError::CaBundle { .. }), "{err:?}");
         }
+    }
+
+    #[test]
+    fn chain_for_auth_config() {
+        assert_eq!(
+            SdkCredentialsChain::for_auth_config(&S3ClientAuthConfig::Default),
+            Some(SdkCredentialsChain::Default)
+        );
+        assert_eq!(
+            SdkCredentialsChain::for_auth_config(&S3ClientAuthConfig::Profile("p".to_owned())),
+            Some(SdkCredentialsChain::Profile("p".to_owned()))
+        );
+        assert_eq!(
+            SdkCredentialsChain::for_auth_config(&S3ClientAuthConfig::NoSigning),
+            None
+        );
+        let provider = CredentialsProvider::new_anonymous(&Allocator::default()).unwrap();
+        assert_eq!(
+            SdkCredentialsChain::for_auth_config(&S3ClientAuthConfig::Provider(provider)),
+            None
+        );
     }
 }
