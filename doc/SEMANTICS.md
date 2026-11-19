@@ -281,12 +281,14 @@ File deletion (`unlink`) semantics are described in the [Deletes](#deletes) sect
 
 Empty directory removal (`rmdir`) is supported, with the following semantics:
 
-* `rmdir` will only delete empty directories created by `mkdir`.
+* `rmdir` will only delete empty directories created by `mkdir`, or directories left empty because Mountpoint deleted the last file in them.
 * `rmdir` will fail on directories backed on S3 by a directory marker (i.e. zero-byte object with `<directory-name>/` key).
 * As soon as a file is committed to the S3 bucket by Mountpoint,
   the directory will be considered to exist implicitly.
   If Mountpoint later observes that there are no files existing for that directory in S3,
   Mountpoint will implicitly consider the directory to have been deleted.
+  The exception is a directory that Mountpoint itself emptied by deleting the last file in it,
+  which remains visible until it is removed with `rmdir`.
 * On success, the directory will be deleted immediately. Subsequent reads or writes to the directory (e.g. creating a file or subdirectory) will fail.
 
 Synchronization operations (`fsync`) on directories are not supported.
