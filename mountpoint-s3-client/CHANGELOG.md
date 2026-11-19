@@ -5,6 +5,7 @@
 
 * Re-export `Credentials`, `CredentialsOptions`, `CredentialsSource` and `CredentialsCallback` from `mountpoint-s3-crt` in `config`, to build a `CredentialsProvider` for `S3ClientAuthConfig::Provider` that sources credentials from Rust code.
 * Add `config::imds_credentials_provider`, an instance metadata (IMDS) credentials provider with its own event loop thread.
+* `AWS_EC2_METADATA_DISABLED` disables instance metadata for `InstanceInfo` only when it is `true`, as in the AWS SDKs. Other values, such as `1`, no longer disable it.
 
 ## v0.23.0 (November 12, 2026)
 

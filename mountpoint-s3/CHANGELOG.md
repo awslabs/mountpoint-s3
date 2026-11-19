@@ -14,6 +14,8 @@
   * In a chain of roles, where the `source_profile` of a role is itself a role, every STS request goes to the region and endpoint of the selected profile. Before, each request used the settings of its own profile.
   * Web identity configured in a profile now ignores a `region` in `~/.aws/credentials`. Without a region in `AWS_REGION`, `AWS_DEFAULT_REGION` or `~/.aws/config`, it uses the global STS endpoint, `sts.amazonaws.com`, rather than failing.
   * A role from a profile with an empty `region =` setting uses the global STS endpoint, `sts.amazonaws.com`, rather than failing.
+  * `AWS_EC2_METADATA_DISABLED` disables instance metadata only when it is `true`, for credentials and to detect the region and the instance type. Other values, such as `1`, used to disable it and no longer do. `true` now also applies to profiles with `credential_source = Ec2InstanceMetadata`, which used to ignore it.
+  * The output of a `credential_process` command must now include `"Version": 1`.
 
 ### Other changes
 
