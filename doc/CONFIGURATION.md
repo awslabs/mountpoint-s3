@@ -39,6 +39,10 @@ To manage multiple AWS credentials, you can use the `--profile` command-line arg
 
 For public buckets that do not require AWS credentials, you can use the `--no-sign-request` command-line flag to disable AWS credentials.
 
+### STS regions and endpoints
+
+When Mountpoint assumes an IAM role from a profile, or with web identity, it sends the request to AWS STS in the region set by the `AWS_REGION` or `AWS_DEFAULT_REGION` environment variable, or by the `region` setting of the profile in `~/.aws/config`, in that order. Without a region, it uses the global endpoint, `sts.amazonaws.com`, for roles from a profile, and it doesn't use web identity from environment variables. To send the requests to another endpoint, set `AWS_ENDPOINT_URL_STS` to its URL, such as `https://sts.example.com`. `AWS_ENDPOINT_URL` also sets the STS endpoint of roles from a profile, unless `AWS_ENDPOINT_URL_STS` is set, but Mountpoint doesn't send web identity tokens to it: if you set it to an S3 endpoint and Mountpoint assumes a role, also set `AWS_ENDPOINT_URL_STS`, or use the `--endpoint-url` command-line argument, which applies only to S3.
+
 ### IAM permissions
 
 Amazon S3 offers both resource-based access policies attached to your S3 buckets (*bucket policies*) and user policies attached to IAM users (*user policies*). You can use either or both of these access policy options to control access to your S3 objects with Mountpoint.
