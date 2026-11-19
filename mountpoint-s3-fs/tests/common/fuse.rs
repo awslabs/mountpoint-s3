@@ -779,7 +779,10 @@ pub mod mock_server_session {
 pub mod s3_session {
     use super::*;
 
-    use crate::common::s3::{get_test_endpoint_config, get_test_region, get_test_s3_path, get_test_sdk_client};
+    use crate::common::s3::{
+        get_crt_client_auth_config_for, get_test_endpoint_config, get_test_region, get_test_s3_path,
+        get_test_sdk_client,
+    };
     use aws_sdk_s3::Client;
     use aws_sdk_s3::operation::head_object::HeadObjectError;
     use mountpoint_s3_client::S3CrtClient;
@@ -834,7 +837,7 @@ pub mod s3_session {
         let client_config = S3ClientConfig::default()
             .part_size(test_config.part_size)
             .endpoint_config(get_test_endpoint_config())
-            .auth_config(test_config.auth_config.clone())
+            .auth_config(get_crt_client_auth_config_for(test_config.auth_config.clone()))
             .read_backpressure(true)
             .initial_read_window(test_config.initial_read_window_size)
             .memory_pool(pool.clone());
@@ -928,7 +931,7 @@ pub mod s3_session {
             .endpoint_config(get_test_endpoint_config())
             .read_backpressure(true)
             .initial_read_window(initial_read_window_size)
-            .auth_config(auth_config)
+            .auth_config(get_crt_client_auth_config_for(auth_config))
             .memory_pool(pool);
         S3CrtClient::new(client_config).unwrap()
     }

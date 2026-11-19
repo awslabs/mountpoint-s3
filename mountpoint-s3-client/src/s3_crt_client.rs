@@ -1383,8 +1383,12 @@ pub enum S3RequestError {
     #[error("Forbidden: {0}")]
     Forbidden(String, ClientErrorMetadata),
 
-    /// The request was attempted but could not be signed due to no available credentials
-    #[error("No signing credentials available, see CRT debug logs")]
+    /// The request was attempted but could not be signed due to no available credentials.
+    ///
+    /// The CRT doesn't pass on why the credentials provider had none. The message therefore can't
+    /// say. The provider will have logged the reason already: Mountpoint's credentials cache logs it
+    /// as an error. The CRT's own providers log it in the CRT logs.
+    #[error("No signing credentials available")]
     NoSigningCredentials,
 
     /// The client was unable to get S3 Express session credentials.
@@ -1584,7 +1588,13 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
     /// Try to look for error related to failing to have credentials to make S3 requests, return generic error otherwise
     fn try_parse_no_credentials_or_generic(request_result: &MetaRequestResult) -> S3RequestError {
         let crt_error_code = request_result.crt_error.raw_error();
-        if crt_error_code == mountpoint_s3_crt::auth::ErrorCode::AWS_AUTH_SIGNING_NO_CREDENTIALS as i32 {
+        // When a delegate credentials provider has no credentials, the signer reports
+        // `AWS_AUTH_SIGNING_NO_CREDENTIALS`. When the S3 client queried the provider itself, as it
+        // does for S3 Express One Zone sessions, it reports the provider's own error instead.
+        if crt_error_code == mountpoint_s3_crt::auth::ErrorCode::AWS_AUTH_SIGNING_NO_CREDENTIALS as i32
+            || crt_error_code
+                == mountpoint_s3_crt::auth::ErrorCode::AWS_AUTH_CREDENTIALS_PROVIDER_DELEGATE_FAILURE as i32
+        {
             S3RequestError::NoSigningCredentials
         } else if crt_error_code == mountpoint_s3_crt::s3::ErrorCode::AWS_ERROR_S3EXPRESS_CREATE_SESSION_FAILED as i32 {
             S3RequestError::CreateSessionError
@@ -2221,6 +2231,16 @@ mod tests {
     #[test]
     fn parse_no_signing_credential_error() {
         let error_code = mountpoint_s3_crt::auth::ErrorCode::AWS_AUTH_SIGNING_NO_CREDENTIALS as i32;
+        let result = make_crt_error_result(0, error_code.into());
+        let result = try_parse_generic_error(&result);
+        let Some(S3RequestError::NoSigningCredentials) = result else {
+            panic!("wrong result, got: {result:?}");
+        };
+    }
+
+    #[test]
+    fn parse_delegate_credentials_failure_as_no_signing_credentials() {
+        let error_code = mountpoint_s3_crt::auth::ErrorCode::AWS_AUTH_CREDENTIALS_PROVIDER_DELEGATE_FAILURE as i32;
         let result = make_crt_error_result(0, error_code.into());
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::NoSigningCredentials) = result else {

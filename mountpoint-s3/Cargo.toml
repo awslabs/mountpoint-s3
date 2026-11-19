@@ -21,7 +21,8 @@ serde = "1.0.228"
 serde_json = "1.0.150"
 tikv-jemalloc-sys = { version = "0.7.0", default-features = false }
 tikv-jemallocator = "0.7.0"
-tokio = { version = "1.54.1", features = ["rt-multi-thread"] }
+# `time` and `net` give the runtime its timer and I/O drivers, which the SDK credential providers use.
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "time", "net"] }
 tracing = "0.1.44"
 
 [dev-dependencies]

@@ -22,6 +22,7 @@ use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use serde::Deserialize;
 use tempfile::tempdir_in;
+use tokio::runtime::Handle;
 use tracing::info;
 
 const CONFIG_VERSION: &str = "0.0.1";
@@ -301,6 +302,7 @@ fn mount_filesystem(
     manifest: Manifest,
     error_logger: impl ErrorLogger + Send + Sync + 'static,
     metrics: &MetricsSinkHandle,
+    tokio_handle: Handle,
 ) -> Result<FuseSession> {
     // Create the Mountpoint configuration
     let fs_config = config.build_filesystem_config()?;
@@ -320,8 +322,8 @@ fn mount_filesystem(
         .with_candidate_sizes([CandidateSize::new(client_config.part_config.read_size_bytes)])
         .with_memory_limit(mem_limit)
         .build();
-    let client = client_config
-        .create_client(pool.clone(), None)
+    let client = tokio_handle
+        .block_on(client_config.create_client(pool.clone(), None, tokio_handle.clone()))
         .context("Failed to create S3 client")?;
     {
         let client = client.clone();
@@ -357,6 +359,11 @@ fn main() -> Result<()> {
     let args = Args::parse();
     // Read the config
     let config = load_config(&args.config).context("Failed to load config")?;
+    // The client's Tokio runtime, leaked so that it runs until the process exits: dropping it would
+    // wait for any blocking task still running.
+    let tokio_runtime = tokio::runtime::Runtime::new().context("Failed to build the Tokio runtime")?;
+    let tokio_handle = tokio_runtime.handle().clone();
+    std::mem::forget(tokio_runtime);
     // Set up the error logger
     let error_logger = FileErrorLogger::new(&config.event_log_dir, || {
         // trigger graceful shutdown (with umount) by sending a signal to self
@@ -369,8 +376,8 @@ fn main() -> Result<()> {
     let temporary_dir = tempdir_in(&config.metadata_store_dir).context("Failed to create manifest")?;
     let manifest = process_manifests(&config, temporary_dir.path()).context("Failed to create manifest")?;
     // Build all configurations
-    let fuse_session =
-        mount_filesystem(&config, manifest, error_logger, &metrics).context("Failed to mount filesystem")?;
+    let fuse_session = mount_filesystem(&config, manifest, error_logger, &metrics, tokio_handle)
+        .context("Failed to mount filesystem")?;
     // Join the session and wait until it completes
     fuse_session.join().context("Failed to join session")?;
     Ok(())
