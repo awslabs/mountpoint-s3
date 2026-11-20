@@ -9,9 +9,6 @@ const CONFIG: &str = ".aws/config";
 /// The SSO token cache file of the session `s`, named by the SHA-1 of the session name.
 const SSO_TOKEN_CACHE: &str = ".aws/sso/cache/a0f1490a20d0211c997b44bc357e1972deab8ae3.json";
 
-// The changes that remove the known differences of the SDK chain.
-const REREAD: &str = "read the shared files again on every refresh";
-
 // Where the adopted differences of the SDK chain are documented.
 const CHANGELOG: &str = "mountpoint-s3/CHANGELOG.md";
 
@@ -145,8 +142,7 @@ fn shared_files() -> Vec<Scenario> {
                 Action::Fetch,
             ])
             .slow()
-            .expect([signed("PROFILE"), signed("ROTATED")])
-            .sdk_todo(REREAD, [signed("PROFILE"), signed("PROFILE")]),
+            .expect([signed("PROFILE"), signed("ROTATED")]),
         scenario("profile: static keys removed, after the cache refresh, with IMDS available")
             .file(CREDENTIALS, format!("[default]\n{}", keys("PROFILE")))
             .imds(imds("IMDS-1"))
@@ -158,8 +154,7 @@ fn shared_files() -> Vec<Scenario> {
                 Action::Fetch,
             ])
             .slow()
-            .expect([signed("PROFILE"), no_credentials()])
-            .sdk_todo(REREAD, [signed("PROFILE"), signed("PROFILE")]),
+            .expect([signed("PROFILE"), no_credentials()]),
         scenario("profile: file that fails to parse")
             .file(CREDENTIALS, "[default\naws_access_key_id = PROFILE\n")
             .expect([no_credentials()]),
