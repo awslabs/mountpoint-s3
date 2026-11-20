@@ -404,6 +404,7 @@ async fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked
     // Configure the client to enforce the bucket owner
     let mut client_config = S3ClientConfig::default()
         .part_size(CLIENT_PART_SIZE)
+        .auth_config(crate::common::s3::get_crt_client_auth_config_for(Default::default()))
         .endpoint_config(get_test_endpoint_config())
         .read_backpressure(true)
         .initial_read_window(CLIENT_PART_SIZE);
