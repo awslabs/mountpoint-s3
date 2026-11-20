@@ -73,7 +73,7 @@ pub mod config {
     pub use super::endpoint_config::{AddressingStyle, EndpointConfig, SigningAlgorithm, Uri};
     pub use super::s3_crt_client::{
         CredentialsProvider, CredentialsProviderStaticOptions, EventLoopGroup, S3ClientAuthConfig, S3ClientConfig,
-        TlsConfig, TlsConfigValidationError,
+        TlsConfig, TlsConfigValidationError, imds_credentials_provider,
     };
 
     pub use mountpoint_s3_crt::auth::credentials::{
