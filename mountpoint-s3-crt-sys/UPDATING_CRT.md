@@ -6,10 +6,10 @@ Mountpoint for Amazon S3 imports the required [AWS Common Runtime (CRT)](https:/
 
 The CRT submodules can be updated by following these steps:
 
-1. Update every submodule to the latest tagged release. E.g. by running:
+1. Update every CRT submodule to the latest tagged release. E.g. by running:
 
    ```sh
-   git submodule foreach 'git fetch -q -f --tags && git checkout --recurse-submodules `git tag -l --sort=-v:refname | head -1`'
+   git submodule foreach 'case $sm_path in mountpoint-s3-crt-sys/crt/*) git fetch -q -f --tags && git checkout --recurse-submodules `git tag -l --sort=-v:refname | head -1`;; esac'
    ```
 
 2. Review the commit history, in particular for `aws-c-s3`, looking for changes that may affect `mountpoint-s3` (bug fixes, API changes, etc.). E.g.:
@@ -58,10 +58,10 @@ The CRT submodules can be updated by following these steps:
 
 ## Check Current Version
 
-In order to check which released versions are checked out for each submodules, the following command can be used:
+In order to check which released versions are checked out for each CRT submodule, the following command can be used:
 
 ```sh
-git submodule foreach -q 'echo $name `git describe --tags`'
+git submodule foreach -q 'case $sm_path in mountpoint-s3-crt-sys/crt/*) echo $name `git describe --tags`;; esac'
 ```
 
 ## Crate size
