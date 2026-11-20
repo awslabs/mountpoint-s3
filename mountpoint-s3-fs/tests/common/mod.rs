@@ -15,6 +15,8 @@ pub mod s3;
 #[cfg(all(test, feature = "manifest"))]
 pub mod manifest;
 
+pub mod mock_server;
+
 pub mod test_recorder;
 
 use aws_credential_types::Credentials;
