@@ -28,6 +28,12 @@ pub struct CredentialsProviderChainDefaultOptions<'a> {
     /// credentials chain — principally STS (`AssumeRole` and `AssumeRoleWithWebIdentity`).
     /// When `None`, the CRT's default trust store is used.
     pub tls_ctx: Option<&'a TlsContext>,
+    /// Pin the chain to the first provider in it that returns credentials. Once pinned, the chain
+    /// queries only that provider, including to refresh credentials, and returns its errors instead
+    /// of trying the other providers, for as long as this credentials provider exists. Until a
+    /// provider returns credentials, the chain tries every provider in order on each query, as it
+    /// does when this is `false`.
+    pub pin_credential_provider: bool,
 }
 
 /// Options for creating a profile credentials provider
@@ -87,6 +93,7 @@ impl CredentialsProvider {
                 .tls_ctx
                 .map(|t| t.inner.as_ptr())
                 .unwrap_or(std::ptr::null_mut()),
+            pin_credential_provider: options.pin_credential_provider,
             ..Default::default()
         };
 

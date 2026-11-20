@@ -522,6 +522,9 @@ impl S3CrtClientInner {
                 let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
                     bootstrap: &mut client_bootstrap,
                     tls_ctx: tls_ctx.as_ref(),
+                    // Refresh credentials only from the provider that returned them first, rather than
+                    // switching to another provider, and possibly another IAM identity, when it fails.
+                    pin_credential_provider: true,
                 };
                 CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)
                     .map_err(NewClientError::ProviderFailure)?
