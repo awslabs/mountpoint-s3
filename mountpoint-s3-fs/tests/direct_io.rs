@@ -95,7 +95,7 @@ async fn cache_and_direct_io_test(creator_fn: impl TestSessionCreator, prefix: &
 #[serial]
 async fn cache_and_direct_io_test_mock(prefix: &str) {
     cache_and_direct_io_test(
-        fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
+        fuse::mock_server_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         prefix,
     )
     .await;

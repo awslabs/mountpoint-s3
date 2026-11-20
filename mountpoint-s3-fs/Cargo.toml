@@ -77,6 +77,9 @@ proptest = "1.11.0"
 proptest-derive = "0.8.0"
 rand_pcg = "0.10.2"
 rusty-fork = "0.3.1"
+# `s3-mock-server` is not published on crates.io. It comes from the `third_party/aws-s3-transfer-manager-rs`
+# submodule, pinned to the transfer manager's `release-2026-11-18` tag (`aws-s3-transfer` 1.0.0).
+s3-mock-server = { path = "../third_party/aws-s3-transfer-manager-rs/crates/s3-mock-server" }
 serde_with = "3.21.0"
 serial_test = "3.5.0"
 sha2 = "0.11.0"
@@ -84,7 +87,7 @@ shuttle = { version = "0.9.1" }
 syscalls = { version = "0.8.1", default-features = false }
 test-case = "3.3.1"
 tikv-jemallocator = "0.7.0"
-tokio = { version = "1.52.3", features = ["rt", "macros", "rt-multi-thread", "sync"] }
+tokio = { version = "1.52.3", features = ["rt", "macros", "rt-multi-thread", "sync", "time"] }
 toml = "1.1.2"
 walkdir = "2.5.0"
 wiremock = "0.6.5"

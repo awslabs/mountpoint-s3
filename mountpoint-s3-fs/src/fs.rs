@@ -161,7 +161,8 @@ where
                 .storage_class(config.storage_class.to_owned())
                 .server_side_encryption(config.server_side_encryption.clone())
                 .default_checksum_algorithm(config.upload_checksum_algorithm.map(Into::into))
-                .content_type_detection(config.content_type_detection),
+                .content_type_detection(config.content_type_detection)
+                .max_upload_parts(config.max_upload_parts),
         );
 
         Self {

@@ -197,7 +197,7 @@ async fn permission_config_test_mock(
     dir_mode: Option<u16>,
     file_mode: Option<u16>,
 ) {
-    perm_test(fuse::mock_session::new, uid, gid, dir_mode, file_mode).await;
+    perm_test(fuse::mock_server_session::new, uid, gid, dir_mode, file_mode).await;
 }
 
 #[cfg(feature = "s3_tests")]
@@ -222,5 +222,5 @@ async fn permission_config_test_negative_mock(
     dir_mode: Option<u16>,
     file_mode: Option<u16>,
 ) {
-    perm_test_negative(fuse::mock_session::new, uid, gid, dir_mode, file_mode).await;
+    perm_test_negative(fuse::mock_server_session::new, uid, gid, dir_mode, file_mode).await;
 }

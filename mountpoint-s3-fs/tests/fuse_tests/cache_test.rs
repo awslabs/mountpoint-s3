@@ -540,7 +540,7 @@ async fn available_space_cache_limit_test_mock() {
     let loop_fs = LoopDeviceFilesystem::new(LOOP_DEVICE_SIZE_MIB).expect("Failed to create loop device filesystem");
     let cache_path = loop_fs.mount_path().to_path_buf();
 
-    let test_session = fuse::mock_session::new_with_cache(|block_size, pool| {
+    let test_session = fuse::mock_server_session::new_with_cache(|block_size, pool| {
         let cache_config = DiskDataCacheConfig {
             cache_directory: cache_path.clone(),
             block_size,

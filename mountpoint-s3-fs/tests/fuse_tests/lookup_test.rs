@@ -52,7 +52,7 @@ async fn lookup_directory_overlap_test_s3(subdir: &str) {
 #[test_case("lookup_dirrectory_overlap", "subdir/"; "prefix subdirectory")]
 #[tokio::test]
 async fn lookup_directory_overlap_test_mock(prefix: &str, subdir: &str) {
-    lookup_directory_overlap_test(fuse::mock_session::new, prefix, subdir).await;
+    lookup_directory_overlap_test(fuse::mock_server_session::new, prefix, subdir).await;
 }
 
 async fn lookup_weird_characters_test(creator_fn: impl TestSessionCreator, prefix: &str) {
@@ -105,7 +105,7 @@ async fn lookup_directory_weird_characters_s3() {
 
 #[tokio::test]
 async fn lookup_directory_weird_characters_mock() {
-    lookup_weird_characters_test(fuse::mock_session::new, "lookup_weird_characters_test").await;
+    lookup_weird_characters_test(fuse::mock_server_session::new, "lookup_weird_characters_test").await;
 }
 
 async fn lookup_previously_shadowed_file_test(creator_fn: impl TestSessionCreator) {
@@ -151,7 +151,7 @@ async fn lookup_previously_shadowed_file_test_s3() {
 
 #[tokio::test]
 async fn lookup_previously_shadowed_file_test_mock() {
-    lookup_previously_shadowed_file_test(fuse::mock_session::new).await;
+    lookup_previously_shadowed_file_test(fuse::mock_server_session::new).await;
 }
 
 async fn lookup_unicode_keys_test(creator_fn: impl TestSessionCreator, prefix: &str) {
@@ -198,7 +198,7 @@ async fn lookup_unicode_keys_s3() {
 
 #[tokio::test]
 async fn lookup_unicode_keys_mock() {
-    lookup_unicode_keys_test(fuse::mock_session::new, "lookup_unicode_keys_test").await;
+    lookup_unicode_keys_test(fuse::mock_server_session::new, "lookup_unicode_keys_test").await;
 }
 
 async fn lookup_with_negative_cache(creator_fn: impl TestSessionCreator) {
@@ -236,7 +236,7 @@ async fn lookup_with_negative_cache_s3() {
 
 #[tokio::test]
 async fn lookup_with_negative_cache_mock() {
-    lookup_with_negative_cache(fuse::mock_session::new).await;
+    lookup_with_negative_cache(fuse::mock_server_session::new).await;
 }
 
 async fn lookup_with_negative_cache_ttl(creator_fn: impl TestSessionCreator, ttl: Duration) {
@@ -271,5 +271,5 @@ async fn lookup_with_negative_cache_ttl_s3() {
 
 #[tokio::test]
 async fn lookup_with_negative_cache_ttl_mock() {
-    lookup_with_negative_cache_ttl(fuse::mock_session::new, Duration::from_secs(1)).await;
+    lookup_with_negative_cache_ttl(fuse::mock_server_session::new, Duration::from_secs(1)).await;
 }

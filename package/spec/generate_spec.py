@@ -1,6 +1,6 @@
 """
 This RPM spec generator creates a distribution-specific .spec file.
-It extracts versions from Cargo.toml/rust-toolchain.toml and scans git submodules for bundled library declarations.
+It extracts versions from Cargo.toml/rust-toolchain.toml and scans the CRT git submodules for bundled library declarations.
 
 The script takes a target distribution, loads the corresponding template,
 and outputs a complete RPM spec file ready for rpmbuild.
@@ -34,13 +34,17 @@ def get_rust_version() -> str:
 
 
 def get_submodule_versions() -> dict[str, str]:
+    """Versions of the CRT submodules, the libraries bundled in mount-s3. Other submodules only serve the tests."""
     result = subprocess.run(  # noqa: PLW1510
-        'git submodule foreach -q \'echo $name `git describe --tags`\'', capture_output=True, text=True, shell=True
+        'git submodule foreach -q \'echo $name $sm_path `git describe --tags`\'',
+        capture_output=True,
+        text=True,
+        shell=True,
     )
     versions = {}
     for line in result.stdout.strip().split('\n'):
-        match line.split(' ', 1):
-            case [name, version]:
+        match line.split(' ', 2):
+            case [name, path, version] if path.startswith('mountpoint-s3-crt-sys/crt/'):
                 versions[name] = version.removeprefix('v')
     return versions
 

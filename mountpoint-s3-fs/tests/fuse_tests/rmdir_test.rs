@@ -65,7 +65,7 @@ async fn rmdir_local_dir_test(creator_fn: impl TestSessionCreator, prefix: &str)
 #[test_case("rmdir_test"; "prefix")]
 #[tokio::test]
 async fn rmdir_local_dir_test_mock(prefix: &str) {
-    rmdir_local_dir_test(fuse::mock_session::new, prefix).await;
+    rmdir_local_dir_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3_tests")]
@@ -131,7 +131,7 @@ async fn rmdir_remote_dir_test(creator_fn: impl TestSessionCreator, prefix: &str
 #[test_case("rmdir_test"; "prefix")]
 #[tokio::test]
 async fn rmdir_remote_dir_test_mock(prefix: &str) {
-    rmdir_remote_dir_test(fuse::mock_session::new, prefix).await;
+    rmdir_remote_dir_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3_tests")]
@@ -175,7 +175,7 @@ async fn create_after_rmdir_test(creator_fn: impl TestSessionCreator, prefix: &s
 #[test_case("rmdir_test"; "prefix")]
 #[tokio::test]
 async fn create_after_rmdir_test_mock(prefix: &str) {
-    create_after_rmdir_test(fuse::mock_session::new, prefix).await;
+    create_after_rmdir_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3_tests")]

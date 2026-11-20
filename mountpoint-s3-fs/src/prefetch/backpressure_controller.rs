@@ -504,6 +504,62 @@ mod tests {
         assert_eq!(result, expected);
     }
 
+    #[test_case(0, 1024 * 1024; "request from the start of the object")]
+    #[test_case(5 * 1024 * 1024 + 7, 3 * 1024 * 1024 + 11; "request and reads at unaligned offsets")]
+    fn test_read_window_increments_are_aligned_to_parts(request_start: u64, read_size: usize) {
+        const PART_SIZE: u64 = 8 * 1024 * 1024;
+        let request_end = request_start + 256 * 1024 * 1024 + 12345;
+        // The part stream aligns the read window from the end of its initial request.
+        let from_offset = request_start + INITIAL_REQUEST_SIZE as u64;
+        let backpressure_config = BackpressureConfig {
+            initial_read_window_size: INITIAL_REQUEST_SIZE,
+            min_read_window_size: PART_SIZE as usize,
+            max_read_window_size: 64 * 1024 * 1024,
+            read_window_size_multiplier: 2,
+            request_range: request_start..request_end,
+            read_window_alignment_config: ReadWindowAlignmentConfig::AlignToPartSize {
+                from_offset,
+                part_size: PART_SIZE,
+            },
+        };
+
+        let (mut backpressure_controller, _backpressure_limiter) =
+            new_backpressure_controller_for_test(backpressure_config);
+        let mut increments = 0;
+        block_on(async {
+            let mut offset = request_start;
+            while offset < request_end {
+                let length = read_size.min((request_end - offset) as usize);
+                let previous_end = backpressure_controller.read_window_end_offset();
+                backpressure_controller
+                    .send_feedback::<MockClientError>(BackpressureFeedbackEvent::DataRead { offset, length })
+                    .await
+                    .unwrap();
+                let end = backpressure_controller.read_window_end_offset();
+                if end != previous_end && end < request_end {
+                    increments += 1;
+                    assert_eq!(
+                        (end - from_offset) % PART_SIZE,
+                        0,
+                        "read window end {end} is not aligned to parts starting at {from_offset}"
+                    );
+                }
+                // Scale the read window up from time to time, as a stalled part queue does.
+                if increments % 4 == 3 {
+                    backpressure_controller
+                        .send_feedback::<MockClientError>(BackpressureFeedbackEvent::PartQueueStall)
+                        .await
+                        .unwrap();
+                }
+                offset += length as u64;
+            }
+        });
+        assert!(
+            increments > 1,
+            "the test should increment the read window more than once"
+        );
+    }
+
     fn new_backpressure_controller_for_test(
         backpressure_config: BackpressureConfig,
     ) -> (BackpressureController, BackpressureLimiter) {

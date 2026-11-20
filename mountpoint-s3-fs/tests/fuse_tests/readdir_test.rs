@@ -147,7 +147,7 @@ async fn readdir_mock() {
     let iteration = 10;
     for _ in 0..iteration {
         let rng_seed = rand::rng().random();
-        readdir(fuse::mock_session::new, "", rng_seed).await;
+        readdir(fuse::mock_server_session::new, "", rng_seed).await;
     }
 }
 
@@ -156,6 +156,6 @@ async fn readdir_while_writing_mock() {
     let iteration = 10;
     for _ in 0..iteration {
         let rng_seed = rand::rng().random();
-        readdir_while_writing(fuse::mock_session::new, "", rng_seed).await;
+        readdir_while_writing(fuse::mock_server_session::new, "", rng_seed).await;
     }
 }
