@@ -7,6 +7,7 @@ use crate::content_type::ContentTypeDetection;
 use crate::metablock::WriteMode;
 use crate::prefetch::PrefetcherConfig;
 use crate::s3::S3Personality;
+use crate::upload::MAX_S3_MULTIPART_UPLOAD_PARTS;
 
 use super::{ServerSideEncryption, TimeToLive};
 
@@ -69,6 +70,10 @@ pub struct S3FilesystemConfig {
     pub max_background_fuse_requests: Option<u16>,
     /// Whether this mount is read-only.
     pub read_only: bool,
+    /// Atomic uploads have at most this number of parts, so the largest file that an atomic upload
+    /// can write is this number of write parts. The default is S3's limit of 10,000 parts.
+    #[doc(hidden)]
+    pub max_upload_parts: usize,
 }
 
 impl Default for S3FilesystemConfig {
@@ -95,6 +100,7 @@ impl Default for S3FilesystemConfig {
             prefetcher_config: Default::default(),
             max_background_fuse_requests: None,
             read_only: false,
+            max_upload_parts: MAX_S3_MULTIPART_UPLOAD_PARTS,
         }
     }
 }

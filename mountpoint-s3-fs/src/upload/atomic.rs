@@ -17,7 +17,8 @@ use super::UploadError;
 use super::hasher::AtomicUploadHasher;
 use crate::fs::UploadChecksumAlgorithm;
 
-const MAX_S3_MULTIPART_UPLOAD_PARTS: usize = 10000;
+/// S3 allows at most this number of parts in a multipart upload.
+pub(crate) const MAX_S3_MULTIPART_UPLOAD_PARTS: usize = 10000;
 
 /// Manages the upload of an object to S3.
 ///
@@ -40,6 +41,7 @@ pub struct UploadRequestParams {
     pub default_checksum_algorithm: Option<ChecksumAlgorithm>,
     pub storage_class: Option<String>,
     pub content_type_detection: ContentTypeDetection,
+    pub max_upload_parts: usize,
 }
 
 impl<Client> UploadRequest<Client>
@@ -98,7 +100,7 @@ where
 
         let put_bucket = params.bucket.to_owned();
         let put_key = params.key.to_owned();
-        let maximum_upload_size = client.write_part_size().saturating_mul(MAX_S3_MULTIPART_UPLOAD_PARTS);
+        let maximum_upload_size = client.write_part_size().saturating_mul(params.max_upload_parts);
         let request = runtime
             .spawn_with_result(async move { client.put_object(&put_bucket, &put_key, &put_object_params).await })
             .unwrap();
