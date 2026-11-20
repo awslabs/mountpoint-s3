@@ -81,6 +81,59 @@ async fn test_static_provider() {
         .expect_err("bogus credentials should not work");
 }
 
+/// Test a client whose credentials come from a delegate provider, with the credentials of the
+/// SDK's default chain.
+#[tokio::test]
+async fn test_delegate_provider() {
+    use mountpoint_s3_client::config::{Credentials, CredentialsCallback, CredentialsOptions, CredentialsSource};
+
+    /// Returns the given SDK credentials on every query.
+    struct SdkCredentialsSource(aws_credential_types::Credentials);
+
+    impl CredentialsSource for SdkCredentialsSource {
+        fn get_credentials(&self, callback: CredentialsCallback) {
+            let options = CredentialsOptions {
+                access_key_id: self.0.access_key_id(),
+                secret_access_key: self.0.secret_access_key(),
+                session_token: self.0.session_token(),
+                expiration: self.0.expiry(),
+            };
+            match Credentials::new(&Allocator::default(), options) {
+                Ok(credentials) => callback.complete(credentials),
+                Err(e) => tracing::error!(error = ?e, "invalid SDK credentials"),
+            }
+        }
+    }
+
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_delegate_provider");
+
+    let key = format!("{prefix}/hello");
+    let body = b"hello world!";
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(Bytes::from_static(body)))
+        .send()
+        .await
+        .unwrap();
+
+    let source = SdkCredentialsSource(get_sdk_default_chain_creds().await);
+    let allocator = Allocator::default();
+    let provider = CredentialsProvider::new_delegate(&allocator, source).unwrap();
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Provider(provider))
+        .endpoint_config(get_test_endpoint_config());
+    let client = get_test_client_with_config(config);
+
+    let result = client
+        .get_object(&bucket, &key, &GetObjectParams::new())
+        .await
+        .expect("get_object should succeed");
+    check_get_result(result, None, &body[..]).await;
+}
+
 /// Test creating a client with the profile credentials provider
 ///
 /// This is complicated because CLI profiles are inherently global state, but we want to isolate the

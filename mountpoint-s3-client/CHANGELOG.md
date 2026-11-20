@@ -2,6 +2,8 @@
 
 * Update to latest CRT dependencies.
 
+* Re-export `Credentials`, `CredentialsOptions`, `CredentialsSource` and `CredentialsCallback` from `mountpoint-s3-crt` in `config`, to build a `CredentialsProvider` for `S3ClientAuthConfig::Provider` that sources credentials from Rust code.
+
 ## v0.23.0 (November 12, 2026)
 
 * `ImdsCrtClient` now runs on a single event loop thread instead of the CRT default of one thread for every two logical CPUs. `ImdsCrtClient::new` now returns an error instead of panicking if it fails to set up its event loop, host resolver, or client bootstrap. ([#2034](https://github.com/awslabs/mountpoint-s3/pull/2034))
