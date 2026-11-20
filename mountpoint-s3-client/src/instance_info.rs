@@ -13,7 +13,7 @@ use crate::imds_crt_client::{IdentityDocument, ImdsCrtClient, ImdsQueryRequestEr
 const DMI_ROOT: &str = "/sys/devices/virtual/dmi/id";
 
 /// Information on the EC2 instance from the DMI tables and the IMDS client. Both are queried
-/// lazily, and IMDS only if the `AWS_EC2_METADATA_DISABLED` environment variable is not set.
+/// lazily, and IMDS only if the `AWS_EC2_METADATA_DISABLED` environment variable is not `true`.
 #[derive(Debug)]
 pub struct InstanceInfo {
     document: LazyCell<Result<IdentityDocument, InstanceInfoError>>,
@@ -22,7 +22,7 @@ pub struct InstanceInfo {
 
 impl InstanceInfo {
     /// Create a new instance. The IMDS client will only be queried when a method on the instance is
-    /// called, and only if the `AWS_EC2_METADATA_DISABLED` environment variable is not set.
+    /// called, and only if the `AWS_EC2_METADATA_DISABLED` environment variable is not `true`.
     pub fn new() -> Self {
         Self {
             document: LazyCell::new(|| {
@@ -85,11 +85,9 @@ fn retrieve_instance_identity_document() -> Result<IdentityDocument, InstanceInf
     Ok(identity_document)
 }
 
+/// Whether `AWS_EC2_METADATA_DISABLED` is `true`, as the AWS SDKs read it.
 fn imds_disabled() -> bool {
-    match env::var_os("AWS_EC2_METADATA_DISABLED") {
-        Some(val) => !val.eq_ignore_ascii_case("false"),
-        None => false,
-    }
+    env::var_os("AWS_EC2_METADATA_DISABLED").is_some_and(|val| val.eq_ignore_ascii_case("true"))
 }
 
 /// The instance type for the current instance, read from the SMBIOS/DMI tables the kernel exposes
