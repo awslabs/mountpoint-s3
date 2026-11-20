@@ -9,8 +9,6 @@ use crate::run::Run;
 pub enum Cell {
     /// The outcome matches the scenario's expectation.
     Pass(Outcome),
-    /// The outcome matches a known difference, which `fix` will remove.
-    Todo { fix: &'static str, outcome: Outcome },
     /// The outcome matches a difference adopted and documented at `doc`.
     Adopted { doc: &'static str, outcome: Outcome },
     /// The outcome doesn't match what the chain is expected to do.
@@ -25,7 +23,6 @@ impl Cell {
         let expected = scenario.expected(chain);
         match run {
             Run::Done(outcome, _) if &outcome == expected => match (chain, &scenario.sdk) {
-                (Chain::Sdk, Sdk::Todo { fix, .. }) => Cell::Todo { fix, outcome },
                 (Chain::Sdk, Sdk::Adopted { doc, .. }) => Cell::Adopted { doc, outcome },
                 _ => Cell::Pass(outcome),
             },
@@ -43,7 +40,6 @@ impl Cell {
     fn symbol(&self) -> &'static str {
         match self {
             Cell::Pass(_) => "✅",
-            Cell::Todo { .. } => "🚧",
             Cell::Adopted { .. } => "📝",
             Cell::Mismatch { .. } => "🚨",
             Cell::Skipped => "⏭",
@@ -54,7 +50,6 @@ impl Cell {
         let symbol = self.symbol();
         match self {
             Cell::Pass(outcome) => format!("{symbol} {}", summary(outcome)),
-            Cell::Todo { fix, outcome } => format!("{symbol} {} · TODO: {fix}", summary(outcome)),
             Cell::Adopted { doc, outcome } => format!("{symbol} {} · see `{doc}`", summary(outcome)),
             Cell::Mismatch {
                 actual: Run::Done(outcome, _),
@@ -90,7 +85,7 @@ pub fn render(rows: &[Row]) -> String {
     }
     let column = |name: &str, cells: Vec<&Cell>| {
         let mut parts = vec![];
-        for symbol in ["✅", "📝", "🚧", "🚨", "⏭"] {
+        for symbol in ["✅", "📝", "🚨", "⏭"] {
             let n = cells.iter().filter(|cell| cell.symbol() == symbol).count();
             if n > 0 {
                 parts.push(format!("{n} {symbol}"));
@@ -106,22 +101,9 @@ pub fn render(rows: &[Row]) -> String {
         column("SDK", rows.iter().map(|row| &row.sdk).collect())
     )
     .unwrap();
-    let mut fixes = rows
-        .iter()
-        .filter_map(|row| match &row.sdk {
-            Cell::Todo { fix, .. } => Some(*fix),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    fixes.sort();
-    fixes.dedup();
-    if !fixes.is_empty() {
-        writeln!(out, "\nTODO: {}.", fixes.join("; ")).unwrap();
-    }
     writeln!(
         out,
-        "\n✅ as expected (today's CRT behaviour) · 📝 adopted and documented difference · 🚧 known difference, \
-         with the change that removes it · 🚨 unexpected outcome · ⏭ slow, run with `--include-slow`"
+        "\n✅ as expected (today's CRT behaviour) · 📝 adopted and documented difference · 🚨 unexpected outcome · ⏭ slow, run with `--include-slow`"
     )
     .unwrap();
     for row in rows {
