@@ -48,9 +48,6 @@ pub struct Scenario {
 pub enum Sdk {
     /// The same as the scenario's expectation.
     Same,
-    /// A known difference, which the change named by `fix` removes. `outcome` is what the SDK
-    /// chain does until then.
-    Todo { fix: &'static str, outcome: Outcome },
     /// A difference adopted as the new behaviour, documented at `doc`.
     Adopted { doc: &'static str, outcome: Outcome },
 }
@@ -284,15 +281,6 @@ impl Scenario {
         self
     }
 
-    /// The SDK chain differs until the change named by `fix`: what it does until then.
-    pub fn sdk_todo(mut self, fix: &'static str, fetches: impl IntoIterator<Item = Fetch>) -> Self {
-        let outcome = Outcome {
-            fetches: fetches.into_iter().collect(),
-        };
-        self.sdk = Sdk::Todo { fix, outcome };
-        self
-    }
-
     /// The SDK chain's different behaviour is adopted and documented at `doc`.
     pub fn sdk_adopted(mut self, doc: &'static str, fetches: impl IntoIterator<Item = Fetch>) -> Self {
         let outcome = Outcome {
@@ -306,7 +294,7 @@ impl Scenario {
     pub fn expected(&self, chain: Chain) -> &Outcome {
         match (chain, &self.sdk) {
             (Chain::Crt, _) | (Chain::Sdk, Sdk::Same) => &self.expect,
-            (Chain::Sdk, Sdk::Todo { outcome, .. } | Sdk::Adopted { outcome, .. }) => outcome,
+            (Chain::Sdk, Sdk::Adopted { outcome, .. }) => outcome,
         }
     }
 }

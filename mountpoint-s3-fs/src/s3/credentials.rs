@@ -11,7 +11,8 @@
 //! ```
 //!
 //! With [SdkCredentialsChain::Default], the chain tries the sources in this order; with
-//! [SdkCredentialsChain::Profile], it uses only the profile.
+//! [SdkCredentialsChain::Profile], it uses only the profile. Once a source returns credentials,
+//! later queries go only to that source, so that credentials always come from the same source.
 //!
 //! [SdkCredentialsSource] runs an `aws-config` credentials chain. [SharedCredentials] caches its
 //! credentials, fetched on a Tokio runtime given as a [Handle], and refreshes them 5 minutes
@@ -50,6 +51,7 @@ use aws_config::meta::credentials::CredentialsProviderChain;
 use aws_config::profile::{Profile, ProfileFileCredentialsProvider, ProfileFileLoadError, ProfileSet};
 use aws_config::provider_config::ProviderConfig;
 use aws_config::web_identity_token::WebIdentityTokenCredentialsProvider;
+use aws_credential_types::attributes::AccountId;
 use aws_credential_types::credential_fn::provide_credentials_fn;
 use aws_credential_types::provider::error::CredentialsError;
 use aws_credential_types::provider::{self, ProvideCredentials, SharedCredentialsProvider};
@@ -162,9 +164,14 @@ pub enum SdkCredentialsError {
 /// [SharedCredentials] in front of it. Its providers need a Tokio runtime with the I/O and time
 /// drivers enabled.
 ///
-/// The chain is built on the first query and reused after that. The regions of
-/// its STS requests are chosen when the source is created, as the [module](self) documentation
-/// describes.
+/// Until a source returns credentials, each query builds the chain again and tries its sources in
+/// order. After that, queries go only to that source, which is kept, and fail when it fails. A
+/// profile reads the shared files on its first query; once it has returned static keys, it reads
+/// the keys from the files again for each query. The instance metadata provider is created on the
+/// first query and kept, with the state of its IMDSv1 fallback.
+///
+/// The regions of the STS requests (see the [module](self) documentation) and whether the IMDSv1
+/// fallback is disabled are chosen when the source is created.
 #[derive(Clone)]
 pub struct SdkCredentialsSource {
     inner: Arc<SourceInner>,
@@ -176,7 +183,9 @@ struct SourceInner {
     sts_regions: StsRegions,
     /// Whether the IMDSv1 fallback of the instance metadata provider is disabled.
     imds_v1_disabled: bool,
-    chain: OnceLock<SharedCredentialsProvider>,
+    imds: OnceLock<CrtImdsCredentials>,
+    /// The source that returned credentials first, which later queries go to alone.
+    pinned: Arc<OnceLock<SharedCredentialsProvider>>,
 }
 
 impl SdkCredentialsSource {
@@ -197,7 +206,8 @@ impl SdkCredentialsSource {
                 http_client,
                 sts_regions,
                 imds_v1_disabled,
-                chain: OnceLock::new(),
+                imds: OnceLock::new(),
+                pinned: Default::default(),
             }),
         })
     }
@@ -221,54 +231,100 @@ impl ProvideCredentials for SdkCredentialsSource {
 }
 
 impl SourceInner {
-    /// Query the chain, with the fetch timeout.
+    /// Query the source that returned credentials first, or else the chain, with the fetch timeout.
     async fn fetch(&self) -> provider::Result {
-        let chain = self.chain.get_or_init(|| self.build_chain());
-        tokio::time::timeout(self.config.fetch_timeout, chain.provide_credentials())
+        let provider = match self.pinned.get() {
+            Some(source) => source.clone(),
+            None => self.build_chain(),
+        };
+        tokio::time::timeout(self.config.fetch_timeout, provider.provide_credentials())
             .await
             .unwrap_or_else(|_| Err(CredentialsError::provider_timed_out(self.config.fetch_timeout)))
     }
 
-    fn build_chain(&self) -> SharedCredentialsProvider {
-        let sts_regions = self.sts_regions.clone();
-        debug!(chain = ?self.config.chain, ?sts_regions, "building the SDK credentials chain");
+    /// The configuration for the providers. A profile provider parses the shared files on its first
+    /// query, and keeps what it read.
+    fn provider_config(&self) -> ProviderConfig {
         // STS requests don't use the FIPS or dual-stack endpoints. Unless they are set here, the
         // profile provider reads these settings from the environment and the profile.
-        let mut provider_config = ProviderConfig::without_region()
+        let provider_config = ProviderConfig::without_region()
             .with_use_fips(Some(false))
             .with_use_dual_stack(Some(false));
-        if let Some(http_client) = &self.http_client {
-            provider_config = provider_config.with_http_client(http_client.clone());
+        match &self.http_client {
+            Some(http_client) => provider_config.with_http_client(http_client.clone()),
+            None => provider_config,
         }
-        let imds = CrtImdsCredentials::new(self.imds_v1_disabled);
-        let profile = ProfileFileCredentialsProvider::builder()
-            .configure(&provider_config.clone().with_region(Some(sts_regions.profile)))
-            .with_custom_provider("Ec2InstanceMetadata", imds.clone());
+    }
+
+    /// The instance metadata provider, created on the first call.
+    fn imds(&self) -> CrtImdsCredentials {
+        self.imds
+            .get_or_init(|| CrtImdsCredentials::new(self.imds_v1_disabled))
+            .clone()
+    }
+
+    /// The profile source, for the profile the chain uses.
+    fn profile_source(&self, provider_config: &ProviderConfig) -> ProfileSource {
+        let provider = ProfileFileCredentialsProvider::builder()
+            .configure(
+                &provider_config
+                    .clone()
+                    .with_region(Some(self.sts_regions.profile.clone())),
+            )
+            .with_custom_provider("Ec2InstanceMetadata", self.imds());
+        let provider = match &self.config.chain {
+            SdkCredentialsChain::Default => provider,
+            SdkCredentialsChain::Profile(name) => provider.profile_name(name),
+        };
+        ProfileSource {
+            provider: provider.build(),
+            profile_name: self.config.chain.profile_name().map(str::to_owned),
+            static_keys: OnceLock::new(),
+        }
+    }
+
+    /// `source`, which the chain is pinned to when it returns credentials.
+    fn pinning(&self, source: impl ProvideCredentials + 'static) -> SharedCredentialsProvider {
+        let source = SharedCredentialsProvider::new(source);
+        let pinned = self.pinned.clone();
+        SharedCredentialsProvider::new(provide_credentials_fn(move || {
+            let (source, pinned) = (source.clone(), pinned.clone());
+            async move {
+                let credentials = source.provide_credentials().await?;
+                pinned.get_or_init(|| source);
+                Ok(credentials)
+            }
+        }))
+    }
+
+    fn build_chain(&self) -> SharedCredentialsProvider {
+        let sts_regions = &self.sts_regions;
+        debug!(chain = ?self.config.chain, ?sts_regions, "building the SDK credentials chain");
+        let provider_config = self.provider_config();
+        let profile = self.pinning(self.profile_source(&provider_config));
         match &self.config.chain {
             SdkCredentialsChain::Default => {
-                let mut chain =
-                    CredentialsProviderChain::first_try("Environment", EnvironmentVariableCredentialsProvider::new());
+                let mut chain = CredentialsProviderChain::first_try(
+                    "Environment",
+                    self.pinning(EnvironmentVariableCredentialsProvider::new()),
+                );
                 // The default chain skips a profile whose web identity would send its token to an
                 // endpoint set for every service.
                 if !sts_regions.profile_web_identity_to_url {
-                    chain = chain.or_else("Profile", profile.build());
+                    chain = chain.or_else("Profile", profile);
                 }
                 // Without a usable STS endpoint, the chain skips web identity and moves on to the
                 // next source.
-                if let Some(region) = sts_regions.web_identity {
-                    chain = chain.or_else(
-                        "WebIdentityToken",
-                        WebIdentityTokenCredentialsProvider::builder()
-                            .configure(&provider_config.clone().with_region(region))
-                            .build(),
-                    );
+                if let Some(region) = &sts_regions.web_identity {
+                    let web_identity = WebIdentityTokenCredentialsProvider::builder()
+                        .configure(&provider_config.clone().with_region(region.clone()))
+                        .build();
+                    chain = chain.or_else("WebIdentityToken", self.pinning(web_identity));
                 }
+                let ecs = EcsCredentialsProvider::builder().configure(&provider_config).build();
                 let chain = chain
-                    .or_else(
-                        "EcsContainer",
-                        EcsCredentialsProvider::builder().configure(&provider_config).build(),
-                    )
-                    .or_else("Ec2InstanceMetadata", imds);
+                    .or_else("EcsContainer", self.pinning(ecs))
+                    .or_else("Ec2InstanceMetadata", self.pinning(self.imds()));
                 SharedCredentialsProvider::new(chain)
             }
             SdkCredentialsChain::Profile(_) if sts_regions.profile_web_identity_to_url => {
@@ -280,7 +336,7 @@ impl SourceInner {
                     ))
                 }))
             }
-            SdkCredentialsChain::Profile(name) => SharedCredentialsProvider::new(profile.profile_name(name).build()),
+            SdkCredentialsChain::Profile(_) => profile,
         }
     }
 }
@@ -326,6 +382,96 @@ impl CrtImdsCredentials {
             }
         }
     }
+}
+
+/// The profile source of the chain: the SDK's profile provider, which parses the shared files on its
+/// first query and keeps what it read. Once it has returned static keys, later queries read the keys
+/// from the shared files again instead, so that keys rotated in the files are picked up and keys
+/// removed from them fail the query.
+#[derive(Debug)]
+struct ProfileSource {
+    provider: ProfileFileCredentialsProvider,
+    /// The profile given with [SdkCredentialsChain::Profile], if any.
+    profile_name: Option<String>,
+    /// Whether the selected profile holds static keys, checked when the provider first returns
+    /// credentials.
+    static_keys: OnceLock<bool>,
+}
+
+impl ProfileSource {
+    async fn credentials(&self) -> provider::Result {
+        if self.static_keys.get() == Some(&true) {
+            return read_static_keys(self.profile_name.as_deref()).await;
+        }
+        let credentials = self.provider.provide_credentials().await?;
+        if self.static_keys.get().is_none() {
+            let static_keys = profile_has_static_keys(self.profile_name.as_deref()).await;
+            let _ = self.static_keys.set(static_keys);
+        }
+        Ok(credentials)
+    }
+}
+
+impl ProvideCredentials for ProfileSource {
+    fn provide_credentials<'a>(&'a self) -> provider::future::ProvideCredentials<'a>
+    where
+        Self: 'a,
+    {
+        provider::future::ProvideCredentials::new(self.credentials())
+    }
+}
+
+/// The static keys of the selected profile (`profile_name`, or the one selected by `AWS_PROFILE`),
+/// read from the shared files.
+async fn read_static_keys(profile_name: Option<&str>) -> provider::Result {
+    let profiles = aws_config::profile::load(
+        &Fs::real(),
+        &Env::real(),
+        &Default::default(),
+        profile_name.map(|name| name.to_owned().into()),
+    )
+    .await
+    .map_err(CredentialsError::invalid_configuration)?;
+    let (Some(access_key_id), Some(secret_access_key)) =
+        (profiles.get("aws_access_key_id"), profiles.get("aws_secret_access_key"))
+    else {
+        return Err(CredentialsError::not_loaded(format!(
+            "the profile `{}` has no static keys in the shared files",
+            profiles.selected_profile()
+        )));
+    };
+    let mut credentials = aws_credential_types::Credentials::builder()
+        .access_key_id(access_key_id)
+        .secret_access_key(secret_access_key)
+        .provider_name("ProfileFile");
+    credentials.set_session_token(profiles.get("aws_session_token").map(String::from));
+    credentials.set_account_id(profiles.get("aws_account_id").map(AccountId::from));
+    Ok(credentials.build())
+}
+
+/// Whether the selected profile (`profile_name`, or the one selected by `AWS_PROFILE`) holds static
+/// keys: it has `aws_access_key_id`, and none of the role, `credential_source`, `credential_process`
+/// and IAM Identity Center settings, which the SDK's profile provider uses first.
+async fn profile_has_static_keys(profile_name: Option<&str>) -> bool {
+    aws_config::profile::load(
+        &Fs::real(),
+        &Env::real(),
+        &Default::default(),
+        profile_name.map(|name| name.to_owned().into()),
+    )
+    .await
+    .is_ok_and(|profiles| {
+        profiles.get("aws_access_key_id").is_some()
+            && [
+                "role_arn",
+                "credential_source",
+                "credential_process",
+                "sso_session",
+                "sso_start_url",
+            ]
+            .iter()
+            .all(|key| profiles.get(key).is_none())
+    })
 }
 
 /// Whether the IMDSv1 fallback is disabled: `AWS_EC2_METADATA_V1_DISABLED` or, if it isn't set, the
@@ -739,6 +885,46 @@ echo '{{"Version": 1, "AccessKeyId": "{PROCESS_ACCESS_KEY_ID}", "SecretAccessKey
             }
             tokio_runtime.shutdown_background();
             futures::executor::block_on(pending).expect_err("the runtime is shut down");
+        }
+
+        #[test]
+        fn static_keys_are_read_again_from_the_shared_files() {
+            let dir = tempfile::tempdir().unwrap();
+            isolate_environment(dir.path());
+            let credentials_file = dir.path().join("credentials");
+            let keys = |id: &str| format!("[default]\naws_access_key_id = {id}\naws_secret_access_key = secret\n");
+            write_file(&credentials_file, &keys("AKIAFIRST"));
+
+            new_runtime().block_on(async {
+                let source = SdkCredentialsSource::new(SdkCredentialsConfig::new(SdkCredentialsChain::Default))
+                    .await
+                    .unwrap();
+                assert_eq!(source.provide_credentials().await.unwrap().access_key_id(), "AKIAFIRST");
+                write_file(&credentials_file, &keys("AKIAROTATED"));
+                assert_eq!(source.provide_credentials().await.unwrap().access_key_id(), "AKIAROTATED");
+                write_file(&credentials_file, "");
+                source.provide_credentials().await.expect_err("the keys are removed");
+            });
+        }
+
+        #[test]
+        fn profile_with_credential_source_keeps_its_source() {
+            let dir = tempfile::tempdir().unwrap();
+            isolate_environment(dir.path());
+            set_environment_credentials();
+            // Without `role_arn`, the SDK uses `credential_source` before the profile's static keys.
+            write_file(
+                &dir.path().join("config"),
+                "[default]\ncredential_source = Environment\naws_access_key_id = AKIAPROFILE\naws_secret_access_key = secret\n",
+            );
+
+            new_runtime().block_on(async {
+                let config = SdkCredentialsConfig::new(SdkCredentialsChain::Profile("default".to_owned()));
+                let source = SdkCredentialsSource::new(config).await.unwrap();
+                for _ in 0..2 {
+                    assert_eq!(source.provide_credentials().await.unwrap().access_key_id(), ENV_ACCESS_KEY_ID);
+                }
+            });
         }
 
         #[test]
