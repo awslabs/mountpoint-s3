@@ -37,6 +37,9 @@ use common::{DirectoryReply, assert_attr, make_test_filesystem_with_client};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use common::{get_crt_client_auth_config, s3::deny_single_object_access_policy};
 
+/// The smallest part size that S3 accepts for multipart uploads.
+const MIN_PART_SIZE: usize = 5 * 1024 * 1024;
+
 /// Returns a configuration for a CRT client of `server` with read backpressure and an initial read
 /// window of 256 KiB. The client keeps its default part size, because it doesn't accept parts below
 /// 5 MiB.
@@ -47,18 +50,31 @@ fn test_crt_client_config(server: &MockServer) -> S3ClientConfig {
         .initial_read_window(256 * 1024)
 }
 
-/// Create a file system with a CRT client that connects to a local mock server. The server's bucket follows the personality in `config` ([bucket_for]),
-/// and the client has the settings of [test_crt_client_config]. The returned guard keeps the
-/// server running, and tests seed and inspect the bucket through [MockServerGuard::server].
+/// Create a file system on the bucket of a local mock server, with a CRT client that has the
+/// settings of [test_crt_client_config]. See [make_mock_server_filesystem_with_client_config] for
+/// the server, its bucket and the returned guard.
 async fn make_mock_server_filesystem(
     prefix: &Prefix,
     config: S3FilesystemConfig,
+) -> MockServerGuard<S3Filesystem<S3CrtClient>> {
+    make_mock_server_filesystem_with_client_config(prefix, config, test_crt_client_config).await
+}
+
+/// Create a file system on the bucket of a local mock server, under `prefix` and with `config`.
+/// The server's bucket follows the personality in `config` ([bucket_for]). The file system uses a
+/// CRT client with the configuration that `client_config` returns for the server. The returned
+/// guard keeps the server running. Tests seed and inspect the bucket through
+/// [MockServerGuard::server].
+async fn make_mock_server_filesystem_with_client_config(
+    prefix: &Prefix,
+    config: S3FilesystemConfig,
+    client_config: impl FnOnce(&MockServer) -> S3ClientConfig,
 ) -> MockServerGuard<S3Filesystem<S3CrtClient>> {
     let server = MockServer::config()
         .bucket(bucket_for(config.s3_personality))
         .build()
         .await;
-    let client = S3CrtClient::new(test_crt_client_config(&server)).expect("failed to create the CRT client");
+    let client = S3CrtClient::new(client_config(&server)).expect("failed to create the CRT client");
     let pool = PagedPool::config()
         .with_candidate_sizes([CandidateSize::new(client.read_part_size())])
         .with_minimum_memory_limit()
@@ -768,11 +784,9 @@ async fn test_duplicate_write_fails() {
 async fn test_upload_aborted_on_write_failure() {
     const FILE_NAME: &str = "foo.bin";
     const WRITE_SIZE: usize = 1024 * 1024;
-    // The client sends a part once it has buffered a part's worth of writes, so a write fails
-    // within a few parts. Give up after several parts of the client's part size.
-    const MAX_WRITTEN: usize = 64 * 1024 * 1024;
 
-    let fs = make_test_filesystem_with_failing_upload(FILE_NAME).await;
+    // The server accepts the first part of the upload and rejects the following ones.
+    let fs = make_test_filesystem_with_failing_upload(FILE_NAME, MIN_PART_SIZE, 1).await;
     let server = fs.server();
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
@@ -783,7 +797,12 @@ async fn test_upload_aborted_on_write_failure() {
     let fh = fs.open(file_ino, OpenFlags::O_WRONLY, 0).await.unwrap().fh;
 
     let data = vec![0xaa; WRITE_SIZE];
-    let mut offset = 0;
+    let mut offset = fs
+        .write(file_ino, fh, 0, &data, fuser::WriteFlags::empty(), 0, None)
+        .await
+        .expect("first write should succeed") as usize;
+    assert!(server.is_upload_in_progress(FILE_NAME).await);
+
     let write_error = loop {
         match fs
             .write(file_ino, fh, offset as u64, &data, fuser::WriteFlags::empty(), 0, None)
@@ -791,7 +810,13 @@ async fn test_upload_aborted_on_write_failure() {
         {
             Ok(written) => {
                 offset += written as usize;
-                assert!(offset < MAX_WRITTEN, "no write failed after {offset} bytes");
+                // A fallback that bounds the loop if no write fails.
+                assert!(offset < 10 * MIN_PART_SIZE, "no write failed after {offset} bytes");
+                // Once the client has sent the second part, slow down the writes until one of them
+                // reports the failure of that part.
+                if offset > 2 * MIN_PART_SIZE {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
             }
             Err(err) => break err.to_errno(),
         }
@@ -821,17 +846,24 @@ async fn test_upload_aborted_on_write_failure() {
         .expect("release succeeds (no op)");
 }
 
-/// Create a file system as [make_mock_server_filesystem] does, and make the server reject every
-/// UploadPart request for `key`. An upload smaller than a part sends its data only when it
-/// completes, so it fails on `fsync` or `release`. The server answers with a 4xx error, which the
-/// client doesn't retry.
-async fn make_test_filesystem_with_failing_upload(key: &str) -> MockServerGuard<S3Filesystem<S3CrtClient>> {
-    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
+/// Create a file system whose CRT client uploads parts of `part_size`. The server rejects the
+/// UploadPart requests for `key` after the first `accepted_parts`, with an error that the client
+/// doesn't retry. See [make_mock_server_filesystem_with_client_config] for the server and the
+/// returned guard.
+async fn make_test_filesystem_with_failing_upload(
+    key: &str,
+    part_size: usize,
+    accepted_parts: u32,
+) -> MockServerGuard<S3Filesystem<S3CrtClient>> {
+    let fs = make_mock_server_filesystem_with_client_config(&Default::default(), Default::default(), |server| {
+        test_crt_client_config(server).part_size(part_size)
+    })
+    .await;
     fs.server().inject_error(
         Operation::UploadPart,
         Some(key),
         Error::AccessDenied,
-        0,
+        accepted_parts,
         Occurrence::Always,
     );
     fs
@@ -841,7 +873,7 @@ async fn make_test_filesystem_with_failing_upload(key: &str) -> MockServerGuard<
 async fn test_upload_aborted_on_fsync_failure() {
     const FILE_NAME: &str = "foo.bin";
 
-    let fs = make_test_filesystem_with_failing_upload(FILE_NAME).await;
+    let fs = make_test_filesystem_with_failing_upload(FILE_NAME, MIN_PART_SIZE, 0).await;
     let server = fs.server();
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
@@ -878,7 +910,7 @@ async fn test_upload_aborted_on_fsync_failure() {
 async fn test_upload_aborted_on_release_failure() {
     const FILE_NAME: &str = "foo.bin";
 
-    let fs = make_test_filesystem_with_failing_upload(FILE_NAME).await;
+    let fs = make_test_filesystem_with_failing_upload(FILE_NAME, MIN_PART_SIZE, 0).await;
     let server = fs.server();
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions

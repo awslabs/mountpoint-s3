@@ -523,9 +523,16 @@ mod tests {
             },
         };
 
+        // For the read window to scale up to its maximum, the pool needs memory beyond what it
+        // reserves for overhead.
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(PART_SIZE as usize)])
+            .with_memory_limit(1024 * 1024 * 1024)
+            .build();
         let (mut backpressure_controller, _backpressure_limiter) =
-            new_backpressure_controller_for_test(backpressure_config);
+            new_backpressure_controller(backpressure_config, pool.create_cursor().state());
         let mut increments = 0;
+        let mut multi_part_increments = 0;
         block_on(async {
             let mut offset = request_start;
             while offset < request_end {
@@ -538,6 +545,9 @@ mod tests {
                 let end = backpressure_controller.read_window_end_offset();
                 if end != previous_end && end < request_end {
                     increments += 1;
+                    if end - previous_end > PART_SIZE {
+                        multi_part_increments += 1;
+                    }
                     assert_eq!(
                         (end - from_offset) % PART_SIZE,
                         0,
@@ -555,8 +565,8 @@ mod tests {
             }
         });
         assert!(
-            increments > 1,
-            "the test should increment the read window more than once"
+            multi_part_increments > 0,
+            "the test should increment the read window by more than one part"
         );
     }
 

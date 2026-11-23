@@ -62,7 +62,7 @@ use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use aws_sdk_s3::config::retry::RetryConfig;
 use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
@@ -262,7 +262,9 @@ impl MockServer {
                     .addressing_style(AddressingStyle::Path)
                     .endpoint(endpoint)
                     // The CRT sends CreateSession with the bucket only in the host name, which
-                    // the server cannot see.
+                    // the server cannot see. Without sessions, `S3Personality::infer_from_bucket`
+                    // can't recognise directory buckets. That doesn't matter here, because tests
+                    // choose the personality and the bucket themselves ([bucket_for]).
                     .disable_s3express_session_auth(true),
             )
             .auth_config(S3ClientAuthConfig::Provider(credentials))
@@ -361,17 +363,6 @@ impl MockServer {
             );
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-    }
-
-    /// Mark an archived object as restored for an hour, or fail if the object doesn't exist.
-    pub async fn restore_object(&self, key: &str) -> Result<(), ObjectNotFound> {
-        let status = RestoreStatus::Restored {
-            expiry: SystemTime::now() + Duration::from_secs(60 * 60),
-        };
-        self.store()
-            .set_restore_status(self.bucket(), key, Some(status))
-            .await
-            .map_err(|_| ObjectNotFound(key.to_owned()))
     }
 
     /// Returns whether an object is restored, or an error if the object doesn't exist.

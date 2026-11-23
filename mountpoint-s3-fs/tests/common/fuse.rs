@@ -130,6 +130,32 @@ async fn sdk_head_object(
     })
 }
 
+/// Request a one-day restore of the archived object `key` with an SDK client. The restore uses
+/// the expedited retrieval tier if `expedited` is set. Otherwise, it uses the bulk tier.
+async fn sdk_restore_object(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    key: &str,
+    expedited: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use aws_sdk_s3::types::{GlacierJobParameters, RestoreRequest, Tier};
+
+    let tier = if expedited { Tier::Expedited } else { Tier::Bulk };
+    client
+        .restore_object()
+        .bucket(bucket)
+        .key(key)
+        .set_restore_request(Some(
+            RestoreRequest::builder()
+                .set_days(Some(1))
+                .set_glacier_job_parameters(Some(GlacierJobParameters::builder().set_tier(Some(tier)).build()?))
+                .build(),
+        ))
+        .send()
+        .await?;
+    Ok(())
+}
+
 pub struct TestSessionConfig {
     pub part_size: usize,
     pub initial_read_window_size: usize,
@@ -657,7 +683,7 @@ pub mod mock_server_session {
 
     /// A test client that uses the S3 API through an SDK client, independent of the CRT client
     /// under test, and the server's store for what the S3 API can't do or report, such as
-    /// restoring archived objects.
+    /// reading archived objects.
     struct MockServerTestClient {
         prefix: String,
         server: MockServer,
@@ -703,7 +729,7 @@ pub mod mock_server_session {
         }
 
         async fn contains_dir(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
-            Ok(self.server.contains_prefix(&self.full_key(key)).await)
+            Ok(self.server.contains_prefix(&format!("{}/", self.full_key(key))).await)
         }
 
         async fn contains_key(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
@@ -739,8 +765,8 @@ pub mod mock_server_session {
                 .content_type)
         }
 
-        async fn restore_object(&self, key: &str, _expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
-            Ok(self.server.restore_object(&self.full_key(key)).await?)
+        async fn restore_object(&self, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
+            sdk_restore_object(&self.sdk_client, self.server.bucket(), &self.full_key(key), expedited).await
         }
 
         async fn is_object_restored(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
@@ -756,7 +782,6 @@ pub mod s3_session {
     use crate::common::s3::{get_test_endpoint_config, get_test_region, get_test_s3_path, get_test_sdk_client};
     use aws_sdk_s3::Client;
     use aws_sdk_s3::operation::head_object::HeadObjectError;
-    use aws_sdk_s3::types::{GlacierJobParameters, RestoreRequest, Tier};
     use mountpoint_s3_client::S3CrtClient;
     use mountpoint_s3_client::config::S3ClientConfig;
     use mountpoint_s3_fs::prefetch::Prefetcher;
@@ -1022,20 +1047,7 @@ pub mod s3_session {
         // https://docs.aws.amazon.com/AmazonS3/latest/userguide/restoring-objects-retrieval-options.html?icmpid=docs_amazons3_console#restoring-objects-upgrade-tier
         async fn restore_object(&self, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            let tier = if expedited { Tier::Expedited } else { Tier::Bulk };
-            self.sdk_client
-                .restore_object()
-                .bucket(&self.bucket)
-                .key(full_key)
-                .set_restore_request(Some(
-                    RestoreRequest::builder()
-                        .set_days(Some(1))
-                        .set_glacier_job_parameters(Some(GlacierJobParameters::builder().set_tier(Some(tier)).build()?))
-                        .build(),
-                ))
-                .send()
-                .await?;
-            Ok(())
+            sdk_restore_object(&self.sdk_client, &self.bucket, &full_key, expedited).await
         }
 
         async fn is_object_restored(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {

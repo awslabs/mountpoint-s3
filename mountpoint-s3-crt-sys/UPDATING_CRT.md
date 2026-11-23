@@ -12,6 +12,8 @@ The CRT submodules can be updated by following these steps:
    git submodule foreach 'case $sm_path in mountpoint-s3-crt-sys/crt/*) git fetch -q -f --tags && git checkout --recurse-submodules `git tag -l --sort=-v:refname | head -1`;; esac'
    ```
 
+   The command only updates the CRT submodules, in `mountpoint-s3-crt-sys/crt`. To update the submodules in `third_party`, see [UPDATE_SUBMODULES.md](../third_party/UPDATE_SUBMODULES.md).
+
 2. Review the commit history, in particular for `aws-c-s3`, looking for changes that may affect `mountpoint-s3` (bug fixes, API changes, etc.). E.g.:
 
    ```sh

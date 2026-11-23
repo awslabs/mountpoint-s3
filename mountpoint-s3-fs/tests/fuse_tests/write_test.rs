@@ -581,6 +581,15 @@ const WRITE_TOO_BIG_PART_SIZE: usize = 5 * 1024 * 1024;
 /// [write_too_big_test] allows this number of parts, so the largest file it can write is 15 MiB.
 const WRITE_TOO_BIG_MAX_PARTS: usize = 3;
 
+#[cfg(feature = "s3_tests")]
+#[test_case(1024 * 1024; "divisible by max size")]
+#[test_case(4 * 1024 * 1024; "not divisible by max size")]
+#[test_case(WRITE_TOO_BIG_PART_SIZE * WRITE_TOO_BIG_MAX_PARTS + 1; "single write too big")]
+#[tokio::test]
+async fn write_too_big_test_s3(write_size: usize) {
+    write_too_big_test(fuse::s3_session::new, write_size).await;
+}
+
 #[test_case(1024 * 1024; "divisible by max size")]
 #[test_case(4 * 1024 * 1024; "not divisible by max size")]
 #[test_case(WRITE_TOO_BIG_PART_SIZE * WRITE_TOO_BIG_MAX_PARTS + 1; "single write too big")]

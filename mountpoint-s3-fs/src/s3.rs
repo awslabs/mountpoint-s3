@@ -23,6 +23,9 @@ pub enum S3Personality {
 }
 
 impl S3Personality {
+    /// Infer the personality from the auth scheme of the bucket's endpoint. The inference relies on
+    /// the signing algorithm to detect directory buckets ([SigningAlgorithm::SigV4Express]). It
+    /// therefore doesn't work correctly with [EndpointConfig::disable_s3express_session_auth].
     pub fn infer_from_bucket(bucket: &str, endpoint_config: &EndpointConfig) -> Self {
         let Ok(resolved) = endpoint_config.resolve_for_bucket(bucket) else {
             return S3Personality::Standard;
