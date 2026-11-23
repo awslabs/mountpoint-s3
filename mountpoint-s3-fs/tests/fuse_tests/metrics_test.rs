@@ -1,7 +1,8 @@
-use crate::common::fuse::{TestSessionConfig, mock_session};
+use crate::common::fuse::{TestSessionConfig, mock_server_session};
+use crate::common::mock_server::MockServer;
 use crate::common::test_recorder::{Metric, TestRecorder};
 use futures::executor::ThreadPool;
-use mountpoint_s3_client::mock_client::MockClient;
+use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_fs::Runtime;
 use mountpoint_s3_fs::S3FilesystemConfig;
 use mountpoint_s3_fs::data_cache::{
@@ -99,7 +100,7 @@ rusty_fork_test! {
                 ..Default::default()
             };
 
-            let test_session = mock_session::new("test_fuse_write_metrics", config).await;
+            let test_session = mock_server_session::new("test_fuse_write_metrics", config).await;
             let path = test_session.mount_path().join("test.txt");
 
             // Test write
@@ -152,7 +153,7 @@ rusty_fork_test! {
                 ..Default::default()
             };
 
-            let test_session = mock_session::new("test_fuse_read_metrics", config).await;
+            let test_session = mock_server_session::new("test_fuse_read_metrics", config).await;
 
             let content = vec![b'a'; 1024];
             test_session.client().put_object("test.txt", &content).await.unwrap();
@@ -190,7 +191,7 @@ rusty_fork_test! {
         tokio_block_on(async {
             let recorder = setup_recorder();
 
-            let test_session = mock_session::new("test_fuse_error_metrics", TestSessionConfig::default()).await;
+            let test_session = mock_server_session::new("test_fuse_error_metrics", TestSessionConfig::default()).await;
 
             // Try to read a non-existent file
             let non_existent = test_session.mount_path().join("does_not_exist.txt");
@@ -212,7 +213,7 @@ rusty_fork_test! {
         tokio_block_on(async {
             let recorder = setup_recorder();
 
-            let test_session = mock_session::new("test_random_access_resets_prefetch_state", TestSessionConfig::default()).await;
+            let test_session = mock_server_session::new("test_random_access_resets_prefetch_state", TestSessionConfig::default()).await;
             let path = test_session.mount_path().join("large_file.txt");
 
             // Create a large file for random reading
@@ -258,7 +259,7 @@ rusty_fork_test! {
             let recorder = setup_recorder();
             let cache_dir = tempfile::tempdir().unwrap();
 
-            let test_session = mock_session::new_with_cache(|block_size, pool| {
+            let test_session = mock_server_session::new_with_cache(|block_size, pool| {
                 let cache_config = DiskDataCacheConfig {
                     cache_directory: cache_dir.path().to_path_buf(),
                     block_size,
@@ -305,8 +306,11 @@ rusty_fork_test! {
         tokio_block_on(async {
             let recorder = setup_recorder();
             let cache_dir = tempfile::tempdir().unwrap();
+            // The Express cache uses its own server. The test binds it before the session, so that it
+            // outlives the mount.
+            let express_server = MockServer::config().bucket("test-bucket").build().await;
 
-            let test_session = mock_session::new_with_cache(|block_size, pool| {
+            let test_session = mock_server_session::new_with_cache(|block_size, pool| {
                 let disk_config = DiskDataCacheConfig {
                     cache_directory: cache_dir.path().to_path_buf(),
                     block_size,
@@ -315,11 +319,9 @@ rusty_fork_test! {
                 let disk_cache = Arc::new(DiskDataCache::new(disk_config, pool.clone()));
 
                 let express_cache = {
-                    let express_client = MockClient::config()
-                        .bucket("test_bucket")
-                        .part_size(1024 * 1024)
-                        .build();
-                    let express_config = ExpressDataCacheConfig::new("test_bucket", "test_source")
+                    let express_client =
+                        S3CrtClient::new(express_server.crt_client_config()).expect("failed to create the CRT client");
+                    let express_config = ExpressDataCacheConfig::new(express_server.bucket(), "test_source")
                         .block_size(block_size);
                     ExpressDataCache::new(express_client, express_config)
                 };

@@ -62,6 +62,7 @@ pub struct EndpointConfig {
     use_dual_stack: bool,
     endpoint: Option<Uri>,
     addressing_style: AddressingStyle,
+    disable_s3express_session_auth: bool,
 }
 
 impl EndpointConfig {
@@ -74,7 +75,17 @@ impl EndpointConfig {
             use_dual_stack: false,
             endpoint: None,
             addressing_style: AddressingStyle::Automatic,
+            disable_s3express_session_auth: false,
         }
+    }
+
+    /// Sign requests to directory buckets with the client's own credentials for the `s3express`
+    /// service, instead of with S3 Express session credentials, so that the client sends no
+    /// CreateSession requests.
+    #[must_use = "EndpointConfig follows a builder pattern"]
+    pub fn disable_s3express_session_auth(mut self, disable: bool) -> Self {
+        self.disable_s3express_session_auth = disable;
+        self
     }
 
     /// Set region for a given endpoint config
@@ -185,6 +196,11 @@ impl EndpointConfig {
                 .add_boolean(&allocator, "ForcePathStyle", true)
                 .unwrap()
         };
+        if self.disable_s3express_session_auth {
+            endpoint_request_context
+                .add_boolean(&allocator, "DisableS3ExpressSessionAuth", true)
+                .unwrap()
+        };
 
         let resolved_endpoint = {
             let start_time = Instant::now();
@@ -276,6 +292,7 @@ pub enum InvalidUriError {
 #[cfg(test)]
 mod test {
     use super::*;
+    use test_case::test_case;
 
     #[test]
     fn test_virtual_addr() {
@@ -319,6 +336,19 @@ mod test {
         let signing_region = endpoint_auth_scheme.signing_region();
         //signing region is still the region provided
         assert_eq!(signing_region, "us-east-1");
+    }
+
+    #[test_case(false, SigningAlgorithm::SigV4Express; "with sessions")]
+    #[test_case(true, SigningAlgorithm::SigV4; "without sessions")]
+    fn test_disable_s3express_session_auth(disable: bool, expected: SigningAlgorithm) {
+        let endpoint_config = EndpointConfig::new("us-west-2").disable_s3express_session_auth(disable);
+        let auth_scheme = endpoint_config
+            .resolve_for_bucket("amzn-s3-demo-bucket--usw2-az1--x-s3")
+            .unwrap()
+            .auth_scheme()
+            .unwrap();
+        assert_eq!(auth_scheme.scheme_name(), expected);
+        assert_eq!(auth_scheme.signing_name(), "s3express");
     }
 
     #[test]

@@ -50,11 +50,8 @@ pub trait TestClient: Send + Sync {
 
     async fn is_upload_in_progress(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 
-    async fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>>;
-
-    async fn get_object_checksums(&self, key: &str) -> Result<ObjectChecksums, Box<dyn std::error::Error>>;
-
-    async fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>>;
+    /// Returns what HeadObject reports for the object, in checksum mode.
+    async fn head_object(&self, key: &str) -> Result<ObjectHead, Box<dyn std::error::Error>>;
 
     async fn get_object_content(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
 
@@ -65,8 +62,99 @@ pub trait TestClient: Send + Sync {
     async fn is_object_restored(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 }
 
-/// Checksum for the whole object, if present, and [Vec] of the checksum for each part, if present.
-type ObjectChecksums = (Option<Checksum>, Vec<Option<Checksum>>);
+/// What the tests read from a HeadObject response, in checksum mode.
+#[derive(Debug)]
+pub struct ObjectHead {
+    pub size: u64,
+    pub checksum: Checksum,
+    /// The storage class, which general purpose buckets omit for STANDARD.
+    pub storage_class: Option<String>,
+}
+
+/// Upload `value` to `key` with an SDK client. Only the checksum algorithm and the storage class
+/// of `params` are used.
+async fn sdk_put_object_single(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    key: &str,
+    value: &[u8],
+    params: PutObjectSingleParams,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use aws_sdk_s3::types::ChecksumAlgorithm;
+    use mountpoint_s3_client::types::ChecksumAlgorithm as MountpointChecksumAlgorithm;
+
+    let checksum_algorithm = params.checksum.map(|c| match c.checksum_algorithm() {
+        MountpointChecksumAlgorithm::Crc64nvme => ChecksumAlgorithm::Crc64Nvme,
+        MountpointChecksumAlgorithm::Crc32c => ChecksumAlgorithm::Crc32C,
+        MountpointChecksumAlgorithm::Crc32 => ChecksumAlgorithm::Crc32,
+        MountpointChecksumAlgorithm::Sha1 => ChecksumAlgorithm::Sha1,
+        MountpointChecksumAlgorithm::Sha256 => ChecksumAlgorithm::Sha256,
+        other => panic!("Unsupported algorithm: {other}"),
+    });
+    let mut request = client
+        .put_object()
+        .bucket(bucket)
+        .key(key)
+        .set_checksum_algorithm(checksum_algorithm)
+        .body(aws_sdk_s3::primitives::ByteStream::from(value.to_vec()));
+    if let Some(storage_class) = params.storage_class {
+        request = request.set_storage_class(Some(storage_class.as_str().into()));
+    }
+    request.send().await?;
+    Ok(())
+}
+
+/// Returns what HeadObject reports for `key`, in checksum mode, with an SDK client.
+async fn sdk_head_object(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    key: &str,
+) -> Result<ObjectHead, Box<dyn std::error::Error>> {
+    let head_object = client
+        .head_object()
+        .bucket(bucket)
+        .key(key)
+        .checksum_mode(aws_sdk_s3::types::ChecksumMode::Enabled)
+        .send()
+        .await?;
+    Ok(ObjectHead {
+        size: head_object.content_length().expect("HeadObject reports the size") as u64,
+        storage_class: head_object.storage_class().map(|class| class.as_str().to_owned()),
+        checksum: Checksum {
+            checksum_crc64nvme: head_object.checksum_crc64_nvme,
+            checksum_crc32: head_object.checksum_crc32,
+            checksum_crc32c: head_object.checksum_crc32_c,
+            checksum_sha1: head_object.checksum_sha1,
+            checksum_sha256: head_object.checksum_sha256,
+        },
+    })
+}
+
+/// Request a one-day restore of the archived object `key` with an SDK client. The restore uses
+/// the expedited retrieval tier if `expedited` is set. Otherwise, it uses the bulk tier.
+async fn sdk_restore_object(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    key: &str,
+    expedited: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use aws_sdk_s3::types::{GlacierJobParameters, RestoreRequest, Tier};
+
+    let tier = if expedited { Tier::Expedited } else { Tier::Bulk };
+    client
+        .restore_object()
+        .bucket(bucket)
+        .key(key)
+        .set_restore_request(Some(
+            RestoreRequest::builder()
+                .set_days(Some(1))
+                .set_glacier_job_parameters(Some(GlacierJobParameters::builder().set_tier(Some(tier)).build()?))
+                .build(),
+        ))
+        .send()
+        .await?;
+    Ok(())
+}
 
 pub struct TestSessionConfig {
     pub part_size: usize,
@@ -81,7 +169,6 @@ pub struct TestSessionConfig {
     pub cache_block_size: usize,
     #[cfg(feature = "manifest")]
     pub manifest: Option<Manifest>,
-    pub fail_on_non_aligned_read_window: bool,
     pub mem_limit: usize,
 }
 
@@ -101,7 +188,6 @@ impl Default for TestSessionConfig {
             cache_block_size,
             #[cfg(feature = "manifest")]
             manifest: None,
-            fail_on_non_aligned_read_window: false,
             mem_limit: MINIMUM_MEM_LIMIT,
         }
     }
@@ -115,14 +201,6 @@ impl TestSessionConfig {
 
     pub fn with_pass_fuse_fd(mut self, pass_fuse_fd: bool) -> Self {
         self.pass_fuse_fd = pass_fuse_fd;
-        self
-    }
-
-    /// Enable a check to ensure all read window increments are aligned with part boundaries
-    ///
-    /// Warning: A failed check on one request will result in all other requests from the client to fail.
-    pub fn fail_on_non_aligned_read_window(mut self, enable: bool) -> Self {
-        self.fail_on_non_aligned_read_window = enable;
         self
     }
 
@@ -328,7 +406,7 @@ pub mod mock_session {
 
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::MockClient;
-    use mountpoint_s3_client::types::{GetObjectParams, HeadObjectParams, ObjectAttribute};
+    use mountpoint_s3_client::types::{ChecksumMode, GetObjectParams, HeadObjectParams};
     use mountpoint_s3_fs::prefetch::Prefetcher;
     use mountpoint_s3_fs::s3::Bucket;
 
@@ -356,7 +434,6 @@ pub mod mock_session {
                 .enable_backpressure(true)
                 .initial_read_window_size(test_config.initial_read_window_size)
                 .enable_rename(test_config.filesystem_config.allow_rename)
-                .fail_on_non_aligned_read_window(test_config.fail_on_non_aligned_read_window)
                 .build(),
         );
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
@@ -473,42 +550,15 @@ pub mod mock_session {
             Ok(self.client.is_upload_in_progress(&full_key))
         }
 
-        async fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        async fn head_object(&self, key: &str) -> Result<ObjectHead, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            Ok(self.client.get_object_storage_class(&full_key)?)
-        }
-
-        async fn get_object_checksums(&self, key: &str) -> Result<ObjectChecksums, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            let attrs = self
-                .client
-                .get_object_attributes(
-                    BUCKET_NAME,
-                    &full_key,
-                    None,
-                    None,
-                    &[ObjectAttribute::ObjectParts, ObjectAttribute::Checksum],
-                )
-                .await?;
-            let part_checksums = attrs
-                .object_parts
-                .map(|parts| {
-                    parts
-                        .parts
-                        .map(|parts| parts.into_iter().map(|part| part.checksum).collect())
-                        .unwrap_or_default()
-                })
-                .unwrap_or_default();
-            Ok((attrs.checksum, part_checksums))
-        }
-
-        async fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            let head_object = self
-                .client
-                .head_object(BUCKET_NAME, &full_key, &HeadObjectParams::new())
-                .await?;
-            Ok(head_object.size as usize)
+            let params = HeadObjectParams::new().checksum_mode(Some(ChecksumMode::Enabled));
+            let head_object = self.client.head_object(BUCKET_NAME, &full_key, &params).await?;
+            Ok(ObjectHead {
+                size: head_object.size,
+                checksum: head_object.checksum,
+                storage_class: head_object.storage_class,
+            })
         }
 
         async fn get_object_content(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
@@ -538,6 +588,193 @@ pub mod mock_session {
     }
 }
 
+/// FUSE sessions that run the CRT client against a local mock server.
+pub mod mock_server_session {
+    use super::*;
+
+    use crate::common::mock_server::{MockServer, ObjectNotFound, bucket_for};
+    use mountpoint_s3_client::S3CrtClient;
+    use mountpoint_s3_fs::prefetch::Prefetcher;
+    use mountpoint_s3_fs::s3::Bucket;
+
+    /// Create a FUSE mount backed by a CRT client that connects to a local mock server. The
+    /// server's bucket follows the personality of the file system ([bucket_for]): a directory
+    /// bucket for `ExpressOneZone`, a general purpose bucket otherwise.
+    pub async fn new(test_name: &str, test_config: TestSessionConfig) -> TestSession {
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(test_config.part_size)])
+            .with_memory_limit(test_config.mem_limit)
+            .build();
+        let server = MockServer::config()
+            .bucket(bucket_for(test_config.filesystem_config.s3_personality))
+            .build()
+            .await;
+        let client = create_crt_client(&server, &test_config, pool.clone());
+        let prefetcher_builder = Prefetcher::default_builder(client.clone());
+        mount(server, client, prefetcher_builder, pool, test_name, test_config)
+    }
+
+    /// Create a FUSE mount with caching, backed by a CRT client that connects to a local mock
+    /// server, like [new].
+    pub fn new_with_cache<Cache>(cache_factory: impl FnOnce(u64, PagedPool) -> Cache) -> impl TestSessionCreator
+    where
+        Cache: DataCache + Send + Sync + 'static,
+    {
+        async move |test_name: &str, test_config: TestSessionConfig| {
+            let pool = PagedPool::config()
+                .with_candidate_sizes([
+                    CandidateSize::new(test_config.cache_block_size),
+                    CandidateSize::new(test_config.part_size),
+                ])
+                .with_memory_limit(test_config.mem_limit)
+                .build();
+            let cache = cache_factory(test_config.cache_block_size as u64, pool.clone());
+            let server = MockServer::config()
+                .bucket(bucket_for(test_config.filesystem_config.s3_personality))
+                .build()
+                .await;
+            let client = create_crt_client(&server, &test_config, pool.clone());
+            let prefetcher_builder = Prefetcher::caching_builder(cache, client.clone());
+            mount(server, client, prefetcher_builder, pool, test_name, test_config)
+        }
+    }
+
+    /// Create a CRT client of `server` with the part size and initial read window of
+    /// `test_config`, and read backpressure, as the S3 sessions do.
+    fn create_crt_client(server: &MockServer, test_config: &TestSessionConfig, pool: PagedPool) -> S3CrtClient {
+        let client_config = server
+            .crt_client_config()
+            .part_size(test_config.part_size)
+            .read_backpressure(true)
+            .initial_read_window(test_config.initial_read_window_size)
+            .memory_pool(pool);
+        S3CrtClient::new(client_config).expect("failed to create the CRT client")
+    }
+
+    /// Mount the server's bucket, under a prefix named after the test.
+    fn mount(
+        server: MockServer,
+        client: S3CrtClient,
+        prefetcher_builder: PrefetcherBuilder<S3CrtClient>,
+        pool: PagedPool,
+        test_name: &str,
+        test_config: TestSessionConfig,
+    ) -> TestSession {
+        let prefix = if test_name.is_empty() {
+            String::new()
+        } else {
+            format!("{test_name}/")
+        };
+        let s3_path = S3Path::new(Bucket::new(server.bucket()).unwrap(), Prefix::new(&prefix).unwrap());
+        let runtime = Runtime::new(client.event_loop_group());
+        let mounted_session = create_fuse_session(
+            client,
+            prefetcher_builder,
+            pool,
+            runtime,
+            s3_path,
+            tempfile::tempdir().unwrap(),
+            test_config,
+        );
+        // The session holds the mount and then the test client, so the mount is dropped before the
+        // test client stops the server.
+        TestSession::new(mounted_session, MockServerTestClient::new(server, &prefix), prefix)
+    }
+
+    /// A test client that uses the S3 API through an SDK client, independent of the CRT client
+    /// under test, and the server's store for what the S3 API can't do or report, such as
+    /// reading archived objects.
+    struct MockServerTestClient {
+        prefix: String,
+        server: MockServer,
+        sdk_client: aws_sdk_s3::Client,
+    }
+
+    impl MockServerTestClient {
+        fn new(server: MockServer, prefix: &str) -> Self {
+            let sdk_client = aws_sdk_s3::Client::from_conf(server.sdk_config().build());
+            Self {
+                prefix: prefix.to_owned(),
+                server,
+                sdk_client,
+            }
+        }
+
+        fn full_key(&self, key: &str) -> String {
+            format!("{}{}", self.prefix, key)
+        }
+    }
+
+    #[async_trait]
+    impl TestClient for MockServerTestClient {
+        async fn put_object_single(
+            &self,
+            key: &str,
+            value: &[u8],
+            params: PutObjectSingleParams,
+        ) -> Result<(), Box<dyn std::error::Error>> {
+            sdk_put_object_single(
+                &self.sdk_client,
+                self.server.bucket(),
+                &self.full_key(key),
+                value,
+                params,
+            )
+            .await
+        }
+
+        async fn remove_object(&self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
+            self.server.remove_object(&self.full_key(key)).await;
+            Ok(())
+        }
+
+        async fn contains_dir(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+            Ok(self.server.contains_prefix(&format!("{}/", self.full_key(key))).await)
+        }
+
+        async fn contains_key(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+            Ok(self.server.contains_key(&self.full_key(key)).await)
+        }
+
+        async fn is_upload_in_progress(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+            Ok(self.server.is_upload_in_progress(&self.full_key(key)).await)
+        }
+
+        async fn head_object(&self, key: &str) -> Result<ObjectHead, Box<dyn std::error::Error>> {
+            sdk_head_object(&self.sdk_client, self.server.bucket(), &self.full_key(key)).await
+        }
+
+        async fn get_object_content(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+            // Read the content from the server's store, so that this also works for archived
+            // objects.
+            let full_key = self.full_key(key);
+            Ok(self
+                .server
+                .object_content(&full_key)
+                .await
+                .ok_or(ObjectNotFound(full_key))?)
+        }
+
+        async fn get_object_content_type(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+            let full_key = self.full_key(key);
+            Ok(self
+                .server
+                .object(&full_key)
+                .await
+                .ok_or(ObjectNotFound(full_key))?
+                .content_type)
+        }
+
+        async fn restore_object(&self, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
+            sdk_restore_object(&self.sdk_client, self.server.bucket(), &self.full_key(key), expedited).await
+        }
+
+        async fn is_object_restored(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+            Ok(self.server.is_object_restored(&self.full_key(key)).await?)
+        }
+    }
+}
+
 #[cfg(feature = "s3_tests")]
 pub mod s3_session {
     use super::*;
@@ -545,11 +782,8 @@ pub mod s3_session {
     use crate::common::s3::{get_test_endpoint_config, get_test_region, get_test_s3_path, get_test_sdk_client};
     use aws_sdk_s3::Client;
     use aws_sdk_s3::operation::head_object::HeadObjectError;
-    use aws_sdk_s3::primitives::ByteStream;
-    use aws_sdk_s3::types::{ChecksumAlgorithm, GlacierJobParameters, RestoreRequest, Tier};
     use mountpoint_s3_client::S3CrtClient;
     use mountpoint_s3_client::config::S3ClientConfig;
-    use mountpoint_s3_client::types::Checksum;
     use mountpoint_s3_fs::prefetch::Prefetcher;
     use std::path::PathBuf;
 
@@ -722,29 +956,8 @@ pub mod s3_session {
             value: &[u8],
             params: PutObjectSingleParams,
         ) -> Result<(), Box<dyn std::error::Error>> {
-            let checksum_algorithm = params.checksum.map(|c| match c.checksum_algorithm() {
-                mountpoint_s3_client::types::ChecksumAlgorithm::Crc64nvme => ChecksumAlgorithm::Crc64Nvme,
-                mountpoint_s3_client::types::ChecksumAlgorithm::Crc32c => ChecksumAlgorithm::Crc32C,
-                mountpoint_s3_client::types::ChecksumAlgorithm::Crc32 => ChecksumAlgorithm::Crc32,
-                mountpoint_s3_client::types::ChecksumAlgorithm::Sha1 => ChecksumAlgorithm::Sha1,
-                mountpoint_s3_client::types::ChecksumAlgorithm::Sha256 => ChecksumAlgorithm::Sha256,
-                other => panic!("Unsupported algorithm: {other}"),
-            });
             let full_key = format!("{}{}", self.prefix, key);
-            let mut request = self
-                .sdk_client
-                .put_object()
-                .bucket(&self.bucket)
-                .key(full_key)
-                .set_checksum_algorithm(checksum_algorithm)
-                .body(ByteStream::from(value.to_vec()));
-
-            if let Some(storage_class) = params.storage_class {
-                request = request.set_storage_class(Some(storage_class.as_str().into()));
-            }
-
-            request.send().await?;
-            Ok(())
+            sdk_put_object_single(&self.sdk_client, &self.bucket, &full_key, value, params).await
         }
 
         async fn remove_object(&self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -800,71 +1013,9 @@ pub mod s3_session {
             Ok(uploads.uploads().iter().any(|u| u.key().unwrap().ends_with(key)))
         }
 
-        async fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        async fn head_object(&self, key: &str) -> Result<ObjectHead, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            let attrs = self
-                .sdk_client
-                .get_object_attributes()
-                .bucket(&self.bucket)
-                .key(full_key)
-                .object_attributes(aws_sdk_s3::types::ObjectAttributes::StorageClass)
-                .send()
-                .await?;
-            Ok(attrs.storage_class().map(|s| s.as_str().to_string()))
-        }
-
-        async fn get_object_checksums(&self, key: &str) -> Result<ObjectChecksums, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            let attrs = self
-                .sdk_client
-                .get_object_attributes()
-                .bucket(&self.bucket)
-                .key(full_key)
-                .object_attributes(aws_sdk_s3::types::ObjectAttributes::ObjectParts)
-                .object_attributes(aws_sdk_s3::types::ObjectAttributes::Checksum)
-                .send()
-                .await?;
-            let object_checksum = attrs.checksum.map(|checksum| Checksum {
-                checksum_crc64nvme: checksum.checksum_crc64_nvme,
-                checksum_crc32: checksum.checksum_crc32,
-                checksum_crc32c: checksum.checksum_crc32_c,
-                checksum_sha1: checksum.checksum_sha1,
-                checksum_sha256: checksum.checksum_sha256,
-            });
-
-            let part_checksums = attrs
-                .object_parts
-                .map(|parts| {
-                    parts
-                        .parts
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|part| {
-                            Some(Checksum {
-                                checksum_crc64nvme: part.checksum_crc64_nvme,
-                                checksum_crc32: part.checksum_crc32,
-                                checksum_crc32c: part.checksum_crc32_c,
-                                checksum_sha1: part.checksum_sha1,
-                                checksum_sha256: part.checksum_sha256,
-                            })
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            Ok((object_checksum, part_checksums))
-        }
-
-        async fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            let head_object = self
-                .sdk_client
-                .head_object()
-                .bucket(&self.bucket)
-                .key(&full_key)
-                .send()
-                .await?;
-            Ok(head_object.content_length().unwrap() as usize)
+            sdk_head_object(&self.sdk_client, &self.bucket, &full_key).await
         }
 
         async fn get_object_content(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
@@ -896,20 +1047,7 @@ pub mod s3_session {
         // https://docs.aws.amazon.com/AmazonS3/latest/userguide/restoring-objects-retrieval-options.html?icmpid=docs_amazons3_console#restoring-objects-upgrade-tier
         async fn restore_object(&self, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            let tier = if expedited { Tier::Expedited } else { Tier::Bulk };
-            self.sdk_client
-                .restore_object()
-                .bucket(&self.bucket)
-                .key(full_key)
-                .set_restore_request(Some(
-                    RestoreRequest::builder()
-                        .set_days(Some(1))
-                        .set_glacier_job_parameters(Some(GlacierJobParameters::builder().set_tier(Some(tier)).build()?))
-                        .build(),
-                ))
-                .send()
-                .await?;
-            Ok(())
+            sdk_restore_object(&self.sdk_client, &self.bucket, &full_key, expedited).await
         }
 
         async fn is_object_restored(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {

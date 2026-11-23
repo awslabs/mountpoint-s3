@@ -21,3 +21,6 @@ license-files = [
 
 [advisories]
 yanked = "warn"
+ignore = [
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained (https://rustsec.org/advisories/RUSTSEC-2026-0543). It only comes in through s3s, a dependency of the s3-mock-server dev-dependency of mountpoint-s3-fs. Ignore the unmaintained warning until s3s moves off chrono." },
+]

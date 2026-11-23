@@ -40,17 +40,10 @@ async fn basic_read_test(
     read_only: bool,
     pass_fuse_fd: bool,
     size_mb: usize,
-    fail_on_non_aligned_read_window: bool,
 ) {
     let mut rng = SmallRng::seed_from_u64(0x87654321);
 
-    let test_session = creator_fn(
-        prefix,
-        TestSessionConfig::default()
-            .with_pass_fuse_fd(pass_fuse_fd)
-            .fail_on_non_aligned_read_window(fail_on_non_aligned_read_window),
-    )
-    .await;
+    let test_session = creator_fn(prefix, TestSessionConfig::default().with_pass_fuse_fd(pass_fuse_fd)).await;
 
     test_session
         .client()
@@ -119,15 +112,7 @@ async fn basic_read_test(
 )]
 #[tokio::test]
 async fn basic_read_test_s3(read_only: bool, pass_fuse_fd: bool) {
-    basic_read_test(
-        fuse::s3_session::new,
-        "basic_read_test",
-        read_only,
-        pass_fuse_fd,
-        2,
-        false,
-    )
-    .await;
+    basic_read_test(fuse::s3_session::new, "basic_read_test", read_only, pass_fuse_fd, 2).await;
 }
 
 #[cfg(feature = "s3_tests")]
@@ -143,7 +128,6 @@ async fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
         read_only,
         pass_fuse_fd,
         2,
-        false,
     )
     .await;
 }
@@ -156,12 +140,11 @@ async fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
 #[tokio::test]
 async fn basic_read_test_mock(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: bool) {
     basic_read_test(
-        fuse::mock_session::new,
+        fuse::mock_server_session::new,
         &prefix.to_string(),
         read_only,
         pass_fuse_fd,
         2,
-        false,
     )
     .await;
 }
@@ -174,12 +157,11 @@ async fn basic_read_test_mock(prefix: BucketPrefix, read_only: bool, pass_fuse_f
 #[tokio::test]
 async fn basic_read_test_mock_with_cache(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: bool) {
     basic_read_test(
-        fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
+        fuse::mock_server_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         &prefix.to_string(),
         read_only,
         pass_fuse_fd,
         2,
-        false,
     )
     .await;
 }
@@ -187,12 +169,11 @@ async fn basic_read_test_mock_with_cache(prefix: BucketPrefix, read_only: bool, 
 #[tokio::test]
 async fn basic_read_test_mock_large() {
     basic_read_test(
-        fuse::mock_session::new,
+        fuse::mock_server_session::new,
         "basic_read_test_mock_large",
         true,
         false,
         20,
-        true,
     )
     .await;
 }
@@ -301,7 +282,7 @@ async fn read_flexible_retrieval_test_s3() {
 async fn read_flexible_retrieval_test_mock(prefix: BucketPrefix) {
     const FILES: &[&str] = &["STANDARD", "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE"];
     read_flexible_retrieval_test(
-        fuse::mock_session::new,
+        fuse::mock_server_session::new,
         &prefix.to_string(),
         FILES,
         RestorationOptions::None,
@@ -317,7 +298,7 @@ async fn read_flexible_retrieval_test_mock(prefix: BucketPrefix) {
 async fn read_flexible_retrieval_restored_test_mock(prefix: BucketPrefix) {
     const FILES: &[&str] = &["GLACIER", "DEEP_ARCHIVE"];
     read_flexible_retrieval_test(
-        fuse::mock_session::new,
+        fuse::mock_server_session::new,
         &prefix.to_string(),
         FILES,
         RestorationOptions::RestoreAndWait,
@@ -419,7 +400,7 @@ async fn read_errors_test_s3() {
 )]
 #[tokio::test]
 async fn read_errors_test_mock(prefix: BucketPrefix) {
-    read_errors_test(fuse::mock_session::new, &prefix.to_string()).await;
+    read_errors_test(fuse::mock_server_session::new, &prefix.to_string()).await;
 }
 
 async fn read_after_flush_test(creator_fn: impl TestSessionCreator) {
@@ -457,5 +438,5 @@ async fn read_after_flush_test_s3() {
 
 #[tokio::test]
 async fn read_after_flush_test_mock() {
-    read_after_flush_test(fuse::mock_session::new).await;
+    read_after_flush_test(fuse::mock_server_session::new).await;
 }

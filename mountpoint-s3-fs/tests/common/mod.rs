@@ -15,6 +15,8 @@ pub mod s3;
 #[cfg(all(test, feature = "manifest"))]
 pub mod manifest;
 
+pub mod mock_server;
+
 pub mod test_recorder;
 
 use aws_credential_types::Credentials;
@@ -39,8 +41,7 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-/// The [MockClient] and memory pool used by [make_test_filesystem] and
-/// [make_test_filesystem_with_in_memory_metadata].
+/// The [MockClient] and memory pool used by [make_test_filesystem_with_in_memory_metadata].
 fn make_test_client_and_pool(bucket: &str) -> (Arc<MockClient>, PagedPool) {
     let part_size = 1024 * 1024;
     let client = Arc::new(
@@ -56,16 +57,6 @@ fn make_test_client_and_pool(bucket: &str) -> (Arc<MockClient>, PagedPool) {
         .with_minimum_memory_limit()
         .build();
     (client, pool)
-}
-
-pub fn make_test_filesystem(
-    bucket: &str,
-    prefix: &Prefix,
-    config: S3FilesystemConfig,
-) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>>) {
-    let (client, pool) = make_test_client_and_pool(bucket);
-    let fs = make_test_filesystem_with_client(client.clone(), pool, bucket, prefix, config);
-    (client, fs)
 }
 
 pub fn make_test_filesystem_with_client<Client>(

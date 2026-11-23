@@ -85,7 +85,7 @@ async fn rename_basic_tests_s3() {
 #[test_case("rename_basic_tests"; "prefix")]
 #[tokio::test]
 async fn rename_basic_tests_mock(prefix: &str) {
-    rename_basic_tests(fuse::mock_session::new, prefix).await;
+    rename_basic_tests(fuse::mock_server_session::new, prefix).await;
 }
 
 async fn rename_simplewithcache_test<F>(creator_fn: F, prefix: &str)
@@ -154,7 +154,7 @@ async fn rename_simplewithcache_test_s3() {
 #[test_case("rename_simplewithcache_test"; "prefix")]
 #[tokio::test]
 async fn rename_simplewithcache_test_mock(prefix: &str) {
-    rename_simplewithcache_test(fuse::mock_session::new, prefix).await;
+    rename_simplewithcache_test(fuse::mock_server_session::new, prefix).await;
 }
 
 /// Covers where object is cached by MP but gone in S3.
@@ -233,7 +233,7 @@ async fn rename_srcremovedbutcached_test_s3() {
 #[test_case("rename_srcremovedbutcached_test"; "prefix")]
 #[tokio::test]
 async fn rename_srcremovedbutcached_test_mock(prefix: &str) {
-    rename_srcremovedbutcached_test(fuse::mock_session::new, prefix).await;
+    rename_srcremovedbutcached_test(fuse::mock_server_session::new, prefix).await;
 }
 
 async fn rename_destexists_tests<F>(creator_fn: F, prefix: &str)
@@ -287,7 +287,7 @@ async fn rename_destexists_tests_s3() {
 #[test_case("rename_destexists_tests"; "prefix")]
 #[tokio::test]
 async fn rename_destexists_tests_mock(prefix: &str) {
-    rename_destexists_tests(fuse::mock_session::new, prefix).await;
+    rename_destexists_tests(fuse::mock_server_session::new, prefix).await;
 }
 
 async fn rename_destparentmissing_test<F>(creator_fn: F, prefix: &str)
@@ -338,7 +338,7 @@ async fn rename_destparentmissing_test_s3() {
 #[test_case("rename_destparentmissing_test"; "prefix")]
 #[tokio::test]
 async fn rename_destparentmissing_test_mock(prefix: &str) {
-    rename_destparentmissing_test(fuse::mock_session::new, prefix).await;
+    rename_destparentmissing_test(fuse::mock_server_session::new, prefix).await;
 }
 
 /// Testing behavior when a file is renamed in the middle of reading
@@ -400,7 +400,7 @@ async fn rename_readhandle_test_s3() {
 #[test_case("rename_readhandle_test"; "prefix")]
 #[tokio::test]
 async fn rename_readhandle_test_mock(prefix: &str) {
-    rename_readhandle_test(fuse::mock_session::new, prefix).await;
+    rename_readhandle_test(fuse::mock_server_session::new, prefix).await;
 }
 
 /// Testing behavior when a file is renamed during and after writing
@@ -480,7 +480,7 @@ async fn rename_writehandle_test_s3() {
 #[test_case("rename_writehandle_test"; "prefix")]
 #[tokio::test]
 async fn rename_writehandle_test_mock(prefix: &str) {
-    rename_writehandle_test(fuse::mock_session::new, prefix).await;
+    rename_writehandle_test(fuse::mock_server_session::new, prefix).await;
 }
 
 async fn rename_directory_test<F>(creator_fn: F, prefix: &str)
@@ -526,7 +526,7 @@ async fn rename_directory_test_s3() {
 #[test_case("rename_directory_test"; "prefix")]
 #[tokio::test]
 async fn rename_directory_test_mock(prefix: &str) {
-    rename_directory_test(fuse::mock_session::new, prefix).await;
+    rename_directory_test(fuse::mock_server_session::new, prefix).await;
 }
 
 /// Check that overwriting rename is forbidden when `allow_overwrites` is not passed as a flag.
@@ -577,7 +577,7 @@ async fn rename_overwrites_forbidden_s3() {
 #[test_case("rename_nodelete_test"; "prefix")]
 #[tokio::test]
 async fn rename_overwrites_forbidden_mock(prefix: &str) {
-    rename_overwrites_forbidden_test(fuse::mock_session::new, prefix).await;
+    rename_overwrites_forbidden_test(fuse::mock_server_session::new, prefix).await;
 }
 
 // checks that renaming a file to it's current name succeeds
@@ -615,7 +615,7 @@ async fn rename_same_file_test_s3() {
 #[test_case("rename_nodelete_test"; "prefix")]
 #[tokio::test]
 async fn rename_same_file_test_mock(prefix: &str) {
-    rename_no_op_test(fuse::mock_session::new, prefix).await;
+    rename_no_op_test(fuse::mock_server_session::new, prefix).await;
 }
 
 /**
@@ -654,7 +654,7 @@ async fn rename_dir_noop_accepted_s3() {
 #[test_case("rename_dir_rejected"; "prefix")]
 #[tokio::test]
 async fn rename_dir_noop_accepted_mock(prefix: &str) {
-    crate::fuse_tests::rename_test::rename_dir_noop_accepted_test(fuse::mock_session::new, prefix).await;
+    crate::fuse_tests::rename_test::rename_dir_noop_accepted_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(target_os = "linux")]
@@ -734,7 +734,7 @@ where
 #[test_case("test_multiple_renames_deep_structure"; "prefix")]
 #[tokio::test]
 async fn rename_exchange_rejected_mock(prefix: &str) {
-    rename_exchange_rejected_test(fuse::mock_session::new, prefix).await;
+    rename_exchange_rejected_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(target_os = "linux")]
@@ -781,7 +781,7 @@ async fn rename_key_too_long_s3() {
 #[test_case("rename_dir_rejected"; "prefix")]
 #[tokio::test]
 async fn rename_key_too_long_mock(prefix: &str) {
-    rename_key_too_long(fuse::mock_session::new, prefix).await;
+    rename_key_too_long(fuse::mock_server_session::new, prefix).await;
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -881,7 +881,7 @@ where
 #[test_case("rename_dir_rejected"; "prefix")]
 #[tokio::test]
 async fn test_multiple_renames_deep_structure_mock(prefix: &str) {
-    test_multiple_renames_deep_structure_success(fuse::mock_session::new, prefix).await;
+    test_multiple_renames_deep_structure_success(fuse::mock_server_session::new, prefix).await;
 }
 
 async fn test_multiple_renames_deep_structure_failure<F>(creator_fn: F, prefix: &str)
@@ -905,7 +905,7 @@ where
 #[test_case("test_multiple_renames_deep_structure"; "prefix")]
 #[tokio::test]
 async fn test_multiple_renames_deep_structure_failure_mock(prefix: &str) {
-    test_multiple_renames_deep_structure_failure(fuse::mock_session::new, prefix).await;
+    test_multiple_renames_deep_structure_failure(fuse::mock_server_session::new, prefix).await;
 }
 
 async fn test_rename_very_long_path<F>(creator_fn: F, prefix: &str)
@@ -932,7 +932,7 @@ where
 #[test_case("test_hybridrename"; "prefix")]
 #[tokio::test]
 async fn rename_very_long_mock(prefix: &str) {
-    test_rename_very_long_path(fuse::mock_session::new, prefix).await;
+    test_rename_very_long_path(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
@@ -982,7 +982,7 @@ where
 #[test_case("rename_allow_overwrites"; "prefix")]
 #[tokio::test]
 async fn rename_allow_overwrites_mock(prefix: &str) {
-    rename_allow_overwrites_test(fuse::mock_session::new, prefix).await;
+    rename_allow_overwrites_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
@@ -1039,7 +1039,7 @@ where
 #[test_case("rename_flag_noreplace_disables_overwrites"; "prefix")]
 #[tokio::test]
 async fn rename_flag_noreplace_disables_overwrites_mock(prefix: &str) {
-    rename_flag_noreplace_disables_overwrites_test(fuse::mock_session::new, prefix).await;
+    rename_flag_noreplace_disables_overwrites_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(target_os = "linux")]
@@ -1153,7 +1153,7 @@ where
 #[test_case("test_rename_concurrent"; "prefix")]
 #[tokio::test]
 async fn test_rename_concurrent_mock(prefix: &str) {
-    test_rename_concurrent(fuse::mock_session::new, prefix).await;
+    test_rename_concurrent(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
@@ -1195,7 +1195,7 @@ where
 #[test_case(""; "no prefix")]
 #[tokio::test]
 async fn rename_file_contents_mock(prefix: &str) {
-    rename_file_contents_test(fuse::mock_session::new, prefix).await;
+    rename_file_contents_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
@@ -1264,7 +1264,7 @@ where
 #[test_case(""; "no prefix")]
 #[tokio::test]
 async fn rename_same_ino_mock(prefix: &str) {
-    rename_same_ino_test(fuse::mock_session::new, prefix).await;
+    rename_same_ino_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
@@ -1331,7 +1331,7 @@ where
 #[test_case(""; "no prefix")]
 #[tokio::test]
 async fn rename_append_mock(prefix: &str) {
-    rename_append_test(fuse::mock_session::new, prefix).await;
+    rename_append_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
@@ -1376,7 +1376,7 @@ where
 #[test_case(""; "no prefix")]
 #[tokio::test]
 async fn rename_out_of_topdir_regression_mock(prefix: &str) {
-    rename_out_of_topdir_regression(fuse::mock_session::new, prefix).await;
+    rename_out_of_topdir_regression(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
@@ -1535,7 +1535,7 @@ where
 #[test_case(""; "no prefix")]
 #[tokio::test]
 async fn rename_complicated_structure_contents_mock(prefix: &str) {
-    rename_complicated_structure_contents_test(fuse::mock_session::new, prefix).await;
+    rename_complicated_structure_contents_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
@@ -1580,7 +1580,7 @@ where
 #[test_case(""; "no prefix")]
 #[tokio::test]
 async fn rename_into_topdir_mock(prefix: &str) {
-    rename_into_topdir_test(fuse::mock_session::new, prefix).await;
+    rename_into_topdir_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
@@ -1640,7 +1640,7 @@ where
 #[test_case(""; "no prefix")]
 #[tokio::test]
 async fn cross_directory_rename_mock(prefix: &str) {
-    cross_directory_rename_test(fuse::mock_session::new, prefix).await;
+    cross_directory_rename_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
@@ -1711,7 +1711,7 @@ where
 #[test_case(""; "no prefix")]
 #[tokio::test]
 async fn rename_last_file_out_of_dir_mock(prefix: &str) {
-    rename_last_file_out_of_dir_test(fuse::mock_session::new, prefix).await;
+    rename_last_file_out_of_dir_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
@@ -1805,7 +1805,7 @@ where
 #[test_case(""; "no prefix")]
 #[tokio::test]
 async fn many_simultaneous_renames_mock(prefix: &str) {
-    many_simultaneous_renames_test(fuse::mock_session::new, prefix).await;
+    many_simultaneous_renames_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
@@ -1856,7 +1856,7 @@ where
 #[test_case(""; "no prefix")]
 #[tokio::test]
 async fn rename_dest_open_for_writing_mock(prefix: &str) {
-    rename_dest_open_for_writing_test(fuse::mock_session::new, prefix).await;
+    rename_dest_open_for_writing_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
@@ -1923,7 +1923,7 @@ where
 #[test_case(""; "no prefix")]
 #[tokio::test]
 async fn rename_dest_open_for_reading_mock(prefix: &str) {
-    rename_dest_open_for_reading_test(fuse::mock_session::new, prefix).await;
+    rename_dest_open_for_reading_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
@@ -2058,7 +2058,7 @@ where
 #[test_case(""; "no prefix")]
 #[tokio::test]
 async fn large_scale_random_rename_mock(prefix: &str) {
-    large_scale_random_rename_test(fuse::mock_session::new, prefix).await;
+    large_scale_random_rename_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]
@@ -2263,7 +2263,7 @@ where
 #[test_case(""; "no prefix")]
 #[tokio::test]
 async fn rename_concurrent_remove_mock(prefix: &str) {
-    rename_concurrent_remove_test(fuse::mock_session::new, prefix).await;
+    rename_concurrent_remove_test(fuse::mock_server_session::new, prefix).await;
 }
 
 #[cfg(feature = "s3express_tests")]

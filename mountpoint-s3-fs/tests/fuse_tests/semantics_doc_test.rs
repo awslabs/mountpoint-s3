@@ -79,7 +79,7 @@ async fn basic_directory_structure(creator_fn: impl TestSessionCreator) {
 
 #[tokio::test]
 async fn basic_directory_structure_mock() {
-    basic_directory_structure(fuse::mock_session::new).await;
+    basic_directory_structure(fuse::mock_server_session::new).await;
 }
 
 #[cfg(feature = "s3_tests")]
@@ -119,7 +119,7 @@ async fn keys_ending_in_delimiter(creator_fn: impl TestSessionCreator) {
 
 #[tokio::test]
 async fn keys_ending_in_delimiter_mock() {
-    keys_ending_in_delimiter(fuse::mock_session::new).await;
+    keys_ending_in_delimiter(fuse::mock_server_session::new).await;
 }
 
 #[cfg(feature = "s3_tests")]
@@ -156,7 +156,7 @@ async fn files_shadowed_by_directories(creator_fn: impl TestSessionCreator) {
 
 #[tokio::test]
 async fn files_shadowed_by_directories_mock() {
-    files_shadowed_by_directories(fuse::mock_session::new).await;
+    files_shadowed_by_directories(fuse::mock_server_session::new).await;
 }
 
 #[cfg(feature = "s3_tests")]

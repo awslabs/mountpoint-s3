@@ -6,9 +6,9 @@ members = [
 	"mountpoint-s3",
 	"mountpoint-s3-fs",
 ]
-# The vendored fuser fork declares its own `[workspace]` in its Cargo.toml, so it can't be a member here.
-# It is built only as a path dependency.
-exclude = ["mountpoint-s3-fuser"]
+# The vendored fuser fork and the transfer manager submodule declare their own `[workspace]` in their Cargo.toml,
+# so they can't be members here. They are built only as path dependencies.
+exclude = ["mountpoint-s3-fuser", "third_party/aws-s3-transfer-manager-rs"]
 resolver = "2"
 
 [workspace.dependencies]
