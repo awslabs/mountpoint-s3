@@ -1,72 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795437472472,
+  "lastUpdate": 1795454199560,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Latency Benchmark (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "49699333+dependabot[bot]@users.noreply.github.com",
-            "name": "dependabot[bot]",
-            "username": "dependabot[bot]"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "b7664ba77feb258418d8629302d6f77bf73f81c8",
-          "message": "Bump taiki-e/install-action from 2.87.29 to 2.87.32 (#2018)\n\nBumps\n[taiki-e/install-action](https://github.com/taiki-e/install-action) from\n2.87.29 to 2.87.32.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/taiki-e/install-action/releases\">taiki-e/install-action's\nreleases</a>.</em></p>\n<blockquote>\n<h2>2.87.32</h2>\n<ul>\n<li>\n<p>Update <code>wild@latest</code> to 0.11.0.</p>\n</li>\n<li>\n<p>Update <code>vacuum@latest</code> to 0.35.2.</p>\n</li>\n<li>\n<p>Update <code>tombi@latest</code> to 1.9.5.</p>\n</li>\n<li>\n<p>Update <code>sccache@latest</code> to 0.19.0.</p>\n</li>\n<li>\n<p>Update <code>release-plz@latest</code> to 0.4.1.</p>\n</li>\n<li>\n<p>Update <code>mise@latest</code> to 2026.10.19.</p>\n</li>\n<li>\n<p>Update <code>knope@latest</code> to 0.23.2.</p>\n</li>\n<li>\n<p>Update <code>dprint@latest</code> to 0.64.3.</p>\n</li>\n<li>\n<p>Update <code>cargo-vet@latest</code> to 0.10.3.</p>\n</li>\n<li>\n<p>Update <code>cargo-sort@latest</code> to 2.1.4.</p>\n</li>\n<li>\n<p>Update <code>cargo-binstall@latest</code> to 1.26.1.</p>\n</li>\n<li>\n<p>Update <code>biome@latest</code> to 2.6.3.</p>\n</li>\n</ul>\n<h2>2.87.31</h2>\n<ul>\n<li>\n<p>Downgrade <code>cargo-sort@latest</code> to 2.1.3.</p>\n</li>\n<li>\n<p>Update <code>vacuum@latest</code> to 0.35.0.</p>\n</li>\n<li>\n<p>Update <code>xh@latest</code> to 0.26.3.</p>\n</li>\n<li>\n<p>Update <code>uv@latest</code> to 0.13.5.</p>\n</li>\n<li>\n<p>Update <code>ubi@latest</code> to 0.13.0.</p>\n</li>\n<li>\n<p>Update <code>trivy@latest</code> to 0.76.1.</p>\n</li>\n<li>\n<p>Update <code>tombi@latest</code> to 1.9.0.</p>\n</li>\n<li>\n<p>Update <code>release-plz@latest</code> to 0.3.174.</p>\n</li>\n<li>\n<p>Update <code>prek@latest</code> to 0.5.7.</p>\n</li>\n<li>\n<p>Update <code>mise@latest</code> to 2026.10.17.</p>\n</li>\n<li>\n<p>Update <code>jaq@latest</code> to 3.1.2.</p>\n</li>\n<li>\n<p>Update <code>espup@latest</code> to 0.17.1.</p>\n</li>\n</ul>\n<!-- raw HTML omitted -->\n</blockquote>\n<p>... (truncated)</p>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/5488ac5a951645ce95062214902ac4b6bc1a1037\"><code>5488ac5</code></a>\nRelease 2.87.32</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/688322dd8dfd7f9d8217a7c2ac457d4fa2fe3436\"><code>688322d</code></a>\nci: Mark cargo-vet as glibc_pre_2_34_incompat</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/cebf56e0546f8cbe3a317a3dbc527e4cb5c8c3a1\"><code>cebf56e</code></a>\nUpdate <code>wild@latest</code> to 0.11.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/84f1fb195ce4aaeb61ac0c67fc39e032938542b9\"><code>84f1fb1</code></a>\nUpdate <code>vacuum@latest</code> to 0.35.2</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/22b4d72da777df58c5ce1018d97c3436f2b40413\"><code>22b4d72</code></a>\nUpdate trunk manifest</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/4aa26a3b8bcd9925bd25797b31dcb5647804e8de\"><code>4aa26a3</code></a>\nUpdate <code>tombi@latest</code> to 1.9.5</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/354bf5e1fe5e0639198bcea068b705c2f3714614\"><code>354bf5e</code></a>\nUpdate <code>sccache@latest</code> to 0.19.0</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/89eb2014d3d6cb70abda0a573687a03fafa32b12\"><code>89eb201</code></a>\nUpdate <code>release-plz@latest</code> to 0.4.1</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/304ba0dcffc8ad84cdb9f3d7c359b2a4223c2a42\"><code>304ba0d</code></a>\nUpdate <code>mise@latest</code> to 2026.10.19</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/104910e39f1be359337b9c0b2069bc5749f06c0d\"><code>104910e</code></a>\nUpdate <code>knope@latest</code> to 0.23.2</li>\n<li>Additional commits viewable in <a\nhref=\"https://github.com/taiki-e/install-action/compare/v2.87.29...v2.87.32\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\n\n[![Dependabot compatibility\nscore](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=taiki-e/install-action&package-manager=github_actions&previous-version=2.87.29&new-version=2.87.32)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)\n\nDependabot will resolve any conflicts with this PR as long as you don't\nalter it yourself. You can also trigger a rebase manually by commenting\n`@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits\nthat have been made to it\n- `@dependabot show <dependency name> ignore conditions` will show all\nof the ignore conditions of the specified dependency\n- `@dependabot ignore this major version` will close this PR and stop\nDependabot creating any more for this major version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this minor version` will close this PR and stop\nDependabot creating any more for this minor version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this dependency` will close this PR and stop\nDependabot creating any more for this dependency (unless you reopen the\nPR or upgrade to it yourself)\n\n\n</details>\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
-          "timestamp": "2026-11-02T13:26:19Z",
-          "tree_id": "61ad6b9b6a442de4ab17e321d6ddd512fa3178d0",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/b7664ba77feb258418d8629302d6f77bf73f81c8"
-        },
-        "date": 1793629272418,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "One Byte File Creation - Average Total Latency",
-            "value": 276.00802468999984,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "readdir_100",
-            "value": 0.055,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.145,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.003,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.732,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_write_one_byte_file",
-            "value": 35.504422299999995,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 16.806122300000002,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 26.422502899999998,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1919,6 +1855,70 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 27.0996761,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "7c2d63e313f921a90896f560f5af002f7e523e26",
+          "message": "Run Mountpoint's S3-semantics tests against a local S3 mock server (#2048)\n\nTests that depend on S3 semantics run against `MockClient`, an in-memory\n`ObjectClient`, so they never exercise the production clients. This\nchange adds a harness to the integration tests of `mountpoint-s3-fs`\nthat runs the production clients against a local `s3-mock-server`, and\nmoves the file system tests in `tests/fs.rs` and the FUSE `_mock` tests\nto it.\n\n### Harness\n\n- `MockServer` (`tests/common/mock_server.rs`) runs the server with one\nin-memory bucket, general purpose or directory. Tests seed and inspect\nthe bucket, count requests and inject faults, and build CRT or SDK\nclients from the configurations it returns. `MockServerGuard` keeps the\nserver running while a component uses it.\n- `s3-mock-server` is a dev-dependency from the new\n`third_party/aws-s3-transfer-manager-rs` submodule, at the transfer\nmanager's 1.0 release (`release-2026-11-18`). Its `s3s` dependency\nbrings in chrono, which is unmaintained, so `deny.toml` ignores that\nadvisory (RUSTSEC-2026-0543). `third_party/UPDATE_SUBMODULES.md`\ndescribes how to update the submodule.\n- `mountpoint-s3-client` gets\n`EndpointConfig::disable_s3express_session_auth`, because the CRT sends\nCreateSession with the bucket only in the host name, which a path-style\nmock server cannot see.\n- `mock_server_session` mounts the file system with the production CRT\nclient against the server, as `s3_session` does against S3.\n\n### Tests moved to the server\n\n- The file system tests in `tests/fs.rs` cover lookups, listings, reads,\nuploads, request counts, archived objects and renames without rename\nsupport. They seed the server with its own `AddObjectRequest`, with the\nsame content and ETags as before.\n- The FUSE tests with a `_mock` suffix, and the other FUSE tests that\nmounted with `mock_session`, now use `mock_server_session` and keep\ntheir names. They include the metrics, manifest, error logger, write\nhandle and direct I/O tests. The reference tests keep using\n`mock_session`.\n- `write_checksums_test` checks exact checksums with HeadObject instead\nof GetObjectAttributes, which the server does not serve.\n`TestClient::head_object` replaces the size, checksum and storage-class\ngetters.\n\nTwo tests needed a different approach:\n\n- `write_too_big_test` checks what happens when a file grows beyond the\nlargest size an atomic upload can write: the write fails with `EFBIG`,\n`fsync` fails with `ENOSPC`, and no object is created. The limit is S3's\n10,000 parts, so with parts of at least 5 MiB the test would have to\nwrite 50 GiB. This change adds a hidden\n`S3FilesystemConfig::max_upload_parts` option for that limit, with S3's\nlimit as the default, and the test sets it to 3 parts of 5 MiB. With\nthat limit, the test also runs against S3.\n- `basic_read_test_mock_large` used to check that each read window\nincrement is aligned to part boundaries. A new unit test of the\nprefetcher's backpressure controller now checks that, so the large read\nruns on the server, and the test sessions lose their\n`fail_on_non_aligned_read_window` option.\n\n### Does this change impact existing behavior?\n\nNo. `max_upload_parts` defaults to S3's limit of 10,000 parts, the value\nMountpoint used before, and Mountpoint's configuration doesn't set it.\n`EndpointConfig::disable_s3express_session_auth` is off by default. The\nrest of the change only modifies tests and documentation.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nChangelog entries, and no version change:\n\n- `mountpoint-s3-client`: an entry for\n`EndpointConfig::disable_s3express_session_auth`. The unreleased 0.24.0\nalready bumps the version.\n- `mountpoint-s3-fs`: an entry for\n`S3FilesystemConfig::max_upload_parts`. The new public field is a\nbreaking change, which the unreleased 0.13.0 already allows.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
+          "timestamp": "2026-11-23T16:14:03Z",
+          "tree_id": "050985ecf93ae056fd21b47126606026d05873b7",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/7c2d63e313f921a90896f560f5af002f7e523e26"
+        },
+        "date": 1795454197865,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "One Byte File Creation - Average Total Latency",
+            "value": 216.90808428000008,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "readdir_100",
+            "value": 0.051,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.142,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.072,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.103,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_write_one_byte_file",
+            "value": 40.1113849,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 12.6933334,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 31.3010412,
             "unit": "milliseconds"
           }
         ]
