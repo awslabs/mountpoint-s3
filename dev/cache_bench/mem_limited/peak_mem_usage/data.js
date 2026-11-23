@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795459408809,
+  "lastUpdate": 1795461480592,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard, Memory-Limited)": [
-      {
-        "commit": {
-          "author": {
-            "email": "20302932+yerzhan7@users.noreply.github.com",
-            "name": "Yerzhan Mazhkenov",
-            "username": "yerzhan7"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "75b9f7ee92ac92be333a2fbd815e6d68776234fe",
-          "message": "Name Amazon Linux source tarballs after the release tag (#2015)\n\nThe source and vendor tarballs used to build the Amazon Linux 2023 and\n2027 packages will be using `v<version>` release tag. They are named\nafter the tag and differ from the tarballs we build today:\n\n| | Before | After |\n|---|---|---|\n| `Source0` | `mountpoint-s3-<version>.tar.gz`, unpacking into\n`mountpoint-s3/` | `mountpoint-s3-v<version>.tar.gz`, unpacking into\n`mountpoint-s3-<version>/` |\n| `Source1` | `mountpoint-s3-<version>-vendor.tar.gz`, unpacking into\n`vendor/` | `mountpoint-s3-v<version>-vendor.tar.xz`, unpacking into\n`vendor/` |\n\nThis change updates the spec template to match, and updates\n`generate_amzn_srpm.sh` to build the CI tarballs with the same names and\nlayout, so the `Build SRPM` and `Test RPM` jobs keep testing the spec\nthat is submitted to Amazon Linux.\n\n### Does this change impact existing behavior?\n\nNo. It only changes the names and layout of the tarballs used to build\nthe Amazon Linux RPMs.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, this is a packaging-only change.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Yerzhan Mazhkenov <20302932+yerzhan7@users.noreply.github.com>",
-          "timestamp": "2026-10-30T22:01:00Z",
-          "tree_id": "140c752615ef45094631d955cf5a4eb1900ba576",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/75b9f7ee92ac92be333a2fbd815e6d68776234fe"
-        },
-        "date": 1793406154693,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 373.07421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 62.60546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 376.98046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 62.60546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 363.328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 47.20703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 372.2578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 46.8046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 377.42578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 57.19921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 367.140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 66.75,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 360.6328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 43.29296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 388.45703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 376.47265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 42.953125,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3269,6 +3160,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 43.015625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "e85a6b4a3b7c8c0128bb543c9a95f75205eea000",
+          "message": "Bump taiki-e/install-action from 2.90.3 to 2.90.5 (#2058)\n\nBumps\n[taiki-e/install-action](https://github.com/taiki-e/install-action) from\n2.90.3 to 2.90.5.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/taiki-e/install-action/releases\">taiki-e/install-action's\nreleases</a>.</em></p>\n<blockquote>\n<h2>2.90.5</h2>\n<ul>\n<li>\n<p>Update <code>mise@latest</code> to 2026.11.8.</p>\n</li>\n<li>\n<p>Update <code>cargo-nextest@latest</code> to 0.9.152.</p>\n</li>\n</ul>\n<h2>2.90.4</h2>\n<ul>\n<li>\n<p>Update <code>yq@latest</code> to 4.54.3.</p>\n</li>\n<li>\n<p>Update <code>vacuum@latest</code> to 0.40.1.</p>\n</li>\n<li>\n<p>Update <code>uv@latest</code> to 0.13.8.</p>\n</li>\n<li>\n<p>Update <code>typos@latest</code> to 1.52.2.</p>\n</li>\n<li>\n<p>Update <code>tombi@latest</code> to 1.11.2.</p>\n</li>\n<li>\n<p>Update <code>syft@latest</code> to 1.57.1.</p>\n</li>\n<li>\n<p>Update <code>rafn@latest</code> to 0.1.7.</p>\n</li>\n<li>\n<p>Update <code>osv-scanner@latest</code> to 2.7.1.</p>\n</li>\n<li>\n<p>Update <code>mise@latest</code> to 2026.11.7.</p>\n</li>\n<li>\n<p>Update <code>knope@latest</code> to 0.24.0.</p>\n</li>\n<li>\n<p>Update <code>kingfisher@latest</code> to 2.18.1.</p>\n</li>\n<li>\n<p>Update <code>kache@latest</code> to 2.1.1.</p>\n</li>\n<li>\n<p>Update <code>grcov@latest</code> to 0.10.8.</p>\n</li>\n<li>\n<p>Update <code>cargo-shear@latest</code> to 1.14.1.</p>\n</li>\n<li>\n<p>Update <code>cargo-cyclonedx@latest</code> to 0.5.10.</p>\n</li>\n<li>\n<p>Update <code>cargo-binstall@latest</code> to 1.27.0.</p>\n</li>\n<li>\n<p>Update <code>cargo-audit@latest</code> to 0.23.0.</p>\n</li>\n<li>\n<p>Update <code>biome@latest</code> to 2.6.7.</p>\n</li>\n</ul>\n</blockquote>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/ab49d3c64680143e184118bed66a46419fc15519\"><code>ab49d3c</code></a>\nRelease 2.90.5</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/ee9ccb95076769f58ae60ae6817f7155e4755905\"><code>ee9ccb9</code></a>\nUpdate vacuum manifest</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/9be7669a8e379e53956a82c8248fd49d07afd75a\"><code>9be7669</code></a>\nUpdate <code>mise@latest</code> to 2026.11.8</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/73f286eaa96fdb427d632cb39be667db68c7d79b\"><code>73f286e</code></a>\nUpdate <code>cargo-nextest@latest</code> to 0.9.152</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/80e4b21c01cb325be3c56d5e5ddcc92cd4606712\"><code>80e4b21</code></a>\nUpdate cargo-machete manifest</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/4a76afe23f9e08d2d9550fb56e556444e8611d21\"><code>4a76afe</code></a>\nRelease 2.90.4</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/4de5f080085e6d50499669e8a004da1b6c389003\"><code>4de5f08</code></a>\nUpdate <code>yq@latest</code> to 4.54.3</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/465b61da939dc88f7f325f0789d94bd436880a8f\"><code>465b61d</code></a>\nUpdate <code>vacuum@latest</code> to 0.40.1</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/5b316dad542366d3f66fe845efb654d639e2b376\"><code>5b316da</code></a>\nUpdate <code>uv@latest</code> to 0.13.8</li>\n<li><a\nhref=\"https://github.com/taiki-e/install-action/commit/9fac2d0bccda53d78016e774d21e12241e6e7786\"><code>9fac2d0</code></a>\nUpdate <code>typos@latest</code> to 1.52.2</li>\n<li>Additional commits viewable in <a\nhref=\"https://github.com/taiki-e/install-action/compare/v2.90.3...v2.90.5\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-23T16:37:08Z",
+          "tree_id": "f7c31c111faafc6b0413cd43409df4b9f3334336",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/e85a6b4a3b7c8c0128bb543c9a95f75205eea000"
+        },
+        "date": 1795461480511,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 402.59375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 62.734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 387.5234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 62.06640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 369.83203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 47.0859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 385.22265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 46.75,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 375.26171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 57.0625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 380.89453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 66.69140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 390.37109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 43.328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 378.59375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 374.3828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 42.515625,
             "unit": "MiB"
           }
         ]
