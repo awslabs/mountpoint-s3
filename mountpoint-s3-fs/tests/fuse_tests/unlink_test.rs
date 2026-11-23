@@ -58,7 +58,7 @@ async fn simple_unlink_test_s3() {
 #[test_case("simple_unlink_test"; "prefix")]
 #[tokio::test]
 async fn simple_unlink_test_mock(prefix: &str) {
-    simple_unlink_tests(fuse::mock_session::new, prefix).await;
+    simple_unlink_tests(fuse::mock_server_session::new, prefix).await;
 }
 
 /// Testing behavior when a file is unlinked in the middle of reading
@@ -120,7 +120,7 @@ async fn unlink_readhandle_test_s3() {
 #[test_case("unlink_readhandle_test"; "prefix")]
 #[tokio::test]
 async fn unlink_readhandle_test_mock(prefix: &str) {
-    unlink_readhandle_test(fuse::mock_session::new, prefix).await;
+    unlink_readhandle_test(fuse::mock_server_session::new, prefix).await;
 }
 
 /// Testing behavior when a file is unlinked during and after writing
@@ -190,7 +190,7 @@ async fn unlink_writehandle_test_s3() {
 #[test_case("unlink_writehandle_test"; "prefix")]
 #[tokio::test]
 async fn unlink_writehandle_test_mock(prefix: &str) {
-    unlink_writehandle_test(fuse::mock_session::new, prefix).await;
+    unlink_writehandle_test(fuse::mock_server_session::new, prefix).await;
 }
 
 async fn unlink_fail_on_delete_not_allowed_test(creator_fn: impl TestSessionCreator) {
@@ -224,5 +224,5 @@ async fn unlink_fail_on_delete_not_allowed_test_s3() {
 
 #[tokio::test]
 async fn unlink_fail_on_delete_not_allowed_test_mock() {
-    unlink_fail_on_delete_not_allowed_test(fuse::mock_session::new).await;
+    unlink_fail_on_delete_not_allowed_test(fuse::mock_server_session::new).await;
 }

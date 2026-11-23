@@ -16,7 +16,7 @@ The spec generator automatically:
 1. **Extracts versions** from project files:
    - Package version from `mountpoint-s3/Cargo.toml`
    - Rust toolchain version from `rust-toolchain.toml`
-   - Git submodule versions for bundled library declarations
+   - CRT git submodule versions for bundled library declarations
 
 2. **Renders templates** with the extracted version data
 

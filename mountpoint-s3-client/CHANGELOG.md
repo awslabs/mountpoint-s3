@@ -1,5 +1,6 @@
 ## Unreleased (v0.24.0)
 
+* Add `EndpointConfig::disable_s3express_session_auth`, which makes the client sign requests to directory buckets with its own credentials instead of S3 Express session credentials, so that it sends no CreateSession requests. ([#2048](https://github.com/awslabs/mountpoint-s3/pull/2048))
 * Update to latest CRT dependencies.
 
 ## v0.23.0 (November 12, 2026)

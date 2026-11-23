@@ -50,7 +50,7 @@ async fn read_test_s3_with_cache(object_size: usize) {
 #[test_case(1024*1024; "1MiB file")]
 #[tokio::test]
 async fn read_test_mock(object_size: usize) {
-    read_test(fuse::mock_session::new, object_size).await;
+    read_test(fuse::mock_server_session::new, object_size).await;
 }
 
 #[test_case(0; "empty file")]
@@ -59,7 +59,7 @@ async fn read_test_mock(object_size: usize) {
 #[tokio::test]
 async fn read_test_mock_with_cache(object_size: usize) {
     read_test(
-        fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
+        fuse::mock_server_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         object_size,
     )
     .await;
@@ -162,9 +162,9 @@ async fn prefetch_test_etag(
 #[test_case(64 * 1024, 500 * 1024; "first request size smaller than first block read size")]
 #[tokio::test]
 async fn prefetch_test_etag_mock(initial_read_window_size: usize, read_size: usize) {
-    let part_size = 256 * 1024;
+    let part_size = 8 * 1024 * 1024;
     prefetch_test_etag(
-        fuse::mock_session::new,
+        fuse::mock_server_session::new,
         "prefetch_test_etag_mock",
         part_size,
         initial_read_window_size,
@@ -179,9 +179,9 @@ async fn prefetch_test_etag_mock(initial_read_window_size: usize, read_size: usi
 #[test_case(64 * 1024, 500 * 1024; "first request size smaller than first block read size")]
 #[tokio::test]
 async fn prefetch_test_etag_mock_with_cache(initial_read_window_size: usize, read_size: usize) {
-    let part_size = 256 * 1024;
+    let part_size = 8 * 1024 * 1024;
     prefetch_test_etag(
-        fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
+        fuse::mock_server_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         "prefetch_test_etag_mock",
         part_size,
         initial_read_window_size,

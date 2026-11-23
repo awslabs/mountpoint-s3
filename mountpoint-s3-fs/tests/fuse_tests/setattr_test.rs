@@ -75,5 +75,5 @@ async fn setattr_test_s3(append: bool) {
 #[test_case(false; "no append")]
 #[tokio::test]
 async fn setattr_test_mock(append: bool) {
-    setattr_test(fuse::mock_session::new, "setattr_test_mock", append).await;
+    setattr_test(fuse::mock_server_session::new, "setattr_test_mock", append).await;
 }

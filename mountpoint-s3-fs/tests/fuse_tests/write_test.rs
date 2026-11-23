@@ -7,7 +7,7 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-use mountpoint_s3_client::checksums::{crc64nvme, crc64nvme_to_base64};
+use mountpoint_s3_client::checksums::{crc32c, crc32c_to_base64, crc64nvme, crc64nvme_to_base64};
 use mountpoint_s3_client::types::{Checksum, ChecksumAlgorithm, PutObjectSingleParams, UploadChecksum};
 use rand::rngs::SmallRng;
 use rand::{RngExt, SeedableRng};
@@ -21,6 +21,7 @@ use mountpoint_s3_fs::content_type::ContentTypeDetection;
 use mountpoint_s3_fs::fs::{CacheConfig, UploadChecksumAlgorithm};
 #[cfg(feature = "s3_tests")]
 use mountpoint_s3_fs::memory::write_buffer_budget_for;
+use mountpoint_s3_fs::s3::S3Personality;
 
 use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
@@ -107,6 +108,10 @@ trait S3FilesystemConfigExt {
 impl S3FilesystemConfigExt for S3FilesystemConfig {
     fn upload_mode(mut self, upload_mode: UploadMode) -> Self {
         self.incremental_upload = upload_mode.is_incremental();
+        if upload_mode.is_incremental() {
+            // Incremental uploads append, which S3 only serves in directory buckets.
+            self.s3_personality = S3Personality::ExpressOneZone;
+        }
         self
     }
 }
@@ -149,7 +154,9 @@ async fn sequential_write_test(
 
     // verify the new file is visible in readdir
     let read_dir_iter = read_dir(&subdir).unwrap();
-    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    let mut dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    // Directory buckets list keys in no particular order.
+    dir_entry_names.sort();
     assert_eq!(dir_entry_names, vec!["hello.txt", "new.txt"]);
 
     let mut rng = SmallRng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
@@ -180,7 +187,9 @@ async fn sequential_write_test(
 
     // Readdir should still work correctly
     let read_dir_iter = read_dir(&subdir).unwrap();
-    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    let mut dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    // Directory buckets list keys in no particular order.
+    dir_entry_names.sort();
     assert_eq!(dir_entry_names, vec!["hello.txt", "new.txt"]);
 }
 
@@ -201,7 +210,7 @@ async fn sequential_write_test_s3_incremental_upload(append_mode: AppendMode, rw
 #[test_matrix([APPEND, NO_APPEND], [WRITE_ONLY, READ_WRITE], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
 #[tokio::test]
 async fn sequential_write_test_mock(append_mode: AppendMode, rw_mode: ReadWriteMode, upload_mode: UploadMode) {
-    sequential_write_test(fuse::mock_session::new, append_mode, rw_mode, upload_mode).await;
+    sequential_write_test(fuse::mock_server_session::new, append_mode, rw_mode, upload_mode).await;
 }
 
 async fn write_errors_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
@@ -306,7 +315,7 @@ async fn write_errors_test_s3_incremental_update() {
 #[test_matrix([ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
 #[tokio::test]
 async fn write_errors_test_mock(upload_mode: UploadMode) {
-    write_errors_test(fuse::mock_session::new, upload_mode).await;
+    write_errors_test(fuse::mock_server_session::new, upload_mode).await;
 }
 
 async fn sequential_write_streaming_test(
@@ -385,7 +394,7 @@ async fn sequential_write_streaming_test_s3(object_size: usize, write_chunk_size
 #[test_case(32 * 1024 * 1024, 1024 * 1024 + 1)]
 #[tokio::test]
 async fn sequential_write_streaming_test_mock(object_size: usize, write_chunk_size: usize) {
-    sequential_write_streaming_test(fuse::mock_session::new, object_size, write_chunk_size).await;
+    sequential_write_streaming_test(fuse::mock_server_session::new, object_size, write_chunk_size).await;
 }
 
 async fn fsync_test(creator_fn: impl TestSessionCreator, rw_mode: ReadWriteMode, upload_mode: UploadMode) {
@@ -450,7 +459,7 @@ async fn fsync_test_s3_incremental_upload(rw_mode: ReadWriteMode) {
 #[test_matrix([WRITE_ONLY, READ_WRITE], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
 #[tokio::test]
 async fn fsync_test_mock(rw_mode: ReadWriteMode, upload_mode: UploadMode) {
-    fsync_test(fuse::mock_session::new, rw_mode, upload_mode).await;
+    fsync_test(fuse::mock_server_session::new, rw_mode, upload_mode).await;
 }
 
 async fn fstat_after_writing(creator_fn: impl TestSessionCreator, sync_mode: FSyncMode, upload_mode: UploadMode) {
@@ -524,16 +533,18 @@ async fn fstat_after_writing_s3_incremental_upload(sync_mode: FSyncMode) {
 #[test_matrix([FSYNC, NO_FSYNC], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
 #[tokio::test]
 async fn fstat_after_writing_mock(sync_mode: FSyncMode, upload_mode: UploadMode) {
-    fstat_after_writing(fuse::mock_session::new, sync_mode, upload_mode).await;
+    fstat_after_writing(fuse::mock_server_session::new, sync_mode, upload_mode).await;
 }
 
 async fn write_too_big_test(creator_fn: impl TestSessionCreator, write_size: usize) {
     const KEY: &str = "new.txt";
-    const PART_SIZE: usize = 64;
-    const MAX_S3_MULTIPART_UPLOAD_PARTS: usize = 10000;
 
     let config = TestSessionConfig {
-        part_size: PART_SIZE,
+        part_size: WRITE_TOO_BIG_PART_SIZE,
+        filesystem_config: S3FilesystemConfig {
+            max_upload_parts: WRITE_TOO_BIG_MAX_PARTS,
+            ..Default::default()
+        },
         ..Default::default()
     };
     let test_session = creator_fn("write_too_big_test", config).await;
@@ -542,7 +553,7 @@ async fn write_too_big_test(creator_fn: impl TestSessionCreator, write_size: usi
 
     let mut f = File::options().append(true).create(true).open(&path).unwrap();
 
-    let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;
+    let successful_writes = WRITE_TOO_BIG_PART_SIZE * WRITE_TOO_BIG_MAX_PARTS / write_size;
     let data = vec![0xaa; write_size];
     let mut current_size = 0;
     for _ in 0..successful_writes {
@@ -565,14 +576,26 @@ async fn write_too_big_test(creator_fn: impl TestSessionCreator, write_size: usi
     assert_eq!(err.raw_os_error(), Some(libc::ENOENT));
 }
 
-// We intentionally don't run this test against S3 because the part size minimum is 5MiB there, and
-// so we'd have to upload 5MiB * 10000 = 50GiB to test the failure case.
-#[test_case(8000; "divisible by max size")]
-#[test_case(7000; "not divisible by max size")]
-#[test_case(640001; "single write too big")]
+/// [write_too_big_test] uses the smallest part size that S3 accepts.
+const WRITE_TOO_BIG_PART_SIZE: usize = 5 * 1024 * 1024;
+/// [write_too_big_test] allows this number of parts, so the largest file it can write is 15 MiB.
+const WRITE_TOO_BIG_MAX_PARTS: usize = 3;
+
+#[cfg(feature = "s3_tests")]
+#[test_case(1024 * 1024; "divisible by max size")]
+#[test_case(4 * 1024 * 1024; "not divisible by max size")]
+#[test_case(WRITE_TOO_BIG_PART_SIZE * WRITE_TOO_BIG_MAX_PARTS + 1; "single write too big")]
+#[tokio::test]
+async fn write_too_big_test_s3(write_size: usize) {
+    write_too_big_test(fuse::s3_session::new, write_size).await;
+}
+
+#[test_case(1024 * 1024; "divisible by max size")]
+#[test_case(4 * 1024 * 1024; "not divisible by max size")]
+#[test_case(WRITE_TOO_BIG_PART_SIZE * WRITE_TOO_BIG_MAX_PARTS + 1; "single write too big")]
 #[tokio::test]
 async fn write_too_big_test_mock(write_size: usize) {
-    write_too_big_test(fuse::mock_session::new, write_size).await;
+    write_too_big_test(fuse::mock_server_session::new, write_size).await;
 }
 
 async fn out_of_order_write_test(creator_fn: impl TestSessionCreator, offset: i64, upload_mode: UploadMode) {
@@ -647,7 +670,7 @@ async fn out_of_order_write_test_s3_incremental_upload(offset: i64) {
 #[test_matrix([EARLIER_OFFSET, LATER_OFFSET], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
 #[tokio::test]
 async fn out_of_order_write_test_mock(offset: i64, upload_mode: UploadMode) {
-    out_of_order_write_test(fuse::mock_session::new, offset, upload_mode).await;
+    out_of_order_write_test(fuse::mock_server_session::new, offset, upload_mode).await;
 }
 
 #[cfg(not(feature = "s3express_tests"))]
@@ -669,7 +692,7 @@ async fn write_with_storage_class_test(creator_fn: impl TestSessionCreator, stor
 
     assert_eq!(
         storage_class.map(String::from),
-        test_session.client().get_object_storage_class(KEY).await.unwrap()
+        test_session.client().head_object(KEY).await.unwrap().storage_class
     );
 }
 
@@ -689,7 +712,7 @@ async fn write_with_storage_class_test_s3(storage_class: Option<&str>) {
 #[test_case(Some("GLACIER"))]
 #[tokio::test]
 async fn write_with_storage_class_test_s3_mock(storage_class: Option<&str>) {
-    write_with_storage_class_test(fuse::mock_session::new, storage_class).await;
+    write_with_storage_class_test(fuse::mock_server_session::new, storage_class).await;
 }
 
 #[cfg_attr(not(feature = "s3_tests"), allow(unused))] // Mock client doesn't validate storage classes
@@ -783,7 +806,7 @@ async fn flush_test_s3_incremental_upload(append_mode: AppendMode) {
 #[test_matrix([APPEND, NO_APPEND], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
 #[tokio::test]
 async fn flush_test_mock(append_mode: AppendMode, upload_mode: UploadMode) {
-    flush_test(fuse::mock_session::new, append_mode, upload_mode).await;
+    flush_test(fuse::mock_server_session::new, append_mode, upload_mode).await;
 }
 
 async fn touch_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
@@ -837,7 +860,7 @@ async fn touch_test_s3_incremental_upload() {
 #[test_matrix([ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
 #[tokio::test]
 async fn touch_test_mock(upload_mode: UploadMode) {
-    touch_test(fuse::mock_session::new, upload_mode).await;
+    touch_test(fuse::mock_server_session::new, upload_mode).await;
 }
 
 async fn dd_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
@@ -883,7 +906,7 @@ async fn dd_test_s3_incremental_upload() {
 #[test_matrix([ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
 #[tokio::test]
 async fn dd_test_mock(upload_mode: UploadMode) {
-    dd_test(fuse::mock_session::new, upload_mode).await;
+    dd_test(fuse::mock_server_session::new, upload_mode).await;
 }
 
 #[test_matrix([ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
@@ -894,7 +917,7 @@ async fn spawn_test(upload_mode: UploadMode) {
         filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
         ..Default::default()
     };
-    let test_session = fuse::mock_session::new("spawn_test", config).await;
+    let test_session = fuse::mock_server_session::new("spawn_test", config).await;
 
     let path = test_session.mount_path().join(KEY);
     let mut f = File::options().append(true).create(true).open(&path).unwrap();
@@ -921,7 +944,7 @@ async fn multi_thread_test(upload_mode: UploadMode) {
         filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
         ..Default::default()
     };
-    let test_session = fuse::mock_session::new("multi_thread_test", config).await;
+    let test_session = fuse::mock_server_session::new("multi_thread_test", config).await;
 
     let path = test_session.mount_path().join(KEY);
     let mut f = File::options().append(true).create(true).open(&path).unwrap();
@@ -1004,7 +1027,7 @@ async fn overwrite_test_s3_incremental_upload(rw_mode: ReadWriteMode) {
 #[test_matrix([WRITE_ONLY, READ_WRITE], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
 #[tokio::test]
 async fn overwrite_test_mock(rw_mode: ReadWriteMode, upload_mode: UploadMode) {
-    overwrite_test(fuse::mock_session::new, "overwrite_test", rw_mode, upload_mode).await;
+    overwrite_test(fuse::mock_server_session::new, "overwrite_test", rw_mode, upload_mode).await;
 }
 
 async fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCreator, prefix: &str) {
@@ -1060,7 +1083,7 @@ async fn overwrite_disallowed_on_concurrent_read_test_s3() {
 #[tokio::test]
 async fn overwrite_disallowed_on_concurrent_read_test_mock() {
     overwrite_disallowed_on_concurrent_read_test(
-        fuse::mock_session::new,
+        fuse::mock_server_session::new,
         "overwrite_disallowed_on_concurrent_read_test",
     )
     .await;
@@ -1131,7 +1154,7 @@ async fn overwrite_fail_on_write_without_truncate_test_s3(rw_mode: ReadWriteMode
 #[tokio::test]
 async fn overwrite_fail_on_write_without_truncate_test_mock(rw_mode: ReadWriteMode) {
     overwrite_fail_on_write_without_truncate_test(
-        fuse::mock_session::new,
+        fuse::mock_server_session::new,
         "overwrite_fail_on_write_without_truncate_test",
         rw_mode,
     )
@@ -1184,7 +1207,7 @@ async fn overwrite_truncate_test_s3(rw_mode: ReadWriteMode) {
 #[test_matrix([WRITE_ONLY, READ_WRITE])]
 #[tokio::test]
 async fn overwrite_truncate_test_mock(rw_mode: ReadWriteMode) {
-    overwrite_truncate_test(fuse::mock_session::new, "overwrite_truncate_test", rw_mode).await;
+    overwrite_truncate_test(fuse::mock_server_session::new, "overwrite_truncate_test", rw_mode).await;
 }
 
 async fn overwrite_after_read_test(creator_fn: impl TestSessionCreator, prefix: &str) {
@@ -1234,7 +1257,7 @@ async fn overwrite_after_read_test_s3() {
 #[test_case("overwrite_after_read_test"; "prefix")]
 #[tokio::test]
 async fn overwrite_after_read_test_mock(prefix: &str) {
-    overwrite_after_read_test(fuse::mock_session::new, prefix).await;
+    overwrite_after_read_test(fuse::mock_server_session::new, prefix).await;
 }
 
 async fn concurrent_open_after_overwrite_truncate_test(
@@ -1303,7 +1326,7 @@ async fn concurrent_open_after_overwrite_truncate_test_s3(rw_mode: ReadWriteMode
 #[tokio::test]
 async fn concurrent_open_after_overwrite_truncate_test_mock(rw_mode: ReadWriteMode) {
     concurrent_open_after_overwrite_truncate_test(
-        fuse::mock_session::new,
+        fuse::mock_server_session::new,
         "concurrent_open_after_overwrite_truncate_test",
         rw_mode,
     )
@@ -1356,7 +1379,7 @@ async fn write_handle_no_update_existing_empty_file_s3(allow_overwrite: bool) {
 #[tokio::test]
 async fn write_handle_no_update_existing_empty_file_mock(allow_overwrite: bool) {
     write_handle_no_update_existing_empty_file(
-        fuse::mock_session::new,
+        fuse::mock_server_session::new,
         "write_handle_no_update_existing_empty_file",
         allow_overwrite,
     )
@@ -1580,6 +1603,7 @@ async fn write_checksums_test(
         .upload_mode(upload_mode),
         ..Default::default()
     };
+    let part_size = config.part_size;
     let test_session = creator_fn("write_checksums_test", config).await;
 
     // Make sure there's an existing directory
@@ -1607,74 +1631,44 @@ async fn write_checksums_test(
     drop(f);
 
     // Now it's fsync'ed and closed, it should be present in S3
-    let (object_checksum, part_checksums) = test_session.client().get_object_checksums(KEY).await.unwrap();
+    let checksum = test_session.client().head_object(KEY).await.unwrap().checksum;
     match algorithm {
-        Some(UploadChecksumAlgorithm::Crc64nvme) => {
-            // CRC64NVME must be a full-object checksum (S3 doesn't support composite for it), so its
-            // value must land on the object itself, not just the parts, and is a bare `<base64>`
-            // with no `-<part-count>` suffix.
-            let value = object_checksum
-                .as_ref()
-                .and_then(|c| c.checksum_crc64nvme.as_ref())
-                .expect("CRC64NVME must be reported as a full-object checksum on the object");
-            assert!(
-                !value.contains('-'),
-                "CRC64NVME object-level checksum must be a bare `<base64>` (no `-<part-count>` suffix), got {value:?}"
-            );
-        }
-        Some(UploadChecksumAlgorithm::Crc32c) => {
-            // CRC32C is composite (carried by the per-part checksums) and can land on the object or
-            // only the parts. The object-level representation returned by GetObjectAttributes differs
-            // by backend: S3 Standard returns a bare `<base64>`, while S3 Express One Zone returns the
-            // composite form `<base64>-<part-count>`. Accept either, and when the suffix is present
-            // assert the part count matches the number of parts we observed.
-            let object_value = object_checksum.as_ref().and_then(|c| c.checksum_crc32c.as_ref());
-            let parts_have_checksum = !part_checksums.is_empty()
-                && part_checksums
-                    .iter()
-                    .all(|checksum| checksum.as_ref().is_some_and(|c| c.checksum_crc32c.is_some()));
-            assert!(
-                object_value.is_some() || parts_have_checksum,
-                "CRC32C should be present on the object or its parts"
-            );
-            if let Some(value) = object_value
-                && let Some((base, suffix)) = value.split_once('-')
-            {
-                assert!(
-                    !base.is_empty(),
-                    "CRC32C object-level checksum must have a `<base64>` prefix, got {value:?}"
-                );
-                let part_count: usize = suffix.parse().unwrap_or_else(|_| {
-                    panic!("CRC32C object-level checksum suffix must be a `-<part-count>`, got {value:?}")
-                });
-                assert_eq!(
-                    part_count,
-                    part_checksums.len(),
-                    "CRC32C composite object-level checksum part count must match the number of parts"
-                );
-            }
-        }
-        None => {
-            // Without upload checksums, S3 (and the mock) store a full-object CRC-64NVME checksum
-            // computed over the whole object, and no other checksum.
+        Some(UploadChecksumAlgorithm::Crc64nvme) | None => {
+            // CRC64NVME is a full-object checksum, which S3 reports as a bare `<base64>` of the whole
+            // object. Without upload checksums, S3 stores the same checksum as its default.
             // See https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html.
             let expected = Checksum {
                 checksum_crc64nvme: Some(crc64nvme_to_base64(&crc64nvme::checksum(&body))),
                 ..Checksum::empty()
             };
+            assert_eq!(checksum, expected);
+        }
+        Some(UploadChecksumAlgorithm::Crc32c) => {
+            let value = checksum
+                .checksum_crc32c
+                .clone()
+                .expect("CRC32C should be reported on the object");
             assert_eq!(
-                object_checksum,
-                Some(expected),
-                "object should have S3's default CRC-64NVME checksum when upload checksums are disabled"
+                checksum,
+                Checksum {
+                    checksum_crc32c: Some(value.clone()),
+                    ..Checksum::empty()
+                }
             );
-
-            // For S3 Standard, the list of parts is only present if checksums were used, but for S3
-            // Express One Zone the list of parts is always present.
-            for part_checksum in part_checksums {
-                assert!(
-                    part_checksum.is_none_or(|c| c == Checksum::empty()),
-                    "part checksums should not be present when upload checksums are disabled"
+            if !upload_mode.is_incremental() {
+                // A multipart upload with CRC32C is composite: S3 reports the CRC32C of the part
+                // checksums, followed by `-<part-count>`.
+                let parts: Vec<&[u8]> = body.chunks(part_size).collect();
+                let part_checksums: Vec<u8> = parts
+                    .iter()
+                    .flat_map(|part| crc32c::checksum(part).value().to_be_bytes())
+                    .collect();
+                let expected = format!(
+                    "{}-{}",
+                    crc32c_to_base64(&crc32c::checksum(&part_checksums)),
+                    parts.len()
                 );
+                assert_eq!(value, expected);
             }
         }
     }
@@ -1700,7 +1694,7 @@ async fn write_checksums_test_s3_incremental_upload(algorithm: Option<UploadChec
 )]
 #[tokio::test]
 async fn write_checksums_test_mock(algorithm: Option<UploadChecksumAlgorithm>, upload_mode: UploadMode) {
-    write_checksums_test(fuse::mock_session::new, algorithm, upload_mode).await;
+    write_checksums_test(fuse::mock_server_session::new, algorithm, upload_mode).await;
 }
 
 #[derive(Debug)]
@@ -1716,6 +1710,8 @@ async fn append_test(creator_fn: impl TestSessionCreator, append_config: AppendT
     let config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
             incremental_upload: true,
+            // Incremental uploads append, which S3 only serves in directory buckets.
+            s3_personality: S3Personality::ExpressOneZone,
             ..Default::default()
         },
         ..Default::default()
@@ -1758,8 +1754,8 @@ async fn append_test(creator_fn: impl TestSessionCreator, append_config: AppendT
             let m = metadata(&path).unwrap();
             assert_eq!(m.len(), expected.len() as u64);
 
-            let new_size = test_session.client().get_object_size(KEY).await.unwrap();
-            assert_eq!(new_size, expected.len());
+            let new_size = test_session.client().head_object(KEY).await.unwrap().size;
+            assert_eq!(new_size, expected.len() as u64);
         }
     }
 
@@ -1796,7 +1792,7 @@ async fn append_test_s3(config: AppendTestConfig) {
 #[test_case(AppendTestConfig { initial_content: Some(""), writes: vec!["one."], fsync_after_write: false })]
 #[tokio::test]
 async fn append_test_mock(config: AppendTestConfig) {
-    append_test(fuse::mock_session::new, config).await;
+    append_test(fuse::mock_server_session::new, config).await;
 }
 
 async fn append_with_checksums(creator_fn: impl TestSessionCreator, checksum_algorithm: Option<ChecksumAlgorithm>) {
@@ -1805,6 +1801,8 @@ async fn append_with_checksums(creator_fn: impl TestSessionCreator, checksum_alg
     let config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
             incremental_upload: true,
+            // Incremental uploads append, which S3 only serves in directory buckets.
+            s3_personality: S3Personality::ExpressOneZone,
             ..Default::default()
         },
         ..Default::default()
@@ -1873,7 +1871,7 @@ async fn append_with_checksums_s3(checksum_algorithm: Option<ChecksumAlgorithm>)
 #[test_case(Some(ChecksumAlgorithm::Sha256))]
 #[tokio::test]
 async fn append_with_checksums_mock(checksum_algorithm: Option<ChecksumAlgorithm>) {
-    append_with_checksums(fuse::mock_session::new, checksum_algorithm).await;
+    append_with_checksums(fuse::mock_server_session::new, checksum_algorithm).await;
 }
 
 async fn append_fails_on_object_replaced(creator_fn: impl TestSessionCreator, initial_content: &[u8]) {
@@ -1882,6 +1880,8 @@ async fn append_fails_on_object_replaced(creator_fn: impl TestSessionCreator, in
     let config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
             incremental_upload: true,
+            // Incremental uploads append, which S3 only serves in directory buckets.
+            s3_personality: S3Personality::ExpressOneZone,
             ..Default::default()
         },
         ..Default::default()
@@ -1929,11 +1929,11 @@ async fn append_fails_on_object_replaced_s3(initial_content: &[u8]) {
 #[test_case(b""; "empty object")]
 #[tokio::test]
 async fn append_fails_on_object_replaced_mock(initial_content: &[u8]) {
-    append_fails_on_object_replaced(fuse::mock_session::new, initial_content).await;
+    append_fails_on_object_replaced(fuse::mock_server_session::new, initial_content).await;
 }
 
 // The test matrix below names its test cases after these aliases of the session creators.
-use fuse::mock_session::new as MOCK;
+use fuse::mock_server_session::new as MOCK;
 #[cfg(feature = "s3_tests")]
 use fuse::s3_session::new as S3;
 
@@ -2002,7 +2002,7 @@ async fn write_allowed_on_flushed_handle() {
     };
 
     let prefix = "write_allowed_on_flushed_handle";
-    let test_session = fuse::mock_session::new(prefix, test_config).await;
+    let test_session = fuse::mock_server_session::new(prefix, test_config).await;
 
     // Make sure there's an existing directory and a file
     test_session
@@ -2042,7 +2042,7 @@ async fn open_allowed_only_after_all_readers_flushed() {
     };
 
     let prefix = "open_allowed_only_after_all_readers_flushed";
-    let test_session = fuse::mock_session::new(prefix, test_config).await;
+    let test_session = fuse::mock_server_session::new(prefix, test_config).await;
 
     // Make sure there's an existing directory and a file
     test_session
@@ -2116,7 +2116,7 @@ async fn open_disallowed_when_writer_exists() {
     };
 
     let prefix = "open_disallowed_when_writer_exists";
-    let test_session = fuse::mock_session::new(prefix, test_config).await;
+    let test_session = fuse::mock_server_session::new(prefix, test_config).await;
 
     // Make sure there's an existing directory and a file
     test_session

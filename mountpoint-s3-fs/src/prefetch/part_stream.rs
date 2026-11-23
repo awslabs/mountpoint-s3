@@ -237,11 +237,14 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
         assert!(config.preferred_part_size > 0);
 
         let range = config.range;
+        // The read window is aligned to the parts of the second request, which starts where the
+        // initial request ends.
+        let initial_request_end_offset = range.start() + config.initial_request_size as u64;
 
         let backpressure_config = BackpressureConfig::new(
             &config,
             ReadWindowAlignmentConfig::AlignToPartSize {
-                from_offset: range.start() + config.initial_request_size as u64,
+                from_offset: initial_request_end_offset,
                 part_size: config.read_part_size as u64,
             },
         );
@@ -258,7 +261,6 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
             .spawn_with_handle(
                 async move {
                     let cursor_id = backpressure_limiter.cursor_id();
-                    let initial_request_end_offset = config.range.start() + config.initial_request_size as u64;
                     let request_stream = read_from_client_stream(
                         &mut backpressure_limiter,
                         &client,

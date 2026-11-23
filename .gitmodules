@@ -31,3 +31,6 @@
 [submodule "aws-c-s3"]
 	path = mountpoint-s3-crt-sys/crt/aws-c-s3
 	url = https://github.com/awslabs/aws-c-s3.git
+[submodule "aws-s3-transfer-manager-rs"]
+	path = third_party/aws-s3-transfer-manager-rs
+	url = https://github.com/awslabs/aws-s3-transfer-manager-rs.git

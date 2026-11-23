@@ -1,5 +1,6 @@
 ## Unreleased (v0.13.0)
 
+* Add a `S3FilesystemConfig::max_upload_parts` option for testing, which sets the maximum number of parts of an atomic upload, and so the largest file that an atomic upload writes. The default is S3's limit of 10,000 parts. ([#2048](https://github.com/awslabs/mountpoint-s3/pull/2048))
 * Update to latest S3 client.
 * Fix `DiskDataCache` exceeding its `CacheLimit` by up to one block per `put_block` in progress. A put now makes room for its own block and for the blocks that other puts are still writing before it writes. ([#2041](https://github.com/awslabs/mountpoint-s3/pull/2041))
 

@@ -1,25 +1,17 @@
 //! Manually implemented tests executing the FUSE protocol against [S3Filesystem]
 
-use std::collections::HashMap;
 use std::ffi::OsString;
 use std::ops::Add;
-use std::str::FromStr;
-use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use fuser::{FileHandle, FileType};
 use mountpoint_s3_client::ObjectClient;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_client::PutObjectRequest;
-#[cfg(feature = "s3_tests")]
 use mountpoint_s3_client::S3CrtClient;
-#[cfg(feature = "s3_tests")]
 use mountpoint_s3_client::config::S3ClientConfig;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
-use mountpoint_s3_client::failure_client::{CountdownFailureConfig, countdown_failure_client};
-use mountpoint_s3_client::mock_client::{MockClient, MockClientError, MockObject, Operation};
-use mountpoint_s3_client::types::{ETag, GetObjectParams, PutObjectSingleParams, RestoreStatus};
 #[cfg(feature = "s3_tests")]
 use mountpoint_s3_fs::fs::error_metadata::MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
@@ -36,31 +28,87 @@ use test_case::test_case;
 mod common;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use common::creds::get_scoped_down_credentials;
+use common::mock_server::{
+    AddObjectRequest, Error, MockServer, MockServerGuard, Occurrence, Operation, RestoreStatus, bucket_for,
+};
 #[cfg(feature = "s3_tests")]
 use common::s3::{get_test_bucket_and_prefix, get_test_endpoint_config};
-use common::{DirectoryReply, assert_attr, make_test_filesystem, make_test_filesystem_with_client};
+use common::{DirectoryReply, assert_attr, make_test_filesystem_with_client};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use common::{get_crt_client_auth_config, s3::deny_single_object_access_policy};
+
+/// The smallest part size that S3 accepts for multipart uploads.
+const MIN_PART_SIZE: usize = 5 * 1024 * 1024;
+
+/// Returns a configuration for a CRT client of `server` with read backpressure and an initial read
+/// window of 256 KiB. The client keeps its default part size, because it doesn't accept parts below
+/// 5 MiB.
+fn test_crt_client_config(server: &MockServer) -> S3ClientConfig {
+    server
+        .crt_client_config()
+        .read_backpressure(true)
+        .initial_read_window(256 * 1024)
+}
+
+/// Create a file system on the bucket of a local mock server, with a CRT client that has the
+/// settings of [test_crt_client_config]. See [make_mock_server_filesystem_with_client_config] for
+/// the server, its bucket and the returned guard.
+async fn make_mock_server_filesystem(
+    prefix: &Prefix,
+    config: S3FilesystemConfig,
+) -> MockServerGuard<S3Filesystem<S3CrtClient>> {
+    make_mock_server_filesystem_with_client_config(prefix, config, test_crt_client_config).await
+}
+
+/// Create a file system on the bucket of a local mock server, under `prefix` and with `config`.
+/// The server's bucket follows the personality in `config` ([bucket_for]). The file system uses a
+/// CRT client with the configuration that `client_config` returns for the server. The returned
+/// guard keeps the server running. Tests seed and inspect the bucket through
+/// [MockServerGuard::server].
+async fn make_mock_server_filesystem_with_client_config(
+    prefix: &Prefix,
+    config: S3FilesystemConfig,
+    client_config: impl FnOnce(&MockServer) -> S3ClientConfig,
+) -> MockServerGuard<S3Filesystem<S3CrtClient>> {
+    let server = MockServer::config()
+        .bucket(bucket_for(config.s3_personality))
+        .build()
+        .await;
+    let client = S3CrtClient::new(client_config(&server)).expect("failed to create the CRT client");
+    let pool = PagedPool::config()
+        .with_candidate_sizes([CandidateSize::new(client.read_part_size())])
+        .with_minimum_memory_limit()
+        .build();
+    let fs = make_test_filesystem_with_client(client, pool, server.bucket(), prefix, config);
+    server.guard(fs)
+}
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
 #[tokio::test]
 async fn test_read_dir_root(prefix: &str) {
     let prefix = Prefix::new(prefix).expect("valid prefix");
-    let (client, fs) = make_test_filesystem("test_read_dir", &prefix, Default::default());
+    let fs = make_mock_server_filesystem(&prefix, Default::default()).await;
+    let server = fs.server();
 
-    client.add_object(
-        &format!("{prefix}file1.txt"),
-        MockObject::constant(0xa1, 15, ETag::from_str("test_etag_1").unwrap()),
-    );
-    client.add_object(
-        &format!("{prefix}file2.txt"),
-        MockObject::constant(0xa2, 15, ETag::from_str("test_etag_2").unwrap()),
-    );
-    client.add_object(
-        &format!("{prefix}file3.txt"),
-        MockObject::constant(0xa3, 15, ETag::from_str("test_etag_3").unwrap()),
-    );
+    server
+        .add_object(
+            &format!("{prefix}file1.txt"),
+            AddObjectRequest::new(vec![0xa1; 15]).etag("test_etag_1"),
+        )
+        .await;
+    server
+        .add_object(
+            &format!("{prefix}file2.txt"),
+            AddObjectRequest::new(vec![0xa2; 15]).etag("test_etag_2"),
+        )
+        .await;
+    server
+        .add_object(
+            &format!("{prefix}file3.txt"),
+            AddObjectRequest::new(vec![0xa3; 15]).etag("test_etag_3"),
+        )
+        .await;
 
     let uid = getuid().into();
     let gid = getgid().into();
@@ -118,20 +166,27 @@ async fn test_read_dir_root(prefix: &str) {
 #[tokio::test]
 async fn test_read_dir_nested(prefix: &str) {
     let prefix = Prefix::new(prefix).expect("valid prefix");
-    let (client, fs) = make_test_filesystem("test_read_dir_nested", &prefix, Default::default());
+    let fs = make_mock_server_filesystem(&prefix, Default::default()).await;
+    let server = fs.server();
 
-    client.add_object(
-        &format!("{prefix}dir1/file1.txt"),
-        MockObject::constant(0xa1, 15, ETag::from_str("test_etag_1").unwrap()),
-    );
-    client.add_object(
-        &format!("{prefix}dir1/file2.txt"),
-        MockObject::constant(0xa2, 15, ETag::from_str("test_etag_2").unwrap()),
-    );
-    client.add_object(
-        &format!("{prefix}dir2/file3.txt"),
-        MockObject::constant(0xa3, 15, ETag::from_str("test_etag_3").unwrap()),
-    );
+    server
+        .add_object(
+            &format!("{prefix}dir1/file1.txt"),
+            AddObjectRequest::new(vec![0xa1; 15]).etag("test_etag_1"),
+        )
+        .await;
+    server
+        .add_object(
+            &format!("{prefix}dir1/file2.txt"),
+            AddObjectRequest::new(vec![0xa2; 15]).etag("test_etag_2"),
+        )
+        .await;
+    server
+        .add_object(
+            &format!("{prefix}dir2/file3.txt"),
+            AddObjectRequest::new(vec![0xa3; 15]).etag("test_etag_3"),
+        )
+        .await;
 
     let uid = getuid().into();
     let gid = getgid().into();
@@ -192,10 +247,11 @@ async fn test_lookup_negative_cached() {
         cache_config: CacheConfig::new(TimeToLive::Duration(Duration::from_secs(600))),
         ..Default::default()
     };
-    let (client, fs) = make_test_filesystem("test_lookup_negative_cached", &Default::default(), fs_config);
+    let fs = make_mock_server_filesystem(&Default::default(), fs_config).await;
+    let server = fs.server();
 
-    let head_counter = client.new_counter(Operation::HeadObject);
-    let list_counter = client.new_counter(Operation::ListObjectsV2);
+    let head_counter = server.new_counter(Operation::HeadObject);
+    let list_counter = server.new_counter(Operation::ListObjectsV2);
 
     let _ = fs
         .lookup(INodeNo::ROOT, "file1.txt".as_ref())
@@ -212,7 +268,9 @@ async fn test_lookup_negative_cached() {
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+    server
+        .add_object("file1.txt", AddObjectRequest::new(vec![0xa1; 15]).etag("test_etag"))
+        .await;
 
     let _ = fs
         .lookup(INodeNo::ROOT, "file1.txt".as_ref())
@@ -255,12 +313,15 @@ async fn test_lookup_then_open_cached() {
         cache_config: CacheConfig::new(TimeToLive::Duration(Duration::from_secs(600))),
         ..Default::default()
     };
-    let (client, fs) = make_test_filesystem("test_lookup_then_open_cached", &Default::default(), fs_config);
+    let fs = make_mock_server_filesystem(&Default::default(), fs_config).await;
+    let server = fs.server();
 
-    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+    server
+        .add_object("file1.txt", AddObjectRequest::new(vec![0xa1; 15]).etag("test_etag"))
+        .await;
 
-    let head_counter = client.new_counter(Operation::HeadObject);
-    let list_counter = client.new_counter(Operation::ListObjectsV2);
+    let head_counter = server.new_counter(Operation::HeadObject);
+    let list_counter = server.new_counter(Operation::ListObjectsV2);
 
     let entry = fs.lookup(INodeNo::ROOT, "file1.txt".as_ref()).await.unwrap();
     let ino = entry.attr.ino;
@@ -284,12 +345,15 @@ async fn test_lookup_then_open_no_cache() {
         cache_config: CacheConfig::new(TimeToLive::Minimal),
         ..Default::default()
     };
-    let (client, fs) = make_test_filesystem("test_lookup_then_open_no_cache", &Default::default(), fs_config);
+    let fs = make_mock_server_filesystem(&Default::default(), fs_config).await;
+    let server = fs.server();
 
-    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+    server
+        .add_object("file1.txt", AddObjectRequest::new(vec![0xa1; 15]).etag("test_etag"))
+        .await;
 
-    let head_counter = client.new_counter(Operation::HeadObject);
-    let list_counter = client.new_counter(Operation::ListObjectsV2);
+    let head_counter = server.new_counter(Operation::HeadObject);
+    let list_counter = server.new_counter(Operation::ListObjectsV2);
 
     let entry = fs.lookup(INodeNo::ROOT, "file1.txt".as_ref()).await.unwrap();
     let ino = entry.attr.ino;
@@ -313,14 +377,17 @@ async fn test_readdir_then_open_cached() {
         cache_config: CacheConfig::new(TimeToLive::Duration(Duration::from_secs(600))),
         ..Default::default()
     };
-    let (client, fs) = make_test_filesystem("test_readdir_then_open_cached", &Default::default(), fs_config);
+    let fs = make_mock_server_filesystem(&Default::default(), fs_config).await;
+    let server = fs.server();
 
-    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+    server
+        .add_object("file1.txt", AddObjectRequest::new(vec![0xa1; 15]).etag("test_etag"))
+        .await;
 
     // Repeat to check readdir is not currently served from cache
     for _ in 0..2 {
-        let head_counter = client.new_counter(Operation::HeadObject);
-        let list_counter = client.new_counter(Operation::ListObjectsV2);
+        let head_counter = server.new_counter(Operation::HeadObject);
+        let list_counter = server.new_counter(Operation::ListObjectsV2);
 
         let dir_ino = INodeNo::ROOT;
         let dir_handle = fs.opendir(dir_ino, OpenFlags::empty()).await.unwrap().fh;
@@ -360,13 +427,16 @@ async fn test_unlink_cached() {
         allow_delete: true,
         ..Default::default()
     };
-    let (client, fs) = make_test_filesystem("test_lookup_then_open_cached", &Default::default(), fs_config);
+    let fs = make_mock_server_filesystem(&Default::default(), fs_config).await;
+    let server = fs.server();
 
-    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+    server
+        .add_object("file1.txt", AddObjectRequest::new(vec![0xa1; 15]).etag("test_etag"))
+        .await;
 
     let parent_ino = INodeNo::ROOT;
-    let head_counter = client.new_counter(Operation::HeadObject);
-    let list_counter = client.new_counter(Operation::ListObjectsV2);
+    let head_counter = server.new_counter(Operation::HeadObject);
+    let list_counter = server.new_counter(Operation::ListObjectsV2);
 
     let _entry = fs
         .lookup(parent_ino, "file1.txt".as_ref())
@@ -375,7 +445,7 @@ async fn test_unlink_cached() {
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    client.remove_object("file1.txt");
+    server.remove_object("file1.txt").await;
     let _entry = fs
         .lookup(parent_ino, "file1.txt".as_ref())
         .await
@@ -399,18 +469,20 @@ async fn test_unlink_cached() {
 
 #[tokio::test]
 async fn test_mknod_cached() {
-    const BUCKET_NAME: &str = "test_mknod_cached";
     let fs_config = S3FilesystemConfig {
         cache_config: CacheConfig::new(TimeToLive::Duration(Duration::from_secs(600))),
         ..Default::default()
     };
-    let (client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), fs_config);
+    let fs = make_mock_server_filesystem(&Default::default(), fs_config).await;
+    let server = fs.server();
 
     let parent = INodeNo::ROOT;
-    let head_counter = client.new_counter(Operation::HeadObject);
-    let list_counter = client.new_counter(Operation::ListObjectsV2);
+    let head_counter = server.new_counter(Operation::HeadObject);
+    let list_counter = server.new_counter(Operation::ListObjectsV2);
 
-    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+    server
+        .add_object("file1.txt", AddObjectRequest::new(vec![0xa1; 15]).etag("test_etag"))
+        .await;
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let err_no = fs
@@ -422,7 +494,7 @@ async fn test_mknod_cached() {
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    client.remove_object("file1.txt");
+    server.remove_object("file1.txt").await;
 
     let err_no = fs
         .mknod(parent, "file1.txt".as_ref(), mode, 0, 0)
@@ -438,12 +510,15 @@ async fn test_mknod_cached() {
 #[test_case(50 * 1024 * 1024; "large")]
 #[tokio::test]
 async fn test_random_read(object_size: usize) {
-    let (client, fs) = make_test_filesystem("test_random_read", &Default::default(), Default::default());
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
+    let server = fs.server();
 
     let mut rng = SmallRng::seed_from_u64(0x12345678 + object_size as u64);
     let mut expected = vec![0; object_size];
     rng.fill(&mut expected[..]);
-    client.add_object("file", MockObject::from_bytes(&expected[..], ETag::for_tests()));
+    server
+        .add_object("file", AddObjectRequest::new(expected.clone()).etag("test_etag"))
+        .await;
 
     // Find the object
     let dir_handle = fs.opendir(INodeNo::ROOT, OpenFlags::empty()).await.unwrap().fh;
@@ -479,18 +554,23 @@ async fn test_random_read(object_size: usize) {
 #[tokio::test]
 async fn test_implicit_directory_shadow(prefix: &str) {
     let prefix = Prefix::new(prefix).expect("valid prefix");
-    let (client, fs) = make_test_filesystem("test_implicit_directory_shadow", &prefix, Default::default());
+    let fs = make_mock_server_filesystem(&prefix, Default::default()).await;
+    let server = fs.server();
 
     // Make an object that matches a directory name. We want this object to be shadowed by the
     // directory.
-    client.add_object(
-        &format!("{prefix}dir1/"),
-        MockObject::constant(0xa1, 15, ETag::from_str("test_etag_1").unwrap()),
-    );
-    client.add_object(
-        &format!("{prefix}dir1/file2.txt"),
-        MockObject::constant(0xa2, 15, ETag::from_str("test_etag_2").unwrap()),
-    );
+    server
+        .add_object(
+            &format!("{prefix}dir1/"),
+            AddObjectRequest::new(vec![0xa1; 15]).etag("test_etag_1"),
+        )
+        .await;
+    server
+        .add_object(
+            &format!("{prefix}dir1/file2.txt"),
+            AddObjectRequest::new(vec![0xa2; 15]).etag("test_etag_2"),
+        )
+        .await;
 
     let entry = fs.lookup(INodeNo::ROOT, "dir1".as_ref()).await.unwrap();
     assert_eq!(entry.attr.kind, FileType::Directory);
@@ -531,16 +611,21 @@ async fn test_implicit_directory_shadow(prefix: &str) {
 #[test_case(50 * 1024; "large")]
 #[tokio::test]
 async fn test_sequential_write(write_size: usize) {
-    const BUCKET_NAME: &str = "test_sequential_write";
     const OBJECT_SIZE: usize = 50 * 1024;
 
-    let (client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
+    let server = fs.server();
 
     let mut rng = SmallRng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
     let mut body = vec![0u8; OBJECT_SIZE];
     rng.fill(&mut body[..]);
 
-    client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15, ETag::for_tests()));
+    server
+        .add_object(
+            "dir1/file1.bin",
+            AddObjectRequest::new(vec![0xa1; 15]).etag("test_etag"),
+        )
+        .await;
 
     // Find the dir1 directory
     let entry = fs.lookup(INodeNo::ROOT, "dir1".as_ref()).await.unwrap();
@@ -568,11 +653,7 @@ async fn test_sequential_write(write_size: usize) {
     fs.release(file_ino, fh, 0, None, false).await.unwrap();
 
     // Check that the object made it to S3 as we expected
-    let get = client
-        .get_object(BUCKET_NAME, "dir1/file2.bin", &GetObjectParams::new())
-        .await
-        .unwrap();
-    let actual = get.collect().await.unwrap();
+    let actual = server.object_content("dir1/file2.bin").await.unwrap();
     assert_eq!(&actual[..], &body[..]);
 
     // And now check that we can read it out of the file system too. We need to emulate the kernel's
@@ -623,9 +704,7 @@ async fn test_sequential_write(write_size: usize) {
 #[test_case(28; "later offset")]
 #[tokio::test]
 async fn test_unordered_write_fails(offset: i64) {
-    const BUCKET_NAME: &str = "test_unordered_write_fails";
-
-    let (_client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs.mknod(INodeNo::ROOT, "file2.bin".as_ref(), mode, 0, 0).await.unwrap();
@@ -668,9 +747,7 @@ async fn test_unordered_write_fails(offset: i64) {
 #[test_case(OpenFlags::O_DSYNC; "O_DSYNC")]
 #[tokio::test]
 async fn test_sync_flags_fail(flag: OpenFlags) {
-    const BUCKET_NAME: &str = "test_sync_flags_fail";
-
-    let (_client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs.mknod(INodeNo::ROOT, "file2.bin".as_ref(), mode, 0, 0).await.unwrap();
@@ -686,9 +763,7 @@ async fn test_sync_flags_fail(flag: OpenFlags) {
 
 #[tokio::test]
 async fn test_duplicate_write_fails() {
-    const BUCKET_NAME: &str = "test_duplicate_write_fails";
-
-    let (_client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs.mknod(INodeNo::ROOT, "file2.bin".as_ref(), mode, 0, 0).await.unwrap();
@@ -707,38 +782,12 @@ async fn test_duplicate_write_fails() {
 
 #[tokio::test]
 async fn test_upload_aborted_on_write_failure() {
-    const BUCKET_NAME: &str = "test_upload_aborted_on_write_failure";
     const FILE_NAME: &str = "foo.bin";
+    const WRITE_SIZE: usize = 1024 * 1024;
 
-    let part_size = 1024 * 1024;
-    let client = Arc::new(
-        MockClient::config()
-            .bucket(BUCKET_NAME)
-            .part_size(part_size)
-            .enable_backpressure(true)
-            .initial_read_window_size(256 * 1024)
-            .build(),
-    );
-    let mut put_failures = HashMap::new();
-    put_failures.insert(1, Ok((2, MockClientError("error".to_owned().into()))));
-
-    let failure_client = countdown_failure_client(
-        client.clone(),
-        CountdownFailureConfig {
-            put_failures,
-            ..Default::default()
-        },
-    );
-    let fs = make_test_filesystem_with_client(
-        Arc::new(failure_client),
-        PagedPool::config()
-            .with_candidate_sizes([CandidateSize::new(part_size)])
-            .with_minimum_memory_limit()
-            .build(),
-        BUCKET_NAME,
-        &Default::default(),
-        Default::default(),
-    );
+    // The server accepts the first part of the upload and rejects the following ones.
+    let fs = make_test_filesystem_with_failing_upload(FILE_NAME, MIN_PART_SIZE, 1).await;
+    let server = fs.server();
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs.mknod(INodeNo::ROOT, FILE_NAME.as_ref(), mode, 0, 0).await.unwrap();
@@ -747,38 +796,43 @@ async fn test_upload_aborted_on_write_failure() {
 
     let fh = fs.open(file_ino, OpenFlags::O_WRONLY, 0).await.unwrap().fh;
 
-    let written = fs
-        .write(file_ino, fh, 0, &[0xaa; 27], fuser::WriteFlags::empty(), 0, None)
+    let data = vec![0xaa; WRITE_SIZE];
+    let mut offset = fs
+        .write(file_ino, fh, 0, &data, fuser::WriteFlags::empty(), 0, None)
         .await
-        .expect("first write should succeed");
+        .expect("first write should succeed") as usize;
+    assert!(server.is_upload_in_progress(FILE_NAME).await);
 
-    assert!(client.is_upload_in_progress(FILE_NAME));
-
-    let write_error = fs
-        .write(
-            file_ino,
-            fh,
-            written as u64,
-            &[0xaa; 27],
-            fuser::WriteFlags::empty(),
-            0,
-            None,
-        )
-        .await
-        .expect_err("second write should fail")
-        .to_errno();
+    let write_error = loop {
+        match fs
+            .write(file_ino, fh, offset as u64, &data, fuser::WriteFlags::empty(), 0, None)
+            .await
+        {
+            Ok(written) => {
+                offset += written as usize;
+                // A fallback that bounds the loop if no write fails.
+                assert!(offset < 10 * MIN_PART_SIZE, "no write failed after {offset} bytes");
+                // Once the client has sent the second part, slow down the writes until one of them
+                // reports the failure of that part.
+                if offset > 2 * MIN_PART_SIZE {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+            Err(err) => break err.to_errno(),
+        }
+    };
     assert_eq!(i32::from(write_error), libc::EIO);
 
     let err = fs
-        .write(file_ino, fh, 0, &[0xaa; 27], fuser::WriteFlags::empty(), 0, None)
+        .write(file_ino, fh, 0, &data, fuser::WriteFlags::empty(), 0, None)
         .await
         .expect_err("subsequent writes should fail")
         .to_errno();
-
     assert_eq!(i32::from(err), libc::EIO);
 
-    assert!(!client.is_upload_in_progress(FILE_NAME));
-    assert!(!client.contains_key(FILE_NAME));
+    // The client aborts the failed upload in the background.
+    server.wait_for_no_upload_in_progress(FILE_NAME).await;
+    assert!(!server.contains_key(FILE_NAME).await);
 
     let err = fs
         .fsync(file_ino, fh, true)
@@ -792,40 +846,35 @@ async fn test_upload_aborted_on_write_failure() {
         .expect("release succeeds (no op)");
 }
 
+/// Create a file system whose CRT client uploads parts of `part_size`. The server rejects the
+/// UploadPart requests for `key` after the first `accepted_parts`, with an error that the client
+/// doesn't retry. See [make_mock_server_filesystem_with_client_config] for the server and the
+/// returned guard.
+async fn make_test_filesystem_with_failing_upload(
+    key: &str,
+    part_size: usize,
+    accepted_parts: u32,
+) -> MockServerGuard<S3Filesystem<S3CrtClient>> {
+    let fs = make_mock_server_filesystem_with_client_config(&Default::default(), Default::default(), |server| {
+        test_crt_client_config(server).part_size(part_size)
+    })
+    .await;
+    fs.server().inject_error(
+        Operation::UploadPart,
+        Some(key),
+        Error::AccessDenied,
+        accepted_parts,
+        Occurrence::Always,
+    );
+    fs
+}
+
 #[tokio::test]
 async fn test_upload_aborted_on_fsync_failure() {
-    const BUCKET_NAME: &str = "test_upload_aborted_on_fsync_failure";
     const FILE_NAME: &str = "foo.bin";
 
-    let part_size = 1024 * 1024;
-    let client = Arc::new(
-        MockClient::config()
-            .bucket(BUCKET_NAME)
-            .part_size(part_size)
-            .enable_backpressure(true)
-            .initial_read_window_size(256 * 1024)
-            .build(),
-    );
-    let mut put_failures = HashMap::new();
-    put_failures.insert(1, Ok((2, MockClientError("error".to_owned().into()))));
-
-    let failure_client = countdown_failure_client(
-        client.clone(),
-        CountdownFailureConfig {
-            put_failures,
-            ..Default::default()
-        },
-    );
-    let fs = make_test_filesystem_with_client(
-        Arc::new(failure_client),
-        PagedPool::config()
-            .with_candidate_sizes([CandidateSize::new(part_size)])
-            .with_minimum_memory_limit()
-            .build(),
-        BUCKET_NAME,
-        &Default::default(),
-        Default::default(),
-    );
+    let fs = make_test_filesystem_with_failing_upload(FILE_NAME, MIN_PART_SIZE, 0).await;
+    let server = fs.server();
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs.mknod(INodeNo::ROOT, FILE_NAME.as_ref(), mode, 0, 0).await.unwrap();
@@ -839,7 +888,7 @@ async fn test_upload_aborted_on_fsync_failure() {
         .await
         .expect("first write should succeed");
 
-    assert!(client.is_upload_in_progress(FILE_NAME));
+    assert!(server.is_upload_in_progress(FILE_NAME).await);
 
     let err = fs
         .fsync(file_ino, fh, true)
@@ -848,8 +897,9 @@ async fn test_upload_aborted_on_fsync_failure() {
         .to_errno();
     assert_eq!(i32::from(err), libc::EIO);
 
-    assert!(!client.is_upload_in_progress(FILE_NAME));
-    assert!(!client.contains_key(FILE_NAME));
+    // The client aborts the failed upload in the background.
+    server.wait_for_no_upload_in_progress(FILE_NAME).await;
+    assert!(!server.contains_key(FILE_NAME).await);
 
     fs.release(file_ino, fh, 0, None, true)
         .await
@@ -858,38 +908,10 @@ async fn test_upload_aborted_on_fsync_failure() {
 
 #[tokio::test]
 async fn test_upload_aborted_on_release_failure() {
-    const BUCKET_NAME: &str = "test_upload_aborted_on_fsync_failure";
     const FILE_NAME: &str = "foo.bin";
 
-    let part_size = 1024 * 1024;
-    let client = Arc::new(
-        MockClient::config()
-            .bucket(BUCKET_NAME)
-            .part_size(part_size)
-            .enable_backpressure(true)
-            .initial_read_window_size(256 * 1024)
-            .build(),
-    );
-    let mut put_failures = HashMap::new();
-    put_failures.insert(1, Ok((2, MockClientError("error".to_owned().into()))));
-
-    let failure_client = countdown_failure_client(
-        client.clone(),
-        CountdownFailureConfig {
-            put_failures,
-            ..Default::default()
-        },
-    );
-    let fs = make_test_filesystem_with_client(
-        Arc::new(failure_client),
-        PagedPool::config()
-            .with_candidate_sizes([CandidateSize::new(part_size)])
-            .with_minimum_memory_limit()
-            .build(),
-        BUCKET_NAME,
-        &Default::default(),
-        Default::default(),
-    );
+    let fs = make_test_filesystem_with_failing_upload(FILE_NAME, MIN_PART_SIZE, 0).await;
+    let server = fs.server();
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs.mknod(INodeNo::ROOT, FILE_NAME.as_ref(), mode, 0, 0).await.unwrap();
@@ -903,7 +925,7 @@ async fn test_upload_aborted_on_release_failure() {
         .await
         .expect("first write should succeed");
 
-    assert!(client.is_upload_in_progress(FILE_NAME));
+    assert!(server.is_upload_in_progress(FILE_NAME).await);
 
     let err = fs
         .release(file_ino, fh, 0, None, true)
@@ -912,30 +934,34 @@ async fn test_upload_aborted_on_release_failure() {
         .to_errno();
     assert_eq!(i32::from(err), libc::EIO);
 
-    assert!(!client.is_upload_in_progress(FILE_NAME));
-    assert!(!client.contains_key(FILE_NAME));
+    // The client aborts the failed upload in the background.
+    server.wait_for_no_upload_in_progress(FILE_NAME).await;
+    assert!(!server.contains_key(FILE_NAME).await);
 }
 
 #[tokio::test]
 async fn test_stat_block_size() {
-    let (client, fs) = make_test_filesystem("test_stat_block_size", &Default::default(), Default::default());
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
+    let server = fs.server();
 
-    client.add_object(
-        "file0.txt",
-        MockObject::constant(0xa1, 0, ETag::from_str("test_etag_1").unwrap()),
-    );
-    client.add_object(
-        "file1.txt",
-        MockObject::constant(0xa2, 1, ETag::from_str("test_etag_2").unwrap()),
-    );
-    client.add_object(
-        "file4096.txt",
-        MockObject::constant(0xa3, 4096, ETag::from_str("test_etag_3").unwrap()),
-    );
-    client.add_object(
-        "file4097.txt",
-        MockObject::constant(0xa3, 4097, ETag::from_str("test_etag_4").unwrap()),
-    );
+    server
+        .add_object("file0.txt", AddObjectRequest::new(vec![0xa1; 0]).etag("test_etag_1"))
+        .await;
+    server
+        .add_object("file1.txt", AddObjectRequest::new(vec![0xa2; 1]).etag("test_etag_2"))
+        .await;
+    server
+        .add_object(
+            "file4096.txt",
+            AddObjectRequest::new(vec![0xa3; 4096]).etag("test_etag_3"),
+        )
+        .await;
+    server
+        .add_object(
+            "file4097.txt",
+            AddObjectRequest::new(vec![0xa3; 4097]).etag("test_etag_4"),
+        )
+        .await;
 
     let lookup = fs.lookup(INodeNo::ROOT, "file0.txt".as_ref()).await.unwrap();
     assert_eq!(lookup.attr.blocks, 0);
@@ -958,21 +984,20 @@ async fn test_stat_block_size() {
 #[test_case("bar/foo"; "remove directory")]
 #[tokio::test]
 async fn test_lookup_removes_old_children(key: &str) {
-    let (client, fs) = make_test_filesystem(
-        "test_lookup_removes_old_children",
-        &Default::default(),
-        Default::default(),
-    );
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
+    let server = fs.server();
 
-    client.add_object(key, MockObject::constant(0xa1, 0, ETag::for_tests()));
+    server
+        .add_object(key, AddObjectRequest::new(vec![0xa1; 0]).etag("test_etag"))
+        .await;
 
     let child_name = key.split_once('/').map(|(p, _)| p).unwrap_or(key);
 
     // Ensure the file is visible in mountpoint
     fs.lookup(INodeNo::ROOT, child_name.as_ref()).await.unwrap();
 
-    // Remove object on the client
-    client.remove_object(key);
+    // Remove the object from the bucket.
+    server.remove_object(key).await;
 
     fs.lookup(INodeNo::ROOT, child_name.as_ref())
         .await
@@ -988,7 +1013,8 @@ async fn test_lookup_removes_old_children(key: &str) {
 #[tokio::test]
 async fn test_local_dir(prefix: &str) {
     let prefix = Prefix::new(prefix).expect("valid prefix");
-    let (client, fs) = make_test_filesystem("test_local_dir", &prefix, Default::default());
+    let fs = make_mock_server_filesystem(&prefix, Default::default()).await;
+    let server = fs.server();
 
     // Create local directory
     let dirname = "local";
@@ -1000,7 +1026,7 @@ async fn test_local_dir(prefix: &str) {
     assert_eq!(dir_entry.attr.kind, FileType::Directory);
     let dir_ino = dir_entry.attr.ino;
 
-    assert!(!client.contains_prefix(&format!("{prefix}{dirname}")));
+    assert!(!server.contains_prefix(&format!("{prefix}{dirname}")).await);
 
     let lookup_entry = fs.lookup(INodeNo::ROOT, dirname.as_ref()).await.unwrap();
     assert_eq!(lookup_entry.attr, dir_entry.attr);
@@ -1014,8 +1040,8 @@ async fn test_local_dir(prefix: &str) {
 
     fs.release(file_ino, file_handle, 0, None, false).await.unwrap();
 
-    // Remove the new object from the client
-    client.remove_object(&format!("{prefix}{dirname}/{filename}"));
+    // Remove the new object from the bucket.
+    server.remove_object(&format!("{prefix}{dirname}/{filename}")).await;
 
     // Verify that the directory disappeared
     let lookup = fs.lookup(INodeNo::ROOT, dirname.as_ref()).await;
@@ -1024,28 +1050,25 @@ async fn test_local_dir(prefix: &str) {
 
 #[tokio::test]
 async fn test_directory_shadowing_lookup() {
-    let (client, fs) = make_test_filesystem(
-        "test_directory_shadowing_lookup",
-        &Default::default(),
-        Default::default(),
-    );
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
+    let server = fs.server();
 
     // Add an object
     let name = "foo";
-    client.add_object(name, b"foo".into());
+    server.add_object(name, AddObjectRequest::new("foo")).await;
 
     let lookup_entry = fs.lookup(INodeNo::ROOT, name.as_ref()).await.unwrap();
     assert_eq!(lookup_entry.attr.kind, FileType::RegularFile);
 
     // Add another object, whose prefix shadows the first
     let nested = format!("{name}/bar");
-    client.add_object(&nested, b"bar".into());
+    server.add_object(&nested, AddObjectRequest::new("bar")).await;
 
     let lookup_entry = fs.lookup(INodeNo::ROOT, name.as_ref()).await.unwrap();
     assert_eq!(lookup_entry.attr.kind, FileType::Directory);
 
     // Remove the second object
-    client.remove_object(&nested);
+    server.remove_object(&nested).await;
 
     let lookup_entry = fs.lookup(INodeNo::ROOT, name.as_ref()).await.unwrap();
     assert_eq!(lookup_entry.attr.kind, FileType::RegularFile);
@@ -1053,14 +1076,11 @@ async fn test_directory_shadowing_lookup() {
 
 #[tokio::test]
 async fn test_directory_shadowing_readdir() {
-    let (client, fs) = make_test_filesystem(
-        "test_directory_shadowing_readdir",
-        &Default::default(),
-        Default::default(),
-    );
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
+    let server = fs.server();
 
     // Add `foo/bar` as a file
-    client.add_object("foo/bar", b"foo/bar".into());
+    server.add_object("foo/bar", AddObjectRequest::new("foo/bar")).await;
 
     let foo_dir = fs.lookup(INodeNo::ROOT, "foo".as_ref()).await.unwrap();
     assert_eq!(foo_dir.attr.kind, FileType::Directory);
@@ -1084,7 +1104,7 @@ async fn test_directory_shadowing_readdir() {
     assert_eq!(bar_file.attr.ino, bar_dentry.attr.ino);
 
     // Add another object that shadows the first `bar` file with a directory
-    client.add_object("foo/bar/baz", b"bar".into());
+    server.add_object("foo/bar/baz", AddObjectRequest::new("bar")).await;
 
     let bar_dentry_new = {
         let dir_handle = fs.opendir(foo_dir.attr.ino, OpenFlags::empty()).await.unwrap().fh;
@@ -1107,7 +1127,7 @@ async fn test_directory_shadowing_readdir() {
     assert_eq!(bar_dir.attr.ino, bar_dentry_new.attr.ino);
 
     // Remove the second object, revealing the original `bar` file again
-    client.remove_object("foo/bar/baz");
+    server.remove_object("foo/bar/baz").await;
 
     let bar_dentry = {
         let dir_handle = fs.opendir(foo_dir.attr.ino, OpenFlags::empty()).await.unwrap().fh;
@@ -1133,10 +1153,11 @@ async fn test_directory_shadowing_readdir() {
 
 #[tokio::test]
 async fn test_readdir_vs_readdirplus() {
-    let (client, fs) = make_test_filesystem("test_readdir_vs_readdirplus", &Default::default(), Default::default());
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
+    let server = fs.server();
 
-    client.add_object("bar", b"bar".into());
-    client.add_object("baz/foo", b"foo".into());
+    server.add_object("bar", AddObjectRequest::new("bar")).await;
+    server.add_object("baz/foo", AddObjectRequest::new("foo")).await;
 
     let readdir_entries = {
         let dir_handle = fs.opendir(INodeNo::ROOT, OpenFlags::empty()).await.unwrap().fh;
@@ -1196,23 +1217,18 @@ async fn test_flexible_retrieval_objects() {
         "DEEP_ARCHIVE_RESTORED",
     ];
 
-    let (client, fs) = make_test_filesystem(
-        "test_flexible_retrieval_objects",
-        &Default::default(),
-        Default::default(),
-    );
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
+    let server = fs.server();
 
     for name in NAMES {
-        let mut object = MockObject::from(b"hello world");
-        object.set_storage_class(Some(name.to_string().replace("_RESTORED", "")));
-        object.set_restored(if name.contains("_RESTORED") {
-            Some(RestoreStatus::Restored {
+        let mut object =
+            AddObjectRequest::new("hello world").storage_class(name.replace("_RESTORED", "").as_str().into());
+        if name.contains("_RESTORED") {
+            object = object.restore_status(RestoreStatus::Restored {
                 expiry: SystemTime::now().add(Duration::from_secs(3600)),
-            })
-        } else {
-            None
-        });
-        client.add_object(name, object);
+            });
+        }
+        server.add_object(name, object).await;
     }
 
     let dir_handle = fs.opendir(INodeNo::ROOT, OpenFlags::empty()).await.unwrap().fh;
@@ -1244,16 +1260,14 @@ async fn test_flexible_retrieval_objects() {
         let flexible_retrieval = *name == "GLACIER" || *name == "DEEP_ARCHIVE";
 
         let file_name = format!("{name}2");
-        let mut object = MockObject::from(b"hello world");
-        object.set_storage_class(Some(name.to_string().replace("_RESTORED", "")));
-        object.set_restored(if name.contains("_RESTORED") {
-            Some(RestoreStatus::Restored {
+        let mut object =
+            AddObjectRequest::new("hello world").storage_class(name.replace("_RESTORED", "").as_str().into());
+        if name.contains("_RESTORED") {
+            object = object.restore_status(RestoreStatus::Restored {
                 expiry: SystemTime::now().add(Duration::from_secs(3600)),
-            })
-        } else {
-            None
-        });
-        client.add_object(&file_name, object);
+            });
+        }
+        server.add_object(&file_name, object).await;
 
         let lookup = fs.lookup(INodeNo::ROOT, file_name.as_ref()).await.unwrap();
 
@@ -1273,10 +1287,13 @@ async fn test_flexible_retrieval_objects() {
 
 #[tokio::test]
 async fn test_readdir_rewind_ordered() {
-    let (client, fs) = make_test_filesystem("test_readdir_rewind", &Default::default(), Default::default());
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
+    let server = fs.server();
 
     for i in 0..10 {
-        client.add_object(&format!("foo{i}"), b"foo".into());
+        server
+            .add_object(&format!("foo{i}"), AddObjectRequest::new("foo"))
+            .await;
     }
 
     let dir_handle = fs.opendir(INodeNo::ROOT, OpenFlags::empty()).await.unwrap().fh;
@@ -1353,10 +1370,13 @@ async fn test_readdir_rewind_unordered() {
         s3_personality: S3Personality::ExpressOneZone,
         ..Default::default()
     };
-    let (client, fs) = make_test_filesystem("test_readdir_rewind", &Default::default(), config);
+    let fs = make_mock_server_filesystem(&Default::default(), config).await;
+    let server = fs.server();
 
     for i in 0..10 {
-        client.add_object(&format!("foo{i}"), b"foo".into());
+        server
+            .add_object(&format!("foo{i}"), AddObjectRequest::new("foo"))
+            .await;
     }
 
     let dir_handle = fs.opendir(INodeNo::ROOT, OpenFlags::empty()).await.unwrap().fh;
@@ -1384,10 +1404,13 @@ async fn test_readdir_rewind_unordered() {
 #[test_case(S3FilesystemConfig {s3_personality: S3Personality::ExpressOneZone, ..Default::default()})]
 #[tokio::test]
 async fn test_readdir_rewind_with_new_files(s3_fs_config: S3FilesystemConfig) {
-    let (client, fs) = make_test_filesystem("test_readdir_rewind", &Default::default(), s3_fs_config);
+    let fs = make_mock_server_filesystem(&Default::default(), s3_fs_config).await;
+    let server = fs.server();
 
     for i in 0..10 {
-        client.add_object(&format!("foo{i}"), b"foo".into());
+        server
+            .add_object(&format!("foo{i}"), AddObjectRequest::new("foo"))
+            .await;
     }
 
     let dir_handle = fs.opendir(INodeNo::ROOT, OpenFlags::empty()).await.unwrap().fh;
@@ -1397,7 +1420,7 @@ async fn test_readdir_rewind_with_new_files(s3_fs_config: S3FilesystemConfig) {
     new_local_file(&fs, file_name).await;
 
     // Let's add a new remote file
-    client.add_object("foo10", b"foo".into());
+    server.add_object("foo10", AddObjectRequest::new("foo")).await;
 
     // Requesting same offset (non zero) works fine by returning last response
     let _ = ls(&fs, dir_handle, 0, 5).await;
@@ -1427,7 +1450,7 @@ async fn test_readdir_rewind_with_new_files(s3_fs_config: S3FilesystemConfig) {
 
 #[tokio::test]
 async fn test_readdir_rewind_with_local_files_only() {
-    let (_, fs) = make_test_filesystem("test_readdir_rewind", &Default::default(), Default::default());
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
 
     let dir_handle = fs.opendir(INodeNo::ROOT, OpenFlags::empty()).await.unwrap().fh;
 
@@ -1471,11 +1494,14 @@ async fn test_readdir_rewind_with_local_files_only() {
 #[test_case(0, 49; "first in full, second in the end")]
 #[tokio::test]
 async fn test_readdir_repeat_response_partial(first_repeated_offset: usize, second_repeated_offset: usize) {
-    let (client, fs) = make_test_filesystem("test_readdir_repeat_response", &Default::default(), Default::default());
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
+    let server = fs.server();
 
     for i in 0..48 {
         // "." and ".." make it a round 50 in total
-        client.add_object(&format!("foo{i}"), b"foo".into());
+        server
+            .add_object(&format!("foo{i}"), AddObjectRequest::new("foo"))
+            .await;
     }
 
     let dir_handle = fs.opendir(INodeNo::ROOT, OpenFlags::empty()).await.unwrap().fh;
@@ -1504,11 +1530,14 @@ async fn test_readdir_repeat_response_partial(first_repeated_offset: usize, seco
 
 #[tokio::test]
 async fn test_readdir_repeat_response_after_rewind() {
-    let (client, fs) = make_test_filesystem("test_readdir_repeat_response", &Default::default(), Default::default());
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
+    let server = fs.server();
 
     for i in 0..73 {
         // "." and ".." make it a round 75 in total
-        client.add_object(&format!("foo{i}"), b"foo".into());
+        server
+            .add_object(&format!("foo{i}"), AddObjectRequest::new("foo"))
+            .await;
     }
 
     let dir_handle = fs.opendir(INodeNo::ROOT, OpenFlags::empty()).await.unwrap().fh;
@@ -1626,7 +1655,7 @@ async fn test_lookup_forbidden() {
     );
 }
 
-async fn new_local_file(fs: &S3Filesystem<Arc<MockClient>>, filename: &str) {
+async fn new_local_file(fs: &S3Filesystem<S3CrtClient>, filename: &str) {
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs.mknod(INodeNo::ROOT, filename.as_ref(), mode, 0, 0).await.unwrap();
     assert_eq!(dentry.attr.size, 0);
@@ -1644,7 +1673,7 @@ async fn new_local_file(fs: &S3Filesystem<Arc<MockClient>>, filename: &str) {
 }
 
 async fn ls(
-    fs: &S3Filesystem<Arc<MockClient>>,
+    fs: &S3Filesystem<S3CrtClient>,
     dir_handle: FileHandle,
     offset: u64,
     max_entries: usize,
@@ -1662,40 +1691,16 @@ async fn ls(
 
 #[tokio::test]
 async fn test_rename_support_is_cached() {
-    const BUCKET_NAME: &str = "test_rename_support_cached_general_purpose";
     const FILE_NAME: &str = "a.txt";
 
-    let part_size = 1024 * 1024;
-    let pool = PagedPool::config()
-        .with_candidate_sizes([CandidateSize::new(part_size)])
-        .with_minimum_memory_limit()
-        .build();
-    let client = Arc::new(
-        MockClient::config()
-            .bucket(BUCKET_NAME)
-            .part_size(part_size)
-            .enable_backpressure(true)
-            .initial_read_window_size(256 * 1024)
-            .enable_rename(false)
-            .build(),
-    );
+    let fs = make_mock_server_filesystem(&Default::default(), Default::default()).await;
+    let server = fs.server();
 
     // Put one object into the bucket
-    let params = PutObjectSingleParams::new();
-    client
-        .put_object_single(BUCKET_NAME, FILE_NAME, &params, "content")
-        .await
-        .expect("put object should have succeeded");
+    server.add_object(FILE_NAME, AddObjectRequest::new("content")).await;
 
-    let counter = client.new_counter(Operation::RenameObject);
+    let counter = server.new_counter(Operation::RenameObject);
     // Try to rename twice
-    let fs = make_test_filesystem_with_client(
-        client.clone(),
-        pool,
-        BUCKET_NAME,
-        &Default::default(),
-        Default::default(),
-    );
     let err = fs
         .rename(
             INodeNo::ROOT,

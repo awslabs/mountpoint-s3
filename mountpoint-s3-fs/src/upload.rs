@@ -12,6 +12,7 @@ use crate::fs::{ServerSideEncryption, SseCorruptedError};
 use crate::memory::PagedPool;
 
 mod atomic;
+pub(crate) use atomic::MAX_S3_MULTIPART_UPLOAD_PARTS;
 pub use atomic::UploadRequest;
 use atomic::UploadRequestParams;
 
@@ -41,6 +42,8 @@ pub struct Uploader<Client: ObjectClient> {
     default_checksum_algorithm: Option<ChecksumAlgorithm>,
     /// Content type inference mode for uploaded objects
     content_type_detection: ContentTypeDetection,
+    /// Atomic uploads have at most this number of parts.
+    max_upload_parts: usize,
 }
 
 #[derive(Debug, Error)]
@@ -93,6 +96,7 @@ pub struct UploaderConfig {
     buffer_size: usize,
     default_checksum_algorithm: Option<ChecksumAlgorithm>,
     content_type_detection: ContentTypeDetection,
+    max_upload_parts: usize,
 }
 
 impl UploaderConfig {
@@ -103,6 +107,7 @@ impl UploaderConfig {
             buffer_size,
             default_checksum_algorithm: None,
             content_type_detection: ContentTypeDetection::Disabled,
+            max_upload_parts: MAX_S3_MULTIPART_UPLOAD_PARTS,
         }
     }
 
@@ -125,6 +130,15 @@ impl UploaderConfig {
         self.content_type_detection = content_type_detection;
         self
     }
+
+    /// Set the maximum number of parts of an atomic upload, which limits the size of the objects
+    /// that atomic uploads write to this number of write parts. The default is S3's limit of
+    /// 10,000 parts.
+    #[doc(hidden)]
+    pub fn max_upload_parts(mut self, max_upload_parts: usize) -> Self {
+        self.max_upload_parts = max_upload_parts;
+        self
+    }
 }
 
 impl<Client> Uploader<Client>
@@ -142,6 +156,7 @@ where
             buffer_size: config.buffer_size,
             default_checksum_algorithm: config.default_checksum_algorithm,
             content_type_detection: config.content_type_detection,
+            max_upload_parts: config.max_upload_parts,
         }
     }
 
@@ -158,6 +173,7 @@ where
             default_checksum_algorithm: self.default_checksum_algorithm.clone(),
             storage_class: self.storage_class.clone(),
             content_type_detection: self.content_type_detection,
+            max_upload_parts: self.max_upload_parts,
         };
         UploadRequest::new(&self.runtime, self.client.clone(), params)
     }
