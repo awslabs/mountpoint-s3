@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795443994054,
+  "lastUpdate": 1795459507855,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "49699333+dependabot[bot]@users.noreply.github.com",
-            "name": "dependabot[bot]",
-            "username": "dependabot[bot]"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "ae9e47e98aec7333616d51a3d440c8bbf64c2a2d",
-          "message": "Bump astral-sh/setup-uv from 10.3.0 to 10.3.2 (#2016)\n\nBumps [astral-sh/setup-uv](https://github.com/astral-sh/setup-uv) from\n10.3.0 to 10.3.2.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/astral-sh/setup-uv/releases\">astral-sh/setup-uv's\nreleases</a>.</em></p>\n<blockquote>\n<h2>v10.3.2 🌈 update known checksums for 0.13.5</h2>\n<h2>Changes</h2>\n<h2>🧰 Maintenance</h2>\n<ul>\n<li>chore: update known checksums for 0.13.5 @<a\nhref=\"https://github.com/apps/github-actions\">github-actions[bot]</a>\n(<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1103\">#1103</a>)</li>\n</ul>\n<h2>📚 Documentation</h2>\n<ul>\n<li>docs: update version references to v10.3.1 @<a\nhref=\"https://github.com/apps/github-actions\">github-actions[bot]</a>\n(<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1102\">#1102</a>)</li>\n</ul>\n<h2>v10.3.1 🌈 preserve cache error class names in save-cache bundle</h2>\n<h2>Changes</h2>\n<p>This release includes a fix so that multiple concurrent workflows\ntrying to upload the same cache no longer warn</p>\n<p><code>##[warning]Failed to save: Unable to reserve cache with key\n..., another job may be creating this cache.</code></p>\n<h2>🐛 Bug fixes</h2>\n<ul>\n<li>fix: preserve cache error class names in save-cache bundle <a\nhref=\"https://github.com/dannyward630\"><code>@​dannyward630</code></a>\n(<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1093\">#1093</a>)</li>\n</ul>\n<h2>🧰 Maintenance</h2>\n<ul>\n<li>chore: update known checksums for 0.13.4 @<a\nhref=\"https://github.com/apps/github-actions\">github-actions[bot]</a>\n(<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1099\">#1099</a>)</li>\n<li>chore: update known checksums for 0.13.2/0.13.3 @<a\nhref=\"https://github.com/apps/github-actions\">github-actions[bot]</a>\n(<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1098\">#1098</a>)</li>\n<li>chore: update known checksums for 0.13.1 @<a\nhref=\"https://github.com/apps/github-actions\">github-actions[bot]</a>\n(<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1094\">#1094</a>)</li>\n<li>Verify npm dependency signatures before builds <a\nhref=\"https://github.com/zaniebot\"><code>@​zaniebot</code></a> (<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1027\">#1027</a>)</li>\n</ul>\n<h2>📚 Documentation</h2>\n<ul>\n<li>docs: cache-dependency-glob matches relative to the working\ndirectory <a\nhref=\"https://github.com/flange-ipb\"><code>@​flange-ipb</code></a> (<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1092\">#1092</a>)</li>\n<li>docs: update version references to v10.3.0 @<a\nhref=\"https://github.com/apps/github-actions\">github-actions[bot]</a>\n(<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1090\">#1090</a>)</li>\n</ul>\n<h2>⬆️ Dependency updates</h2>\n<ul>\n<li>chore(deps): roll up Dependabot updates <a\nhref=\"https://github.com/eifinger\"><code>@​eifinger</code></a> (<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1101\">#1101</a>)</li>\n</ul>\n</blockquote>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/astral-sh/setup-uv/commit/07a047e608db84b3d8c06cd9a7c7dcc9c355c18e\"><code>07a047e</code></a>\nchore: update known checksums for 0.13.5 (<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1103\">#1103</a>)</li>\n<li><a\nhref=\"https://github.com/astral-sh/setup-uv/commit/e1b85369e72750369c935b004eccf97311bdf5dc\"><code>e1b8536</code></a>\ndocs: update version references to v10.3.1 (<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1102\">#1102</a>)</li>\n<li><a\nhref=\"https://github.com/astral-sh/setup-uv/commit/18d369b23da25a81e9458561248e1aafff6a70fa\"><code>18d369b</code></a>\nchore(deps): roll up Dependabot updates (<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1101\">#1101</a>)</li>\n<li><a\nhref=\"https://github.com/astral-sh/setup-uv/commit/4ad2329c1e377d882fcae221cd1d17e7c0ad788e\"><code>4ad2329</code></a>\nchore: update known checksums for 0.13.4 (<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1099\">#1099</a>)</li>\n<li><a\nhref=\"https://github.com/astral-sh/setup-uv/commit/4bc6759c82322ff7efa28de54a45404ca6869912\"><code>4bc6759</code></a>\nchore: update known checksums for 0.13.2/0.13.3 (<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1098\">#1098</a>)</li>\n<li><a\nhref=\"https://github.com/astral-sh/setup-uv/commit/c97f06e356bcca1b426f396ef93ec35ce149ce7b\"><code>c97f06e</code></a>\nfix: preserve cache error class names in save-cache bundle (<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1093\">#1093</a>)</li>\n<li><a\nhref=\"https://github.com/astral-sh/setup-uv/commit/8ca4be000bfa5f8e6aaa01d8470878c90aa728d3\"><code>8ca4be0</code></a>\nchore: update known checksums for 0.13.1 (<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1094\">#1094</a>)</li>\n<li><a\nhref=\"https://github.com/astral-sh/setup-uv/commit/b627d85691ead579b598a36169571b1c7123526f\"><code>b627d85</code></a>\ndocs: cache-dependency-glob matches relative to the working directory\n(<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1092\">#1092</a>)</li>\n<li><a\nhref=\"https://github.com/astral-sh/setup-uv/commit/f8c88970fcd8fff8e97bc62edc5f5c073a0527fe\"><code>f8c8897</code></a>\nVerify npm dependency signatures before builds (<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1027\">#1027</a>)</li>\n<li><a\nhref=\"https://github.com/astral-sh/setup-uv/commit/f64d32b1cd6cc11405a74665b3dfb7bb86fea9f0\"><code>f64d32b</code></a>\ndocs: update version references to v10.3.0 (<a\nhref=\"https://redirect.github.com/astral-sh/setup-uv/issues/1090\">#1090</a>)</li>\n<li>See full diff in <a\nhref=\"https://github.com/astral-sh/setup-uv/compare/1c37ad07a6a961277cf70c0d37d6f313000f5884...07a047e608db84b3d8c06cd9a7c7dcc9c355c18e\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\n\n[![Dependabot compatibility\nscore](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=astral-sh/setup-uv&package-manager=github_actions&previous-version=10.3.0&new-version=10.3.2)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)\n\nDependabot will resolve any conflicts with this PR as long as you don't\nalter it yourself. You can also trigger a rebase manually by commenting\n`@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits\nthat have been made to it\n- `@dependabot show <dependency name> ignore conditions` will show all\nof the ignore conditions of the specified dependency\n- `@dependabot ignore this major version` will close this PR and stop\nDependabot creating any more for this major version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this minor version` will close this PR and stop\nDependabot creating any more for this minor version (unless you reopen\nthe PR or upgrade to it yourself)\n- `@dependabot ignore this dependency` will close this PR and stop\nDependabot creating any more for this dependency (unless you reopen the\nPR or upgrade to it yourself)\n\n\n</details>\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
-          "timestamp": "2026-11-02T11:15:17Z",
-          "tree_id": "90f98cc44ea6a2652fc81cf07c4a2dd5422d8f8d",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/ae9e47e98aec7333616d51a3d440c8bbf64c2a2d"
-        },
-        "date": 1793626820529,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 3205.25,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 4820.921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8293.6953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 54.91796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 89.9140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 56.4609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 89.4453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 45.51953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 58.61328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 47.46875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 59.48828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8174.3671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 84.98046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8105.6015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 85.84765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2371.60546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 53.671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2377.9453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2377.33984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 53.7734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 634.66015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 353.90625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 361.66796875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "7c2d63e313f921a90896f560f5af002f7e523e26",
+          "message": "Run Mountpoint's S3-semantics tests against a local S3 mock server (#2048)\n\nTests that depend on S3 semantics run against `MockClient`, an in-memory\n`ObjectClient`, so they never exercise the production clients. This\nchange adds a harness to the integration tests of `mountpoint-s3-fs`\nthat runs the production clients against a local `s3-mock-server`, and\nmoves the file system tests in `tests/fs.rs` and the FUSE `_mock` tests\nto it.\n\n### Harness\n\n- `MockServer` (`tests/common/mock_server.rs`) runs the server with one\nin-memory bucket, general purpose or directory. Tests seed and inspect\nthe bucket, count requests and inject faults, and build CRT or SDK\nclients from the configurations it returns. `MockServerGuard` keeps the\nserver running while a component uses it.\n- `s3-mock-server` is a dev-dependency from the new\n`third_party/aws-s3-transfer-manager-rs` submodule, at the transfer\nmanager's 1.0 release (`release-2026-11-18`). Its `s3s` dependency\nbrings in chrono, which is unmaintained, so `deny.toml` ignores that\nadvisory (RUSTSEC-2026-0543). `third_party/UPDATE_SUBMODULES.md`\ndescribes how to update the submodule.\n- `mountpoint-s3-client` gets\n`EndpointConfig::disable_s3express_session_auth`, because the CRT sends\nCreateSession with the bucket only in the host name, which a path-style\nmock server cannot see.\n- `mock_server_session` mounts the file system with the production CRT\nclient against the server, as `s3_session` does against S3.\n\n### Tests moved to the server\n\n- The file system tests in `tests/fs.rs` cover lookups, listings, reads,\nuploads, request counts, archived objects and renames without rename\nsupport. They seed the server with its own `AddObjectRequest`, with the\nsame content and ETags as before.\n- The FUSE tests with a `_mock` suffix, and the other FUSE tests that\nmounted with `mock_session`, now use `mock_server_session` and keep\ntheir names. They include the metrics, manifest, error logger, write\nhandle and direct I/O tests. The reference tests keep using\n`mock_session`.\n- `write_checksums_test` checks exact checksums with HeadObject instead\nof GetObjectAttributes, which the server does not serve.\n`TestClient::head_object` replaces the size, checksum and storage-class\ngetters.\n\nTwo tests needed a different approach:\n\n- `write_too_big_test` checks what happens when a file grows beyond the\nlargest size an atomic upload can write: the write fails with `EFBIG`,\n`fsync` fails with `ENOSPC`, and no object is created. The limit is S3's\n10,000 parts, so with parts of at least 5 MiB the test would have to\nwrite 50 GiB. This change adds a hidden\n`S3FilesystemConfig::max_upload_parts` option for that limit, with S3's\nlimit as the default, and the test sets it to 3 parts of 5 MiB. With\nthat limit, the test also runs against S3.\n- `basic_read_test_mock_large` used to check that each read window\nincrement is aligned to part boundaries. A new unit test of the\nprefetcher's backpressure controller now checks that, so the large read\nruns on the server, and the test sessions lose their\n`fail_on_non_aligned_read_window` option.\n\n### Does this change impact existing behavior?\n\nNo. `max_upload_parts` defaults to S3's limit of 10,000 parts, the value\nMountpoint used before, and Mountpoint's configuration doesn't set it.\n`EndpointConfig::disable_s3express_session_auth` is off by default. The\nrest of the change only modifies tests and documentation.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nChangelog entries, and no version change:\n\n- `mountpoint-s3-client`: an entry for\n`EndpointConfig::disable_s3express_session_auth`. The unreleased 0.24.0\nalready bumps the version.\n- `mountpoint-s3-fs`: an entry for\n`S3FilesystemConfig::max_upload_parts`. The new public field is a\nbreaking change, which the unreleased 0.13.0 already allows.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
+          "timestamp": "2026-11-23T16:14:03Z",
+          "tree_id": "050985ecf93ae056fd21b47126606026d05873b7",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/7c2d63e313f921a90896f560f5af002f7e523e26"
+        },
+        "date": 1795459507771,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 3203.8359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 4734.20703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 8383.56640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 55.5234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 91.30078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 56.14453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 88.34375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 47.390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 57.53125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 47.9453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 59.4296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8110.51953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 84.69921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 8053.50390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 87.37109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2377.2421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 53.29296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2379.6640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2375.4921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 53.640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 513.609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 371.39453125,
             "unit": "MiB"
           }
         ]
