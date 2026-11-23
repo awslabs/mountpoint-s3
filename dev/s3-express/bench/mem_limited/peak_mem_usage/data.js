@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795028883492,
+  "lastUpdate": 1795443955112,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone, Memory-Limited)": [
-      {
-        "commit": {
-          "author": {
-            "email": "20302932+yerzhan7@users.noreply.github.com",
-            "name": "Yerzhan Mazhkenov",
-            "username": "yerzhan7"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "75b9f7ee92ac92be333a2fbd815e6d68776234fe",
-          "message": "Name Amazon Linux source tarballs after the release tag (#2015)\n\nThe source and vendor tarballs used to build the Amazon Linux 2023 and\n2027 packages will be using `v<version>` release tag. They are named\nafter the tag and differ from the tarballs we build today:\n\n| | Before | After |\n|---|---|---|\n| `Source0` | `mountpoint-s3-<version>.tar.gz`, unpacking into\n`mountpoint-s3/` | `mountpoint-s3-v<version>.tar.gz`, unpacking into\n`mountpoint-s3-<version>/` |\n| `Source1` | `mountpoint-s3-<version>-vendor.tar.gz`, unpacking into\n`vendor/` | `mountpoint-s3-v<version>-vendor.tar.xz`, unpacking into\n`vendor/` |\n\nThis change updates the spec template to match, and updates\n`generate_amzn_srpm.sh` to build the CI tarballs with the same names and\nlayout, so the `Build SRPM` and `Test RPM` jobs keep testing the spec\nthat is submitted to Amazon Linux.\n\n### Does this change impact existing behavior?\n\nNo. It only changes the names and layout of the tarballs used to build\nthe Amazon Linux RPMs.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, this is a packaging-only change.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Yerzhan Mazhkenov <20302932+yerzhan7@users.noreply.github.com>",
-          "timestamp": "2026-10-30T22:01:00Z",
-          "tree_id": "140c752615ef45094631d955cf5a4eb1900ba576",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/75b9f7ee92ac92be333a2fbd815e6d68776234fe"
-        },
-        "date": 1793406190141,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 482.0859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 469.1953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 456.25,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 61.17578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 95.1875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 64.71875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 93.7734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 51.99609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 61.7734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 54.484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 61.796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 434.9921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 84.55859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 434.16015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 86.1875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 330.140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 50.70703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 331.359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 331.48046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 52.03515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 410.86328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 272.69921875,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 274.88671875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "e04e457a3e0e176a09ef9eb2c9d0daf1b0204037",
+          "message": "Bump url from 2.5.8 to 2.5.9 (RUSTSEC-2026-0592) (#2059)\n\nBumps url to 2.5.9 to fix RUSTSEC-2026-0592, which currently fails the\n`cargo deny` advisories check. The update also bumps form_urlencoded\nfrom 1.2.2 to 1.2.3, which url 2.5.9 requires. Cargo.lock only, no code\nchanges.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, dependency lockfile update only.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
+          "timestamp": "2026-11-23T12:00:47Z",
+          "tree_id": "2979d5f00a9d6c25346bf64e3716bac78c517524",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/e04e457a3e0e176a09ef9eb2c9d0daf1b0204037"
+        },
+        "date": 1795443955026,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 480.82421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 468.3125,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 456.93359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 60.77734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 94.59375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 80.05859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 95.46875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 51.33203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 62.40625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 55.8203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 63.80859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 434.8359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 85.6015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 435.3046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 85.90234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 330.1484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 51.65625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 331.078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 330.90234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 52.3203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 400.44140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 257.14453125,
             "unit": "MiB"
           }
         ]
