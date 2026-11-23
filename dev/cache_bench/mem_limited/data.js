@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794999546029,
+  "lastUpdate": 1795459408045,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark (S3 Standard, Memory-Limited)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "7c8d62364774d42086c0ac62de1693ef2bc68fc2",
-          "message": "Fix `max_attempts = 1` still retrying failed requests (#1996)\n\nSetting the maximum number of attempts to 1\n(`S3ClientConfig::max_attempts` or `AWS_MAX_ATTEMPTS=1`) did not disable\nretries: failed requests were still attempted up to 4 times. The client\npasses `max_retries = attempts - 1` to the CRT's standard retry\nstrategy, which treats `max_retries = 0` as \"use the default\" (3\nretries).\n\nThe client now configures retries through the S3 client's built-in retry\nconfig, with the new `ClientConfig::retry_config` in\n`mountpoint-s3-crt`, instead of building a retry strategy: the no-retry\nmode (`AWS_S3_RETRY_MODE_NONE`, from awslabs/aws-c-s3#705) for 1\nattempt, and the standard mode with `max_attempts - 1` retries\notherwise, with the same backoff settings as before. In the no-retry\nmode the S3 client makes each request once, without acquiring a retry\ntoken, and also turns off the first-byte timeout it otherwise sets on\nUploadPart requests, which relies on retrying the parts that time out.\n\n`AWS_MAX_ATTEMPTS` must now be a positive integer. Other values make\nclient creation fail with `NewClientError::InvalidConfiguration`, so\nMountpoint fails to start with a clear error. Previously `0` selected\nthe CRT's default of 4 attempts, and other invalid values were silently\nignored.\n\nNew tests run against a local mock server (wiremock). They count the\nrequests made for failing ListObjectsV2 and HeadObject calls with 1, 2\nand 3 attempts, set from the client config or the environment, and check\nthat invalid `AWS_MAX_ATTEMPTS` values are rejected. The single-attempt\nand invalid-value tests fail without this fix.\n\n### Does this change impact existing behavior?\n\nYes:\n- Bug fix: `AWS_MAX_ATTEMPTS=1` and `max_attempts(1)` now make a single\nattempt.\n- Breaking change: Mountpoint and `S3CrtClient::new` now fail when\n`AWS_MAX_ATTEMPTS` is set to anything other than a positive integer (for\nexample `0`, `-1`, `\"\"` or `many`). These values were silently ignored,\nexcept `0`, which gave 4 attempts instead of no retries. Failing at\nstartup is safer than running with a different number of attempts than\nthe user asked for.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes. There are changelog entries for `mountpoint-s3-crt`,\n`mountpoint-s3-client` and `mountpoint-s3`.\n- `mountpoint-s3` is bumped to 1.25.0 for the breaking change.\n- `mountpoint-s3-crt` 0.17.0 (new `ClientConfig::retry_config`, which\nreplaces the removed `ClientConfig::retry_strategy`) and\n`mountpoint-s3-client` 0.23.0 are already bumped past their latest\nreleases.\n- `mountpoint-s3-fs` gets the change through its existing \"Update to\nlatest S3 client\" entry (0.12.0, already bumped).\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
-          "timestamp": "2026-10-30T18:39:55Z",
-          "tree_id": "a98db25d75e805a696db1f0ab5a364c65c8df83f",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/7c8d62364774d42086c0ac62de1693ef2bc68fc2"
-        },
-        "date": 1793397980391,
-        "tool": "customBiggerIsBetter",
-        "benches": [
-          {
-            "name": "random_read_four_threads_direct_io",
-            "value": 1338.16669921875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io_small_file",
-            "value": 2103.464453125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads",
-            "value": 887.974609375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_small_file",
-            "value": 1614.6255859375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io",
-            "value": 299.087109375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io_small_file",
-            "value": 489.407421875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read",
-            "value": 203.534765625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_small_file",
-            "value": 283.4966796875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io",
-            "value": 4279.52236328125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io_small_file",
-            "value": 4485.705859375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads",
-            "value": 1249.2541015625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_small_file",
-            "value": 1384.42392578125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io",
-            "value": 867.71904296875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io_small_file",
-            "value": 788.5515625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read",
-            "value": 1363.66572265625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 1233.10302734375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_small_file",
-            "value": 1214.980859375,
-            "unit": "MiB/s"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3269,6 +3160,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 1116.70380859375,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "7c2d63e313f921a90896f560f5af002f7e523e26",
+          "message": "Run Mountpoint's S3-semantics tests against a local S3 mock server (#2048)\n\nTests that depend on S3 semantics run against `MockClient`, an in-memory\n`ObjectClient`, so they never exercise the production clients. This\nchange adds a harness to the integration tests of `mountpoint-s3-fs`\nthat runs the production clients against a local `s3-mock-server`, and\nmoves the file system tests in `tests/fs.rs` and the FUSE `_mock` tests\nto it.\n\n### Harness\n\n- `MockServer` (`tests/common/mock_server.rs`) runs the server with one\nin-memory bucket, general purpose or directory. Tests seed and inspect\nthe bucket, count requests and inject faults, and build CRT or SDK\nclients from the configurations it returns. `MockServerGuard` keeps the\nserver running while a component uses it.\n- `s3-mock-server` is a dev-dependency from the new\n`third_party/aws-s3-transfer-manager-rs` submodule, at the transfer\nmanager's 1.0 release (`release-2026-11-18`). Its `s3s` dependency\nbrings in chrono, which is unmaintained, so `deny.toml` ignores that\nadvisory (RUSTSEC-2026-0543). `third_party/UPDATE_SUBMODULES.md`\ndescribes how to update the submodule.\n- `mountpoint-s3-client` gets\n`EndpointConfig::disable_s3express_session_auth`, because the CRT sends\nCreateSession with the bucket only in the host name, which a path-style\nmock server cannot see.\n- `mock_server_session` mounts the file system with the production CRT\nclient against the server, as `s3_session` does against S3.\n\n### Tests moved to the server\n\n- The file system tests in `tests/fs.rs` cover lookups, listings, reads,\nuploads, request counts, archived objects and renames without rename\nsupport. They seed the server with its own `AddObjectRequest`, with the\nsame content and ETags as before.\n- The FUSE tests with a `_mock` suffix, and the other FUSE tests that\nmounted with `mock_session`, now use `mock_server_session` and keep\ntheir names. They include the metrics, manifest, error logger, write\nhandle and direct I/O tests. The reference tests keep using\n`mock_session`.\n- `write_checksums_test` checks exact checksums with HeadObject instead\nof GetObjectAttributes, which the server does not serve.\n`TestClient::head_object` replaces the size, checksum and storage-class\ngetters.\n\nTwo tests needed a different approach:\n\n- `write_too_big_test` checks what happens when a file grows beyond the\nlargest size an atomic upload can write: the write fails with `EFBIG`,\n`fsync` fails with `ENOSPC`, and no object is created. The limit is S3's\n10,000 parts, so with parts of at least 5 MiB the test would have to\nwrite 50 GiB. This change adds a hidden\n`S3FilesystemConfig::max_upload_parts` option for that limit, with S3's\nlimit as the default, and the test sets it to 3 parts of 5 MiB. With\nthat limit, the test also runs against S3.\n- `basic_read_test_mock_large` used to check that each read window\nincrement is aligned to part boundaries. A new unit test of the\nprefetcher's backpressure controller now checks that, so the large read\nruns on the server, and the test sessions lose their\n`fail_on_non_aligned_read_window` option.\n\n### Does this change impact existing behavior?\n\nNo. `max_upload_parts` defaults to S3's limit of 10,000 parts, the value\nMountpoint used before, and Mountpoint's configuration doesn't set it.\n`EndpointConfig::disable_s3express_session_auth` is off by default. The\nrest of the change only modifies tests and documentation.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nChangelog entries, and no version change:\n\n- `mountpoint-s3-client`: an entry for\n`EndpointConfig::disable_s3express_session_auth`. The unreleased 0.24.0\nalready bumps the version.\n- `mountpoint-s3-fs`: an entry for\n`S3FilesystemConfig::max_upload_parts`. The new public field is a\nbreaking change, which the unreleased 0.13.0 already allows.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
+          "timestamp": "2026-11-23T16:14:03Z",
+          "tree_id": "050985ecf93ae056fd21b47126606026d05873b7",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/7c2d63e313f921a90896f560f5af002f7e523e26"
+        },
+        "date": 1795459406344,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 1418.2380859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 2104.51650390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 909.809375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 1586.81298828125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 260.8341796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 892.33642578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read",
+            "value": 182.307421875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 281.98173828125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 3993.4607421875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 4059.76337890625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 1340.68115234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 1394.4306640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 835.1869140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 731.2876953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1276.42451171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 1011.31201171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 920.51669921875,
             "unit": "MiB/s"
           }
         ]
