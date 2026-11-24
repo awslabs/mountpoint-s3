@@ -155,6 +155,10 @@ fn shared_files() -> Vec<Scenario> {
         scenario("profile: file that fails to parse")
             .file(CREDENTIALS, "[default\naws_access_key_id = PROFILE\n")
             .expect([no_credentials()]),
+        scenario("profile: file that fails to parse, with IMDS available")
+            .file(CREDENTIALS, "[default\naws_access_key_id = PROFILE\n")
+            .imds(imds("IMDS-1"))
+            .expect([signed_with_token("IMDS-1").requests(imds_v2())]),
         scenario("profile: SSO")
             .file(
                 CONFIG,
@@ -207,6 +211,11 @@ fn credential_processes() -> Vec<Scenario> {
             .file("process.sh", "#!/bin/sh\nexit 1\n")
             .file(CONFIG, "[default]\ncredential_process = {home}/process.sh\n")
             .expect([no_credentials()]),
+        scenario("process: command fails, with IMDS available")
+            .file("process.sh", "#!/bin/sh\nexit 1\n")
+            .file(CONFIG, "[default]\ncredential_process = {home}/process.sh\n")
+            .imds(imds("IMDS-1"))
+            .expect([signed_with_token("IMDS-1").requests(imds_v2())]),
         expiring_credential_process(scenario("process: command fails at refresh, with IMDS available"))
             .imds(imds("IMDS-1"))
             .steps([
@@ -312,6 +321,21 @@ fn assume_role_profiles() -> Vec<Scenario> {
             .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
             .sts_failing(403)
             .expect([no_credentials().requests([assume_role("sts.amazonaws.com", "BASE")])]),
+        scenario("role: STS fails, with IMDS available")
+            .file(CONFIG, role("source_profile = base\n"))
+            .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
+            .imds(imds("IMDS-1"))
+            .sts_failing(403)
+            .expect([signed_with_token("IMDS-1")
+                .requests([assume_role("sts.amazonaws.com", "BASE")].into_iter().chain(imds_v2()))]),
+        scenario("role: source_profile loop, with IMDS available")
+            .file(
+                CONFIG,
+                format!("[default]\nrole_arn = {ROLE_R1}\nsource_profile = other\n\n[profile other]\nrole_arn = {ROLE_R2}\nsource_profile = default\n"),
+            )
+            .imds(imds("IMDS-1"))
+            .sts()
+            .expect([signed_with_token("IMDS-1").requests(imds_v2())]),
         scenario("role: --profile")
             .file(CONFIG, format!("[profile named]\nrole_arn = {ROLE_R1}\nsource_profile = base\n"))
             .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
@@ -407,6 +431,15 @@ fn web_identity() -> Vec<Scenario> {
             .env("AWS_REGION", "eu-west-1")
             .sts_failing(403)
             .expect([no_credentials().requests([assume_role_with_web_identity("sts.eu-west-1.amazonaws.com")])]),
+        web_identity_env(scenario("web identity: STS fails, with IMDS available"))
+            .env("AWS_REGION", "eu-west-1")
+            .imds(imds("IMDS-1"))
+            .sts_failing(403)
+            .expect([signed_with_token("IMDS-1").requests(
+                [assume_role_with_web_identity("sts.eu-west-1.amazonaws.com")]
+                    .into_iter()
+                    .chain(imds_v2()),
+            )]),
     ]
 }
 
