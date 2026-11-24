@@ -468,6 +468,40 @@ jobs:
         # Cleanup
         rmdir "$LEAF" "$SLICE" /sys/fs/cgroup/init.scope 2>/dev/null || true
 
+  credentials-parity:
+    name: Credentials parity
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        submodules: true
+    - name: Install operating system dependencies
+      uses: ./.github/actions/install-dependencies
+      with:
+        fuseVersion: 2
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+      with:
+        # Allow warnings in `mountpoint-s3-fuser`.
+        build-warnings: "warn"
+    - name: Cargo cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Run the credentials parity suite
+      # As root, the suite creates its network namespace without a user namespace.
+      env:
+        CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo -E
+      run: cargo test -p mountpoint-s3-fs --features credentials_parity_tests --test credentials_parity
+
   workflow-complete:
     name: "Tests Workflow Complete"
     runs-on: ubuntu-latest
@@ -487,6 +521,7 @@ jobs:
       - package-script-checks
       - docker
       - cgroup-mem-limit
+      - credentials-parity
     steps:
       - name: Verify jobs succeeded
         run: echo '${{ toJSON(needs) }}' | jq -e 'to_entries | all(.value.result == "success")'
