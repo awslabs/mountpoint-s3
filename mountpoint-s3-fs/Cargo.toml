@@ -70,6 +70,7 @@ aws-sdk-s3 = { version = "1.137.0", default-features = false, features = ["behav
 criterion = { version = "0.8.2", features = ["async", "async_futures"] }
 ctor = "1.0.7"
 futures = { version = "0.3.32", features = ["thread-pool"] }
+http = "1.5.0"
 jiff = { version = "0.2.46", default-features = false, features = ["std", "serde"] }
 opentelemetry_sdk = { version = "0.32.1", features = ["testing"] }
 predicates = "3.1.4"
