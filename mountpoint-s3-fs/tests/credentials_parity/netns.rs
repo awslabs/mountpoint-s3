@@ -50,9 +50,9 @@ pub fn reexec() -> ExitCode {
 /// Bring up the loopback interface with the IMDS and ECS addresses, and resolve the host names in
 /// [TLS_HOSTS] to it. `dir` holds the replacement `/etc/hosts` for as long as the suite runs.
 pub fn configure(dir: &Path) {
-    run("ip", &["link", "set", "lo", "up"]);
+    run(Command::new("ip").args(["link", "set", "lo", "up"]));
     for address in ["169.254.169.254/32", "169.254.170.2/32"] {
-        run("ip", &["addr", "add", address, "dev", "lo"]);
+        run(Command::new("ip").args(["addr", "add", address, "dev", "lo"]));
     }
     let hosts = dir.join("hosts");
     let mut contents = String::from("127.0.0.1 localhost\n");
@@ -60,13 +60,10 @@ pub fn configure(dir: &Path) {
         contents.push_str(&format!("127.0.0.1 {host}\n"));
     }
     std::fs::write(&hosts, contents).expect("write hosts file");
-    run("mount", &["--bind", hosts.to_str().unwrap(), "/etc/hosts"]);
+    run(Command::new("mount").arg("--bind").arg(&hosts).arg("/etc/hosts"));
 }
 
-fn run(program: &str, args: &[&str]) {
-    let status = Command::new(program)
-        .args(args)
-        .status()
-        .unwrap_or_else(|e| panic!("{program}: {e}"));
-    assert!(status.success(), "{program} {args:?}: {status}");
+fn run(command: &mut Command) {
+    let status = command.status().unwrap_or_else(|e| panic!("{command:?}: {e}"));
+    assert!(status.success(), "{command:?}: {status}");
 }
