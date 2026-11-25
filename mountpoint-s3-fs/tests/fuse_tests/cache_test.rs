@@ -494,6 +494,7 @@ where
     let runtime = Runtime::new(client.event_loop_group());
     let prefetcher_builder = Prefetcher::caching_builder(cache, client.clone());
     create_fuse_session(
+        client.clone(),
         client,
         prefetcher_builder,
         pool,

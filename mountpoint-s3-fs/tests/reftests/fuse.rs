@@ -11,17 +11,23 @@ use std::io::Seek as _;
 use std::os::fd::IntoRawFd;
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use mountpoint_s3_fs::S3FilesystemConfig;
+use futures::executor::ThreadPool;
+use mountpoint_s3_client::mock_client::{MockBucket, MockClient, MockObject};
+use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
+use mountpoint_s3_fs::prefetch::Prefetcher;
+use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
+use mountpoint_s3_fs::{InMemoryMetadata, Runtime, S3FilesystemConfig};
 use proptest::collection;
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use tempfile::TempDir;
-use tokio::runtime::Runtime;
 use tracing::{info, info_span};
 
-use crate::common::fuse::{TestSession, TestSessionConfig, mock_session};
+use crate::common::fuse::{MountedSession, TestSessionConfig, create_fuse_session};
 
+const BUCKET_NAME: &str = "test_bucket";
 const MAX_NUM_FILES: usize = 10;
 const MAX_FILE_SIZE: usize = 1024 * 1024;
 
@@ -59,13 +65,14 @@ impl Filesystem for DirectoryFileSystem {
     }
 }
 
-/// A file system backed by Mountpoint
+/// A file system backed by Mountpoint, mounted on an in-memory bucket
 ///
-/// The test cases are synchronous (proptest runs them as plain closures), so the file system owns
-/// a Tokio runtime to create the test session and to drive its client.
+/// A [MockClient] serves the file system's data requests. The superblock sends its metadata
+/// requests to an [InMemoryMetadata] over the client's bucket. Out-of-band writes add objects to
+/// that bucket directly.
 struct MountpointFileSystem {
-    session: TestSession,
-    runtime: Runtime,
+    session: MountedSession,
+    bucket: Arc<MockBucket>,
 }
 
 impl MountpointFileSystem {
@@ -75,22 +82,46 @@ impl MountpointFileSystem {
             max_worker_threads: 1,
             ..Default::default()
         };
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-        let session = runtime.block_on(mock_session::new("", test_config));
-        Ok(Self { session, runtime })
+        let client = Arc::new(
+            MockClient::config()
+                .bucket(BUCKET_NAME)
+                .part_size(test_config.part_size)
+                .enable_backpressure(true)
+                .initial_read_window_size(test_config.initial_read_window_size)
+                .enable_rename(test_config.filesystem_config.allow_rename)
+                .build(),
+        );
+        let bucket = client.mock_bucket().clone();
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(test_config.part_size)])
+            .with_memory_limit(test_config.mem_limit)
+            .build();
+        let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create()?);
+        let prefetcher_builder = Prefetcher::default_builder(client.clone());
+        let s3_path = S3Path::new(Bucket::new(BUCKET_NAME)?, Prefix::empty());
+        let session = create_fuse_session(
+            client,
+            InMemoryMetadata::new(bucket.clone()),
+            prefetcher_builder,
+            pool,
+            runtime,
+            s3_path,
+            TempDir::new()?,
+            test_config,
+        );
+        Ok(Self { session, bucket })
     }
 }
 
 impl Filesystem for MountpointFileSystem {
     fn root(&self) -> &Path {
-        self.session.mount_path()
+        self.session.path()
     }
 
     fn put(&mut self, path: impl AsRef<Path>, contents: &[u8]) -> anyhow::Result<()> {
         let key = path.as_ref().to_str().unwrap();
-        self.runtime
-            .block_on(self.session.client().put_object(key, contents))
-            .map_err(|e| anyhow::anyhow!("put failed: {:?}", e))
+        self.bucket.add_object(key, MockObject::from(contents));
+        Ok(())
     }
 }
 
