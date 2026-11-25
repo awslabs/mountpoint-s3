@@ -66,7 +66,7 @@ impl MetadataOperation {
                     KEY.as_ref(),
                     INodeNo::ROOT,
                     NEW_NAME.as_ref(),
-                    RenameFlags::RENAME_NOREPLACE,
+                    RenameFlags::empty(),
                 )
                 .await
             }
