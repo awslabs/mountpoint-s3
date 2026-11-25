@@ -2099,8 +2099,7 @@ pub enum InodeMapError {
 #[cfg(test)]
 mod tests {
     use mountpoint_s3_client::{
-        ObjectClient,
-        mock_client::{MockClient, MockObject, Operation},
+        mock_client::{MockBucket, MockObject, Operation},
         types::{ETag, HeadObjectParams},
     };
     use std::ffi::OsString;
@@ -2130,12 +2129,7 @@ mod tests {
     #[tokio::test]
     async fn test_lookup(prefix: &str) {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
 
         let keys = &[
             format!("{prefix}dir0/file0.txt"),
@@ -2157,13 +2151,13 @@ mod tests {
             let mut obj = MockObject::constant(0xaa, object_size, ETag::for_tests());
             last_modified += Duration::days(1);
             obj.set_last_modified(last_modified);
-            client.add_object(key, obj);
+            mock_bucket.add_object(key, obj);
         }
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let ts = OffsetDateTime::now_utc();
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket.clone()),
             S3Path::new(bucket.clone(), prefix.clone()),
             Default::default(),
         );
@@ -2243,11 +2237,10 @@ mod tests {
                         .expect("inode should exist");
                     // Grab last modified time according to mock S3
                     let full_key = file.s3_location().expect("should have location").full_key();
-                    let modified_time =
-                        ObjectClient::head_object(&client, &bucket, full_key.as_ref(), &HeadObjectParams::new())
-                            .await
-                            .expect("object should exist")
-                            .last_modified;
+                    let modified_time = mock_bucket
+                        .head_object(&bucket, full_key.as_ref(), &HeadObjectParams::new())
+                        .expect("object should exist")
+                        .last_modified;
                     assert_inode_stat!(file, InodeKind::File, modified_time, object_size);
                     assert_eq!(full_key.as_ref(), format!("{prefix}dir{dir}/sdir{sdir}/file{i}.txt"));
                 }
@@ -2261,12 +2254,7 @@ mod tests {
     async fn test_lookup_with_caching(cached: bool) {
         let bucket = Bucket::new("test_bucket").unwrap();
         let prefix = "prefix/";
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
 
         let keys = &[
             format!("{prefix}file0.txt"),
@@ -2280,7 +2268,7 @@ mod tests {
             let mut obj = MockObject::constant(0xaa, object_size, ETag::for_tests());
             last_modified += Duration::days(1);
             obj.set_last_modified(last_modified);
-            client.add_object(key, obj);
+            mock_bucket.add_object(key, obj);
         }
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
@@ -2290,7 +2278,7 @@ mod tests {
             std::time::Duration::ZERO
         };
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket.clone()),
             S3Path::new(bucket, prefix.clone()),
             SuperblockConfig {
                 cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
@@ -2307,7 +2295,7 @@ mod tests {
         }
 
         for key in keys {
-            client.remove_object(key);
+            mock_bucket.remove_object(key);
         }
 
         for entry in entries {
@@ -2326,7 +2314,7 @@ mod tests {
     async fn test_negative_lookup_with_caching(cached: bool) {
         let bucket = Bucket::new("test_bucket").unwrap();
         let prefix = "prefix/";
-        let client = Arc::new(MockClient::config().bucket(bucket.to_string()).part_size(32).build());
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let ttl = if cached {
@@ -2335,7 +2323,7 @@ mod tests {
             std::time::Duration::ZERO
         };
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket.clone()),
             S3Path::new(bucket, prefix.clone()),
             SuperblockConfig {
                 cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
@@ -2363,7 +2351,7 @@ mod tests {
             let mut obj = MockObject::constant(0xaa, object_size, ETag::for_tests());
             last_modified += Duration::days(1);
             obj.set_last_modified(last_modified);
-            client.add_object(key, obj);
+            mock_bucket.add_object(key, obj);
         }
 
         for entry in entries {
@@ -2382,9 +2370,9 @@ mod tests {
     async fn test_create_purges_negative_cache(kind: InodeKind, name: &str, key: &str) {
         let bucket = Bucket::new("test_bucket").unwrap();
         let prefix = Prefix::new("prefix/").expect("valid prefix");
-        let client = Arc::new(MockClient::config().bucket(bucket.to_string()).part_size(32).build());
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket.clone()),
             S3Path::new(bucket, prefix.clone()),
             SuperblockConfig {
                 cache_config: CacheConfig::new(TimeToLive::Indefinite),
@@ -2401,7 +2389,7 @@ mod tests {
             .create(INodeNo::ROOT, name.as_ref(), kind)
             .await
             .expect("create should succeed");
-        client.add_object(
+        mock_bucket.add_object(
             &format!("{prefix}{key}"),
             MockObject::constant(0xaa, 30, ETag::for_tests()),
         );
@@ -2415,8 +2403,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_getattr_with_inode_local_invalid_stat_force_revalidate() {
-        let (superblock, client) = setup_test_superblock();
-        let head_object_counter = client.new_counter(Operation::HeadObject);
+        let (superblock, mock_bucket) = setup_test_superblock();
+        let head_object_counter = mock_bucket.new_counter(Operation::HeadObject);
         let inode = create_test_inode(&superblock, WriteStatus::LocalUnopened, true, None, true).unwrap();
 
         let result = superblock.getattr_with_inode(inode.ino(), true).await;
@@ -2430,9 +2418,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_getattr_with_inode_remote_valid_stat_no_force_revalidate() {
-        let (superblock, client) = setup_test_superblock();
+        let (superblock, mock_bucket) = setup_test_superblock();
         let test_etag = ETag::for_tests();
-        let head_object_counter = client.new_counter(Operation::HeadObject);
+        let head_object_counter = mock_bucket.new_counter(Operation::HeadObject);
         let inode = create_test_inode(&superblock, WriteStatus::Remote, false, Some(test_etag.clone()), false).unwrap();
 
         let result = superblock.getattr_with_inode(inode.ino(), false).await;
@@ -2446,10 +2434,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_getattr_with_inode_remote_force_revalidate() {
-        let (superblock, client) = setup_test_superblock();
+        let (superblock, mock_bucket) = setup_test_superblock();
         let test_etag = ETag::for_tests();
-        let head_object_counter = client.new_counter(Operation::HeadObject);
-        client.add_object("prefix/test inode", MockObject::constant(0xaa, 1024, test_etag.clone()));
+        let head_object_counter = mock_bucket.new_counter(Operation::HeadObject);
+        mock_bucket.add_object("prefix/test inode", MockObject::constant(0xaa, 1024, test_etag.clone()));
         let inode = create_test_inode(&superblock, WriteStatus::Remote, false, Some(test_etag.clone()), false).unwrap();
 
         let result = superblock.getattr_with_inode(inode.ino(), true).await;
@@ -2463,10 +2451,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_getattr_with_stale_inode_remote_no_force_revalidate() {
-        let (superblock, client) = setup_test_superblock();
-        let head_object_counter = client.new_counter(Operation::HeadObject);
+        let (superblock, mock_bucket) = setup_test_superblock();
+        let head_object_counter = mock_bucket.new_counter(Operation::HeadObject);
         // Create the object with a different e-tag than which the inode is created with
-        client.add_object("prefix/test inode", MockObject::constant(0xaa, 1024, ETag::for_tests()));
+        mock_bucket.add_object("prefix/test inode", MockObject::constant(0xaa, 1024, ETag::for_tests()));
         let local_etag = ETag::from_str("Stale local etag").unwrap();
         let inode = create_test_inode(&superblock, WriteStatus::Remote, false, Some(local_etag), true).unwrap();
 
@@ -2485,24 +2473,24 @@ mod tests {
         }
     }
 
-    fn setup_test_superblock() -> (Superblock<Arc<MockClient>>, Arc<MockClient>) {
+    fn setup_test_superblock() -> (Superblock<InMemoryMetadata>, std::sync::Arc<MockBucket>) {
         let bucket = Bucket::new("test_bucket").unwrap();
         let prefix = "prefix/";
-        let client = Arc::new(MockClient::config().bucket(bucket.to_string()).part_size(32).build());
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket.clone()),
             S3Path::new(bucket, prefix.clone()),
             SuperblockConfig {
                 cache_config: CacheConfig::new(TimeToLive::Duration(std::time::Duration::from_secs(24 * 60 * 60))),
                 s3_personality: S3Personality::Standard,
             },
         );
-        (superblock, client)
+        (superblock, mock_bucket)
     }
 
     fn create_test_inode(
-        superblock: &Superblock<Arc<MockClient>>,
+        superblock: &Superblock<InMemoryMetadata>,
         write_status: WriteStatus,
         is_new_file: bool,
         etag: Option<ETag>,
@@ -2545,12 +2533,7 @@ mod tests {
     #[tokio::test]
     async fn test_readdir(prefix: &str) {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
 
         let keys = &[
             format!("{prefix}dir0/file0.txt"),
@@ -2570,12 +2553,16 @@ mod tests {
         for key in keys {
             let mut obj = MockObject::constant(0xaa, 30, ETag::for_tests());
             obj.set_last_modified(last_modified);
-            client.add_object(key, obj);
+            mock_bucket.add_object(key, obj);
         }
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let ts = OffsetDateTime::now_utc();
-        let superblock = Superblock::new(client.clone(), S3Path::new(bucket, prefix.clone()), Default::default());
+        let superblock = Superblock::new(
+            InMemoryMetadata::new(mock_bucket),
+            S3Path::new(bucket, prefix.clone()),
+            Default::default(),
+        );
 
         // Try it all twice to test inode reuse
         for _ in 0..2 {
@@ -2651,7 +2638,7 @@ mod tests {
     /// This function skips the "." and ".." entries, and returns both the
     /// InodeInformation and name for each entry.
     async fn collect_dir_entries_with_info(
-        superblock: &Superblock<Arc<MockClient>>,
+        superblock: &Superblock<InMemoryMetadata>,
         dir_ino: INodeNo,
         is_readdir_plus: bool,
         page_size: usize,
@@ -2684,7 +2671,7 @@ mod tests {
 
     // Helper function to collect directory entries
     async fn collect_dir_entries(
-        superblock: &Superblock<Arc<MockClient>>,
+        superblock: &Superblock<InMemoryMetadata>,
         dir_ino: INodeNo,
         is_readdir_plus: bool,
         page_size: usize,
@@ -2701,10 +2688,14 @@ mod tests {
     #[tokio::test]
     async fn test_readdir_no_remote_keys(prefix: &str) {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(MockClient::config().bucket(bucket.to_string()).part_size(32).build());
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new(client.clone(), S3Path::new(bucket, prefix.clone()), Default::default());
+        let superblock = Superblock::new(
+            InMemoryMetadata::new(mock_bucket),
+            S3Path::new(bucket, prefix.clone()),
+            Default::default(),
+        );
 
         let mut expected_list: Vec<OsString> = Vec::new();
 
@@ -2740,15 +2731,14 @@ mod tests {
     #[tokio::test]
     async fn test_readdir_local_keys_after_remote_keys(prefix: &str) {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new(client.clone(), S3Path::new(bucket, prefix.clone()), Default::default());
+        let superblock = Superblock::new(
+            InMemoryMetadata::new(mock_bucket.clone()),
+            S3Path::new(bucket, prefix.clone()),
+            Default::default(),
+        );
 
         let mut expected_list: Vec<OsString> = Vec::new();
 
@@ -2759,7 +2749,7 @@ mod tests {
             let mut obj = MockObject::constant(0xaa, 30, ETag::for_tests());
             obj.set_last_modified(last_modified);
             let key = format!("{prefix}{filename}");
-            client.add_object(&key, obj);
+            mock_bucket.add_object(&key, obj);
             expected_list.push(filename.to_owned().into());
         }
 
@@ -2795,14 +2785,13 @@ mod tests {
     #[tokio::test]
     async fn test_create_local_dir(prefix: &str) {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new(client.clone(), S3Path::new(bucket, prefix.clone()), Default::default());
+        let superblock = Superblock::new(
+            InMemoryMetadata::new(mock_bucket.clone()),
+            S3Path::new(bucket, prefix.clone()),
+            Default::default(),
+        );
 
         // Create local directory
         let dirname = "local_dir";
@@ -2823,9 +2812,9 @@ mod tests {
         let entries = collect_dir_entries(&superblock, INodeNo::ROOT, true, 2).await;
         assert_eq!(entries.iter().collect::<Vec<_>>(), vec![dirname]);
 
-        // Check that local directories are not present in the client
+        // Check that local directories are not present in the bucket
         let prefix = format!("{prefix}{dirname}");
-        assert!(!client.contains_prefix(&prefix));
+        assert!(!mock_bucket.contains_prefix(&prefix));
     }
 
     #[test_case(""; "unprefixed")]
@@ -2833,14 +2822,13 @@ mod tests {
     #[tokio::test]
     async fn test_readdir_lookup_after_rmdir(prefix: &str) {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new(client.clone(), S3Path::new(bucket, prefix.clone()), Default::default());
+        let superblock = Superblock::new(
+            InMemoryMetadata::new(mock_bucket),
+            S3Path::new(bucket, prefix.clone()),
+            Default::default(),
+        );
 
         // Create local directory
         let dirname = "local_dir";
@@ -2890,11 +2878,11 @@ mod tests {
     #[tokio::test]
     async fn test_readdir_unordered(prefix: &str, ordered: bool) {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let mut config = MockClient::config().bucket(bucket.to_string()).part_size(1024 * 1024);
+        let mut config = MockBucket::config().name(bucket.to_string());
         if !ordered {
             config = config.unordered_list_seed(Some(123456));
         }
-        let client = Arc::new(config.build());
+        let mock_bucket = std::sync::Arc::new(config.build());
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let s3_personality = if ordered {
@@ -2903,7 +2891,7 @@ mod tests {
             S3Personality::ExpressOneZone
         };
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket.clone()),
             S3Path::new(bucket, prefix.clone()),
             SuperblockConfig {
                 s3_personality,
@@ -2973,7 +2961,7 @@ mod tests {
         for key in keys {
             let mut obj = MockObject::constant(0xaa, 30, ETag::for_tests());
             obj.set_last_modified(last_modified);
-            client.add_object(key, obj);
+            mock_bucket.add_object(key, obj);
         }
 
         // And now walk the root directory to check it contains the right stuff
@@ -3013,14 +3001,13 @@ mod tests {
     #[tokio::test]
     async fn test_rmdir_delete_status(prefix: &str) {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new(client.clone(), S3Path::new(bucket, prefix.clone()), Default::default());
+        let superblock = Superblock::new(
+            InMemoryMetadata::new(mock_bucket),
+            S3Path::new(bucket, prefix.clone()),
+            Default::default(),
+        );
 
         // Create local directory
         let dirname = "local_dir";
@@ -3066,14 +3053,13 @@ mod tests {
     #[tokio::test]
     async fn test_parent_readdir_after_rmdir(prefix: &str) {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new(client.clone(), S3Path::new(bucket, prefix.clone()), Default::default());
+        let superblock = Superblock::new(
+            InMemoryMetadata::new(mock_bucket),
+            S3Path::new(bucket, prefix.clone()),
+            Default::default(),
+        );
 
         // Create local directory
         let dirname = "local_dir";
@@ -3104,18 +3090,17 @@ mod tests {
     #[tokio::test]
     async fn test_lookup_after_unlink(prefix: &str) {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new(client.clone(), S3Path::new(bucket, prefix.clone()), Default::default());
+        let superblock = Superblock::new(
+            InMemoryMetadata::new(mock_bucket.clone()),
+            S3Path::new(bucket, prefix.clone()),
+            Default::default(),
+        );
 
         let file_name = "file.txt";
         let file_key = format!("{prefix}{file_name}");
-        client.add_object(file_key.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
+        mock_bucket.add_object(file_key.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
         let parent_ino = INodeNo::ROOT;
 
         superblock
@@ -3140,14 +3125,9 @@ mod tests {
     #[tokio::test]
     async fn test_finish_writing_convert_parent_local_dirs_to_remote() {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket),
             S3Path::new(bucket, Default::default()),
             Default::default(),
         );
@@ -3192,7 +3172,7 @@ mod tests {
             .expect("should be able to start writing");
 
         // Invoke [finish_writing], without actually adding the
-        // object to the client
+        // object to the bucket
         superblock
             .finish_writing(new_inode.ino(), None, FileHandle(0))
             .await
@@ -3207,16 +3187,11 @@ mod tests {
     #[tokio::test]
     async fn test_inode_reuse() {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
-        client.add_object("dir1/file1.txt", MockObject::constant(0xaa, 30, ETag::for_tests()));
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
+        mock_bucket.add_object("dir1/file1.txt", MockObject::constant(0xaa, 30, ETag::for_tests()));
 
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket),
             S3Path::new(bucket, Default::default()),
             Default::default(),
         );
@@ -3237,28 +3212,23 @@ mod tests {
     #[tokio::test]
     async fn test_lookup_directory_overlap(subdir: &str) {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
         // In this test the `/` delimiter comes back to bite us. `dir-1/` comes before `dir/` in
         // lexicographical order (- is ASCII 0x2d, / is ASCII 0x2f), so `dir-1` will be the first
         // common prefix when we do ListObjects with prefix = 'dir'. But `dir` comes before `dir-1`
         // in lexicographical order, so `dir` will be the first common prefix when we do ListObjects
         // with prefix = ''.
-        client.add_object(
+        mock_bucket.add_object(
             &format!("dir/{subdir}file1.txt"),
             MockObject::constant(0xaa, 30, ETag::for_tests()),
         );
-        client.add_object(
+        mock_bucket.add_object(
             &format!("dir-1/{subdir}file1.txt"),
             MockObject::constant(0xaa, 30, ETag::for_tests()),
         );
 
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket),
             S3Path::new(bucket, Default::default()),
             Default::default(),
         );
@@ -3276,38 +3246,33 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_names() {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
 
         // The only valid key here is "dir1/a", so we should see a directory called "dir1" and a
         // file inside it called "a".
-        client.add_object(
+        mock_bucket.add_object(
             "dir1/",
             MockObject::constant(0xaa, 30, ETag::from_str("test_etag_1").unwrap()),
         );
-        client.add_object(
+        mock_bucket.add_object(
             "dir1//",
             MockObject::constant(0xaa, 30, ETag::from_str("test_etag_2").unwrap()),
         );
-        client.add_object(
+        mock_bucket.add_object(
             "dir1/a",
             MockObject::constant(0xaa, 30, ETag::from_str("test_etag_3").unwrap()),
         );
-        client.add_object(
+        mock_bucket.add_object(
             "dir1/.",
             MockObject::constant(0xaa, 30, ETag::from_str("test_etag_4").unwrap()),
         );
-        client.add_object(
+        mock_bucket.add_object(
             "dir1/./a",
             MockObject::constant(0xaa, 30, ETag::from_str("test_etag_5").unwrap()),
         );
 
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket),
             S3Path::new(bucket, Default::default()),
             Default::default(),
         );
@@ -3330,14 +3295,13 @@ mod tests {
     #[tokio::test]
     async fn test_setattr(prefix: &str) {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new(client.clone(), S3Path::new(bucket, prefix.clone()), Default::default());
+        let superblock = Superblock::new(
+            InMemoryMetadata::new(mock_bucket),
+            S3Path::new(bucket, prefix.clone()),
+            Default::default(),
+        );
 
         // Create a new file
         let filename = "newfile.txt";

@@ -660,9 +660,8 @@ mod tests {
     use crate::fs::{INodeNo, OpenFlags};
     use crate::metablock::{AddDirEntryResult, InodeKind, Metablock};
     use crate::s3::{Bucket, S3Path};
-    use crate::superblock::Superblock;
-    use crate::sync::Arc;
-    use mountpoint_s3_client::mock_client::MockClient;
+    use crate::superblock::{InMemoryMetadata, Superblock};
+    use mountpoint_s3_client::mock_client::MockBucket;
     use test_case::test_case;
 
     use super::RemoteIter;
@@ -677,9 +676,9 @@ mod tests {
     #[tokio::test]
     async fn test_readdir_race_condition() {
         let bucket = Bucket::new("test-bucket").unwrap();
-        let client = Arc::new(MockClient::config().bucket(bucket.to_string()).build());
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket),
             S3Path::new(bucket, Default::default()),
             Default::default(),
         );
@@ -729,9 +728,9 @@ mod tests {
     #[tokio::test]
     async fn test_readdir_skips_forgotten_local_children() {
         let bucket = Bucket::new("test-bucket").unwrap();
-        let client = Arc::new(MockClient::config().bucket(bucket.to_string()).build());
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket),
             S3Path::new(bucket, Default::default()),
             Default::default(),
         );

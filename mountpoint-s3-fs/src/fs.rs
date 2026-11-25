@@ -849,7 +849,7 @@ mod tests {
     use crate::memory::CandidateSize;
     use crate::prefetch::Prefetcher;
     use crate::s3::{Bucket, S3Path};
-    use crate::{Superblock, SuperblockConfig};
+    use crate::{InMemoryMetadata, Superblock, SuperblockConfig};
 
     use fuser::FileType;
     use futures::executor::ThreadPool;
@@ -884,7 +884,7 @@ mod tests {
             ..Default::default()
         };
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(client.mock_bucket().clone()),
             S3Path::new(bucket, Default::default()),
             SuperblockConfig {
                 cache_config: fs_config.cache_config.clone(),
@@ -1393,7 +1393,7 @@ mod tests {
             .build();
         let prefetcher_builder = Prefetcher::default_builder(client.clone());
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(client.mock_bucket().clone()),
             S3Path::new(bucket, Default::default()),
             SuperblockConfig {
                 cache_config: fs_config.cache_config.clone(),
@@ -1562,7 +1562,7 @@ mod tests {
             ..Default::default()
         };
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(client.mock_bucket().clone()),
             S3Path::new(bucket, Default::default()),
             SuperblockConfig {
                 cache_config: fs_config.cache_config.clone(),
