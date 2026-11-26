@@ -313,9 +313,9 @@ mod tests {
     use super::*;
     use crate::metablock::Metablock;
     use crate::s3::{Bucket, S3Path};
-    use crate::superblock::Superblock;
+    use crate::superblock::{InMemoryMetadata, Superblock};
     use mountpoint_s3_client::{
-        mock_client::{MockClient, MockObject},
+        mock_client::{MockBucket, MockObject},
         types::ETag,
     };
     use time::Duration;
@@ -323,15 +323,10 @@ mod tests {
     #[tokio::test]
     async fn test_forget() {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
 
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket),
             S3Path::new(bucket, Default::default()),
             Default::default(),
         );
@@ -376,18 +371,13 @@ mod tests {
     #[tokio::test]
     async fn test_forget_can_remove_inodes() {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
 
         let name = "foo";
-        client.add_object(name, b"foo".into());
+        mock_bucket.add_object(name, b"foo".into());
 
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket),
             S3Path::new(bucket, Default::default()),
             Default::default(),
         );
@@ -415,18 +405,13 @@ mod tests {
     #[tokio::test]
     async fn test_forget_shadowed_inode() {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
 
         let name = "foo";
-        client.add_object(name, b"foo".into());
+        mock_bucket.add_object(name, b"foo".into());
 
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket.clone()),
             S3Path::new(bucket, Default::default()),
             Default::default(),
         );
@@ -437,7 +422,7 @@ mod tests {
         let ino = lookup.ino();
         drop(lookup);
 
-        client.add_object(&format!("{name}/bar"), b"bar".into());
+        mock_bucket.add_object(&format!("{name}/bar"), b"bar".into());
 
         // Should be a directory now, so a different inode
         let new_lookup = superblock.lookup(INodeNo::ROOT, name.as_ref()).await.unwrap();
@@ -453,17 +438,12 @@ mod tests {
     #[tokio::test]
     async fn test_unlink_verify_checksum() {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
         let file_name = "corrupted";
-        client.add_object(file_name.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
+        mock_bucket.add_object(file_name.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
 
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket),
             S3Path::new(bucket, Default::default()),
             Default::default(),
         );
@@ -517,14 +497,9 @@ mod tests {
     #[tokio::test]
     async fn test_setattr_invalid_stat() {
         let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
+        let mock_bucket = std::sync::Arc::new(MockBucket::config().name(bucket.to_string()).build());
         let superblock = Superblock::new(
-            client.clone(),
+            InMemoryMetadata::new(mock_bucket),
             S3Path::new(bucket, Default::default()),
             Default::default(),
         );
@@ -576,8 +551,6 @@ mod tests {
     mod shuttle_tests {
         use super::*;
         use crate::fs::INodeNo;
-        use crate::superblock::InMemoryMetadata;
-        use mountpoint_s3_client::mock_client::MockBucket;
         use shuttle::{check_dfs, check_pct, check_random, thread};
         use shuttle::{future::block_on, sync::Arc};
 
