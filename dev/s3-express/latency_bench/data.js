@@ -1,72 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795454216019,
+  "lastUpdate": 1795710481634,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Latency Benchmark (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "prikaru@amazon.com",
-            "name": "Priyankakarumuru1",
-            "username": "Priyankakarumuru1"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "fe23b080942dd6f505b05b45ffbfa85a96e330bf",
-          "message": "Replace the crc32c crate with the CRT's CRC32C combine function (#2019)\n\nMountpoint used the `crc32c` crate only to combine CRC32C checksums. It\nwas added in #367 because the CRT had no combine function at the time.\nThe CRT has since added one\n([aws-checksums#109](https://github.com/awslabs/aws-checksums/pull/109)),\nand #1744 brought that version into Mountpoint, so this change uses it\nand removes the crate.\n\n- `mountpoint-s3-crt`: add `checksums::crc32c::combine`, matching\n`crc64nvme::combine`.\n- `mountpoint-s3-fs`: remove `checksums::combine_checksums` and call\n`crc32c::combine` directly, as is already done for CRC64NVME.\n\nThe CRT function returns the same results as the crate and is faster:\nabout 70 ns per combine, against 4–100 µs for the crate.\n\n### Does this change impact existing behavior?\n\nNo user-facing changes. Removing `combine_checksums` from\n`mountpoint-s3-fs` is a breaking change for library users, who should\nuse `crc32c::combine` instead.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nChangelog entries added for `mountpoint-s3-crt`, `mountpoint-s3-client`\nand `mountpoint-s3-fs`. No version change needed, because all three\nalready have unreleased version bumps.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Priyankakarumuru1 <prikaru@amazon.com>",
-          "timestamp": "2026-11-02T22:51:49Z",
-          "tree_id": "0d3641477f868971c5d6b5111dbc832eb7684cc4",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/fe23b080942dd6f505b05b45ffbfa85a96e330bf"
-        },
-        "date": 1793662482137,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "One Byte File Creation - Average Total Latency",
-            "value": 34.81322825,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "readdir_100",
-            "value": 0.023,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.143,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.58,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 4.577,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_write_one_byte_file",
-            "value": 9.2864761,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 1.4738698000000001,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 6.8789435999999995,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1919,6 +1855,70 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 6.5941393,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "7b46fd173351979f727692c721f61df1a747e4c0",
+          "message": "Test the errno and error metadata of failed metadata requests (#2060)\n\nThis change follows up on #2048, which runs the S3-semantics tests\nagainst a local S3 mock server. A table-driven test in\n`tests/fs/error_mapping.rs` checks how the file system reports S3 error\nresponses to its metadata requests. Each case makes a request on the\nlocal mock server fail with an S3 error response. It then runs a file\nsystem operation that sends the request and checks the errno of the\noperation and the error metadata that the event log records. The table\npins down the errno and the logged error metadata of each failure. A\nchange to the client behind the metadata requests then can't change them\nunnoticed.\n\nThe 21 cases:\n\n* HeadObject: not found, access denied, throttling (`SlowDown`) and an\ninternal error (HTTP 500).\n* ListObjectsV2: for a lookup, no such bucket, access denied, throttling\nand an internal error. For a directory listing, access denied.\n* DeleteObject: no such bucket, access denied, throttling and an\ninternal error.\n* RenameObject: no such key, a failed condition, not implemented, a key\nthat is too long, an invalid request, access denied, throttling and an\ninternal error.\n\n### Does this change impact existing behavior?\n\nNo. The change only adds a test.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo. The change only adds a test.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
+          "timestamp": "2026-11-26T15:05:56Z",
+          "tree_id": "4d3736db3fe54d396beeb2e81959f9ab19602f0e",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/7b46fd173351979f727692c721f61df1a747e4c0"
+        },
+        "date": 1795710479958,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "One Byte File Creation - Average Total Latency",
+            "value": 30.950449359999993,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "readdir_100",
+            "value": 0.022,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.135,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.529,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 4.257,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_write_one_byte_file",
+            "value": 8.1820842,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 1.238238,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 6.2104618,
             "unit": "milliseconds"
           }
         ]
