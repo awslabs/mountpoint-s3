@@ -26,6 +26,8 @@ use rand::{RngExt, SeedableRng};
 use test_case::test_case;
 
 mod common;
+#[path = "fs/error_mapping.rs"]
+mod error_mapping;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use common::creds::get_scoped_down_credentials;
 use common::mock_server::{
