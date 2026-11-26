@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795714465153,
+  "lastUpdate": 1795720868228,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "prikaru@amazon.com",
-            "name": "Priyankakarumuru1",
-            "username": "Priyankakarumuru1"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "fe23b080942dd6f505b05b45ffbfa85a96e330bf",
-          "message": "Replace the crc32c crate with the CRT's CRC32C combine function (#2019)\n\nMountpoint used the `crc32c` crate only to combine CRC32C checksums. It\nwas added in #367 because the CRT had no combine function at the time.\nThe CRT has since added one\n([aws-checksums#109](https://github.com/awslabs/aws-checksums/pull/109)),\nand #1744 brought that version into Mountpoint, so this change uses it\nand removes the crate.\n\n- `mountpoint-s3-crt`: add `checksums::crc32c::combine`, matching\n`crc64nvme::combine`.\n- `mountpoint-s3-fs`: remove `checksums::combine_checksums` and call\n`crc32c::combine` directly, as is already done for CRC64NVME.\n\nThe CRT function returns the same results as the crate and is faster:\nabout 70 ns per combine, against 4–100 µs for the crate.\n\n### Does this change impact existing behavior?\n\nNo user-facing changes. Removing `combine_checksums` from\n`mountpoint-s3-fs` is a breaking change for library users, who should\nuse `crc32c::combine` instead.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nChangelog entries added for `mountpoint-s3-crt`, `mountpoint-s3-client`\nand `mountpoint-s3-fs`. No version change needed, because all three\nalready have unreleased version bumps.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Priyankakarumuru1 <prikaru@amazon.com>",
-          "timestamp": "2026-11-02T22:51:49Z",
-          "tree_id": "0d3641477f868971c5d6b5111dbc832eb7684cc4",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/fe23b080942dd6f505b05b45ffbfa85a96e330bf"
-        },
-        "date": 1793670492432,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 3230.890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 4748.875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8389.19140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 55.71875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 90.48046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 56.03515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 89.3046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 46.609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 58.5625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 47.94921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 58.97265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8252.21484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 85.390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8265.359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 86.9140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2375.11328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 54.1015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2378.46875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2379.26953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 54.375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 588.63671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 502.4375,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 412.2265625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "5381483+muddyfish@users.noreply.github.com",
+            "name": "Simon Beal",
+            "username": "muddyfish"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "57e62f51966eb06975e633ede5a0fd6a2e94ef1f",
+          "message": "Build release packages with cargo-zigbuild on Amazon Linux 2023. (#2045)\n\nMigrate the production image build from Centos7 to AL2023.\nWe're changing to drop Centos as it's been end of life for a significant\nperiod, and AL2023 still receives updates.\n\nWe're using zigbuild rather than a sysroot as zigbuild 'just worked',\nand a sysroot had a dependency on downloading the glibc version from\nCentos vault.\n\n### Does this change impact existing behavior?\n\nNo known breaking changes. \n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\n### Testing\n\nTried installing using AppStream using Rocky8 with FIPS mode:\n\n- `./mount-s3.rpm` is the latest official build\n- `./mount-s3-1.25.1+unofficial-x86_64.rpm` is the build created using\nGH actions on this PR.\n\n```\n[ImageBuilderAdmin@ip-198-19-112-68 ~]$ sudo yum install ./mount-s3.rpm\nLast metadata expiration check: 0:31:14 ago on Tue 24 Nov 2026 04:16:39 PM UTC.\nDependencies resolved.\n================================================================================\n Package          Architecture   Version             Repository            Size\n================================================================================\nInstalling:\n mount-s3         x86_64         1.25.0-1            @commandline          15 M\n\nTransaction Summary\n================================================================================\nInstall  1 Package\n\nTotal size: 15 M\nInstalled size: 70 M\nIs this ok [y/N]: y\nDownloading Packages:\nRunning transaction check\nTransaction check succeeded.\nRunning transaction test\nError: Transaction test error:\n  package mount-s3-1.25.0-1.x86_64 does not verify: no digest\n\n[ImageBuilderAdmin@ip-198-19-112-68 ~]$ sudo yum install ./mount-s3-1.25.1+unofficial-x86_64.rpm \nLast metadata expiration check: 0:31:21 ago on Tue 24 Nov 2026 04:16:39 PM UTC.\nDependencies resolved.\n================================================================================\n Package        Architecture Version                   Repository          Size\n================================================================================\nInstalling:\n mount-s3       x86_64       1.25.1+unofficial-1       @commandline        15 M\n\nTransaction Summary\n================================================================================\nInstall  1 Package\n\nTotal size: 15 M\nInstalled size: 65 M\nIs this ok [y/N]: y\nDownloading Packages:\nRunning transaction check\nTransaction check succeeded.\nRunning transaction test\nTransaction test succeeded.\nRunning transaction\n  Preparing        :                                                        1/1 \n  Installing       : mount-s3-1.25.1+unofficial-1.x86_64                       1/1 \n  Verifying        : mount-s3-1.25.1+unofficial-1.x86_64                                   1/1 \n\nInstalled:\n  mount-s3-1.25.1+unofficial-1.x86_64                                                                                 \n\nComplete!\n\n```\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Simon Beal <simobeal@amazon.com>",
+          "timestamp": "2026-11-26T16:54:40Z",
+          "tree_id": "7fc0b4d08802f5b606fbdbb83fa7e856467f5ca6",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/57e62f51966eb06975e633ede5a0fd6a2e94ef1f"
+        },
+        "date": 1795720868147,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 3201,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 4747.87109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 8437.1328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 55.51953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 91.6640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 56.94140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 90.3046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 46.14453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 59.59765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 48.03125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 59.28125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8282.5078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 86.2890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 8221.72265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 87.26953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2378.53125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 53.31640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2379.7578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2379.31640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 55.28515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 605.41796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 376.7734375,
             "unit": "MiB"
           }
         ]
