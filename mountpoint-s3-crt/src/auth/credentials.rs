@@ -225,12 +225,12 @@ impl CredentialsProvider {
         // SAFETY: `user_data` is a leaked `Arc<S>`. On success, the delegate provider owns that
         // reference: the CRT passes it to `delegate_get_credentials` for each query, and to
         // `delegate_shutdown`, which releases it, once when the provider is destroyed. On failure
-        // the CRT has not kept a copy (and won't call the shutdown callback), so we release it here.
+        // we call the shutdown callback here, since the CRT has not kept a copy and won't call it.
         let inner = unsafe {
             match aws_credentials_provider_new_delegate(allocator.inner.as_ptr(), &options).ok_or_last_error() {
                 Ok(inner) => inner,
                 Err(e) => {
-                    drop(Arc::from_raw(user_data as *const S));
+                    delegate_shutdown::<S>(user_data);
                     return Err(e);
                 }
             }
@@ -555,8 +555,9 @@ unsafe extern "C" fn delegate_get_credentials<S: CredentialsSource>(
     // The provider is alive when this function is called, but not necessarily until it returns:
     // some CRT callers (such as the signer) release their reference to the provider when the query
     // completes, which can happen on another thread while `get_credentials` is still running. So
-    // take a reference to the source for the duration of the call; if the provider is destroyed
-    // in the meantime, the source is dropped when this function returns.
+    // take a reference to the source for the duration of the call: the strong count incremented
+    // here is decremented when `source` goes out of scope at the end of this function. If the
+    // provider is destroyed in the meantime, that is when the source is dropped.
     // SAFETY: guaranteed by the caller: the provider's reference to the `Arc` is still alive, so
     // the reference count can be incremented. `S: Sync`, so the source can be used from several
     // threads at once.
@@ -578,8 +579,9 @@ unsafe extern "C" fn delegate_get_credentials<S: CredentialsSource>(
 /// source.
 ///
 /// # Safety
-/// `user_data` must be the `Arc<S>` leaked by [CredentialsProvider::new_delegate]. The CRT calls
-/// this function exactly once, when the provider is destroyed.
+/// `user_data` must be the `Arc<S>` leaked by [CredentialsProvider::new_delegate]. This function
+/// must be called exactly once for it: by the CRT when the provider is destroyed or by
+/// [CredentialsProvider::new_delegate] when the CRT fails to create the provider.
 unsafe extern "C" fn delegate_shutdown<S: CredentialsSource>(user_data: *mut libc::c_void) {
     // SAFETY: guaranteed by the caller.
     drop(unsafe { Arc::from_raw(user_data as *const S) });

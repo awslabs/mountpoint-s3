@@ -90,8 +90,13 @@ fn list_objects_response() -> Response<Full<Bytes>> {
         .expect("build response")
 }
 
+/// The session token of the test credentials with the given access key ID.
+fn session_token(access_key_id: &str) -> String {
+    format!("token-{access_key_id}")
+}
+
 fn test_credentials(access_key_id: &str) -> Credentials {
-    let session_token = format!("token-{access_key_id}");
+    let session_token = session_token(access_key_id);
     let options = CredentialsOptions {
         access_key_id,
         secret_access_key: "secret",
@@ -140,7 +145,7 @@ async fn new_client(source: impl CredentialsSource) -> (S3CrtClient, Arc<Mutex<V
 fn signed(access_key_id: &str) -> SignedWith {
     SignedWith {
         access_key_id: access_key_id.to_owned(),
-        session_token: Some(format!("token-{access_key_id}")),
+        session_token: Some(session_token(access_key_id)),
     }
 }
 
@@ -168,7 +173,9 @@ async fn requests_signed_with_delegate_credentials() {
     );
 }
 
-/// A source that hands each callback to the test, and records when it's dropped.
+/// A source that hands the callback of each query to the test instead of completing it. A request
+/// that queries it stays pending until the test completes or drops the callback. The source also
+/// records when it's dropped.
 struct ManualSource {
     callbacks: Mutex<mpsc::UnboundedSender<CredentialsCallback>>,
     dropped: Arc<AtomicBool>,

@@ -108,10 +108,12 @@ pub fn build_sdk_client(config: &SdkClientConfig) -> Result<aws_sdk_s3::Client, 
     }
 
     builder = match &config.auth {
-        // The S3 Express One Zone session resolver also gets the credentials for `CreateSession`
-        // through the client's identity cache, so it reads the shared cache too: on every request,
-        // for its session cache key, and again to sign `CreateSession`. A refresh between the two
-        // reads costs at most one extra `CreateSession`.
+        // `SharedCredentials` is the credentials cache of this client. It replaces the SDK's
+        // identity cache so that the CRT client can share it: both clients sign with the same
+        // credentials and switch to new ones together.
+        //
+        // S3 Express One Zone sessions are still cached: the SDK's session provider has its own
+        // cache, keyed by bucket and credentials.
         SdkClientAuth::SharedCredentials(credentials) => builder
             .credentials_provider(credentials.clone())
             .identity_cache(IdentityCache::no_cache()),

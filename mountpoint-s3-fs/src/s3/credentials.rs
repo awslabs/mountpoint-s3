@@ -51,11 +51,14 @@ mod cache;
 
 pub use cache::{LoadCredentialsError, SharedCredentials};
 
-/// How long a query to the SDK credentials chain may take before it fails. Requests waiting to be
-/// signed wait for the query, so a source that hangs (such as a stuck `credential_process`) must
-/// not hold them forever. Long enough for the slower sources to finish their own retries: the SDK's
-/// instance metadata client alone allows 30 seconds per operation, and a role's source credentials
-/// may come from it before the call to STS.
+/// How long a query to the SDK credentials chain may take. When it runs out, the query fails with a
+/// timeout error, without trying the next source in the chain. With [SharedCredentials], the
+/// requests waiting for the query fail. The next request starts a new query.
+///
+/// The timeout is for a source that stops answering, such as a stuck `credential_process` or an STS
+/// endpoint that accepts the connection but never responds: the STS client has only a connect
+/// timeout. A working chain only reaches it if its responses take tens of seconds: a chain of roles
+/// sends one STS request per role, after the query to its first source.
 ///
 /// A timed-out `credential_process` keeps running: the SDK doesn't kill it.
 pub const DEFAULT_FETCH_TIMEOUT: Duration = Duration::from_secs(60);
@@ -252,13 +255,13 @@ async fn check_profile_exists(name: &str) -> Result<(), SdkCredentialsError> {
 
 /// An HTTPS client whose trust store is only the certificates in the given PEM file, and which uses
 /// the proxy environment variables.
-fn https_client(path: &PathBuf) -> Result<SharedHttpClient, SdkCredentialsError> {
-    let pem = std::fs::read(path).map_err(|source| SdkCredentialsError::CaBundle {
-        path: path.clone(),
+fn https_client(ca_bundle_path: &PathBuf) -> Result<SharedHttpClient, SdkCredentialsError> {
+    let pem = std::fs::read(ca_bundle_path).map_err(|source| SdkCredentialsError::CaBundle {
+        path: ca_bundle_path.clone(),
         source,
     })?;
     check_ca_bundle(&pem).map_err(|reason| SdkCredentialsError::InvalidCaBundle {
-        path: path.clone(),
+        path: ca_bundle_path.clone(),
         reason,
     })?;
     let trust_store = TrustStore::empty().with_native_roots(false).with_pem_certificate(pem);

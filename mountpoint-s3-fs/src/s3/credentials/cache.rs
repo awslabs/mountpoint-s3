@@ -133,11 +133,10 @@ impl Debug for SharedCredentials {
 #[error("failed to load AWS credentials")]
 pub struct LoadCredentialsError(#[source] Arc<CredentialsError>);
 
-/// The error of a fetch that was dropped before it completed.
+/// The error of a fetch whose task was dropped before it completed: its runtime shut down or the
+/// source panicked.
 fn fetch_dropped() -> CredentialsError {
-    CredentialsError::provider_error(
-        "the fetch was dropped before it completed, for example because its runtime shut down",
-    )
+    CredentialsError::provider_error("the credentials fetch did not complete")
 }
 
 struct Cache {
@@ -254,16 +253,15 @@ impl Cache {
         }
     }
 
-    /// When credentials fetched now are due for a refresh: 5 minutes before they expire (now, if
-    /// that is sooner), or after the refresh interval if they don't expire.
+    /// When credentials fetched now are due for a refresh: 5 minutes before they expire, or after
+    /// the refresh interval if they don't expire. Credentials that expire in less than 5 minutes
+    /// are already due: the next query fetches again.
     fn refresh_at(&self, credentials: &CachedCredentials) -> SystemTime {
-        let now = SystemTime::now();
-        let Some(expiration) = credentials.sdk.expiry() else {
-            return now + self.refresh_interval;
-        };
-        expiration
-            .checked_sub(REFRESH_BEFORE_EXPIRATION)
-            .map_or(now, |refresh_at| refresh_at.max(now))
+        match credentials.sdk.expiry() {
+            // `checked_sub` only fails for times long past, which are due too.
+            Some(expiration) => expiration.checked_sub(REFRESH_BEFORE_EXPIRATION).unwrap_or(expiration),
+            None => SystemTime::now() + self.refresh_interval,
+        }
     }
 }
 
@@ -549,10 +547,7 @@ mod tests {
         runtime.shutdown_background();
         let error = block_on(credentials.load()).unwrap_err();
         let message = format!("{}", DisplayErrorContext(&error));
-        assert!(
-            message.contains("the fetch was dropped before it completed"),
-            "{message}"
-        );
+        assert!(message.contains("the credentials fetch did not complete"), "{message}");
         crt_query(&credentials).expect_err("the runtime is shut down");
     }
 }
