@@ -133,6 +133,7 @@ const INTERNAL_ERROR: &str = "We encountered an internal error. Please try again
 #[test_case(MetadataOperation::Unlink, Operation::DeleteObject, Some(Error::NoSuchBucket), libc::EIO, client_error(KEY, None, None, None); "DeleteObject no such bucket")]
 #[test_case(MetadataOperation::Unlink, Operation::DeleteObject, Some(Error::AccessDenied), libc::EIO, client_error(KEY, Some(403), Some("AccessDenied"), Some("Access Denied")); "DeleteObject access denied")]
 #[test_case(MetadataOperation::Unlink, Operation::DeleteObject, Some(Error::SlowDown), libc::EIO, client_error(KEY, Some(503), Some("SlowDown"), Some(THROTTLED)); "DeleteObject throttled")]
+#[test_case(MetadataOperation::Unlink, Operation::DeleteObject, custom_error(500, "InternalError", INTERNAL_ERROR), libc::EIO, client_error(KEY, None, None, None); "DeleteObject internal error")]
 #[test_case(MetadataOperation::Rename, Operation::RenameObject, Some(Error::NoSuchKey), libc::ENOENT, no_metadata(); "RenameObject no such key")]
 #[test_case(MetadataOperation::Rename, Operation::RenameObject, None, libc::EEXIST, no_metadata(); "RenameObject precondition failed")]
 #[test_case(MetadataOperation::Rename, Operation::RenameObject, Some(Error::NotImplemented), libc::ENOSYS, no_metadata(); "RenameObject not implemented")]
@@ -140,6 +141,7 @@ const INTERNAL_ERROR: &str = "We encountered an internal error. Please try again
 #[test_case(MetadataOperation::Rename, Operation::RenameObject, Some(Error::InvalidRequest("Invalid request")), libc::EIO, client_error(KEY, None, None, None); "RenameObject invalid request")]
 #[test_case(MetadataOperation::Rename, Operation::RenameObject, Some(Error::AccessDenied), libc::EIO, client_error(KEY, Some(403), Some("AccessDenied"), Some("Access Denied")); "RenameObject access denied")]
 #[test_case(MetadataOperation::Rename, Operation::RenameObject, Some(Error::SlowDown), libc::EIO, client_error(KEY, Some(503), Some("SlowDown"), Some(THROTTLED)); "RenameObject throttled")]
+#[test_case(MetadataOperation::Rename, Operation::RenameObject, custom_error(500, "InternalError", INTERNAL_ERROR), libc::EIO, client_error(KEY, None, None, None); "RenameObject internal error")]
 #[tokio::test]
 async fn test_metadata_error(
     fs_operation: MetadataOperation,
