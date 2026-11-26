@@ -18,7 +18,7 @@ use mountpoint_s3_fs::manifest::{Manifest, ManifestMetablock};
 use mountpoint_s3_fs::memory::{CandidateSize, MINIMUM_MEM_LIMIT, PagedPool};
 use mountpoint_s3_fs::prefetch::PrefetcherBuilder;
 use mountpoint_s3_fs::s3::{Prefix, S3Path};
-use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
+use mountpoint_s3_fs::{MetadataClient, Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
 use nix::fcntl::{self, FdFlag};
 use tempfile::TempDir;
 
@@ -284,8 +284,9 @@ pub trait TestSessionCreator: AsyncFnOnce(&str, TestSessionConfig) -> TestSessio
 impl<T> TestSessionCreator for T where T: AsyncFnOnce(&str, TestSessionConfig) -> TestSession {}
 
 #[allow(clippy::too_many_arguments)]
-fn create_filesystem<Client>(
+fn create_filesystem<Client, Metadata>(
     client: Client,
+    metadata: Metadata,
     prefetcher_builder: PrefetcherBuilder<Client>,
     pool: PagedPool,
     runtime: Runtime,
@@ -295,6 +296,7 @@ fn create_filesystem<Client>(
 ) -> S3Filesystem<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
+    Metadata: MetadataClient + Clone + 'static,
 {
     #[cfg(feature = "manifest")]
     if let Some(manifest) = manifest {
@@ -309,12 +311,12 @@ where
     };
 
     S3Filesystem::new(
-        client.clone(),
+        client,
         prefetcher_builder,
         pool,
         runtime,
         Superblock::new(
-            client,
+            metadata,
             s3_path,
             SuperblockConfig {
                 cache_config: filesystem_config.cache_config.clone(),
@@ -325,9 +327,12 @@ where
     )
 }
 
+/// Mount a file system that sends its data requests with `client` and its metadata requests with
+/// `metadata`.
 #[allow(clippy::too_many_arguments)]
-pub fn create_fuse_session<Client>(
+pub fn create_fuse_session<Client, Metadata>(
     client: Client,
+    metadata: Metadata,
     prefetcher_builder: PrefetcherBuilder<Client>,
     pool: PagedPool,
     runtime: Runtime,
@@ -337,6 +342,7 @@ pub fn create_fuse_session<Client>(
 ) -> MountedSession
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
+    Metadata: MetadataClient + Clone + 'static,
 {
     // Only the user running the tests can access the mount, as with `mount-s3` without
     // `--allow-other`/`--allow-root`. Tests expect to be the only clients of the file system:
@@ -351,7 +357,8 @@ where
     let session_acl = fuser::SessionACL::Owner;
 
     let fs = create_filesystem(
-        client.clone(),
+        client,
+        metadata,
         prefetcher_builder,
         pool,
         runtime,
@@ -399,193 +406,6 @@ pub fn mount_for_passing_fuse_fd(mount_point: &Path, options: &[MountOption]) ->
     }
 
     (file, mount)
-}
-
-pub mod mock_session {
-    use super::*;
-
-    use futures::executor::ThreadPool;
-    use mountpoint_s3_client::mock_client::MockClient;
-    use mountpoint_s3_client::types::{ChecksumMode, GetObjectParams, HeadObjectParams};
-    use mountpoint_s3_fs::prefetch::Prefetcher;
-    use mountpoint_s3_fs::s3::Bucket;
-
-    const BUCKET_NAME: &str = "test_bucket";
-
-    /// Create a FUSE mount backed by a mock object client that does not talk to S3
-    pub async fn new(test_name: &str, test_config: TestSessionConfig) -> TestSession {
-        let mount_dir = tempfile::tempdir().unwrap();
-
-        let prefix = if test_name.is_empty() {
-            test_name.to_string()
-        } else {
-            format!("{test_name}/")
-        };
-
-        let s3_path = S3Path::new(Bucket::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
-        let pool = PagedPool::config()
-            .with_candidate_sizes([CandidateSize::new(test_config.part_size)])
-            .with_memory_limit(test_config.mem_limit)
-            .build();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(s3_path.bucket.to_string())
-                .part_size(test_config.part_size)
-                .enable_backpressure(true)
-                .initial_read_window_size(test_config.initial_read_window_size)
-                .enable_rename(test_config.filesystem_config.allow_rename)
-                .build(),
-        );
-        let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let prefetcher_builder = Prefetcher::default_builder(client.clone());
-        let mounted_session = create_fuse_session(
-            client.clone(),
-            prefetcher_builder,
-            pool,
-            runtime,
-            s3_path,
-            mount_dir,
-            test_config,
-        );
-        let test_client = create_test_client(client, &prefix);
-
-        TestSession::new(mounted_session, test_client, prefix)
-    }
-
-    /// Create a FUSE mount backed by a mock object client, with caching, that does not talk to S3
-    pub fn new_with_cache<Cache>(cache_factory: impl FnOnce(u64, PagedPool) -> Cache) -> impl TestSessionCreator
-    where
-        Cache: DataCache + Send + Sync + 'static,
-    {
-        async move |test_name: &str, test_config: TestSessionConfig| {
-            let mount_dir = tempfile::tempdir().unwrap();
-
-            let prefix = if test_name.is_empty() {
-                test_name.to_string()
-            } else {
-                format!("{test_name}/")
-            };
-
-            let s3_path = S3Path::new(Bucket::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
-            let pool = PagedPool::config()
-                .with_candidate_sizes([
-                    CandidateSize::new(test_config.cache_block_size),
-                    CandidateSize::new(test_config.part_size),
-                ])
-                .with_memory_limit(test_config.mem_limit)
-                .build();
-            let cache = cache_factory(test_config.cache_block_size as u64, pool.clone());
-
-            let client = Arc::new(
-                MockClient::config()
-                    .bucket(s3_path.bucket.to_string())
-                    .part_size(test_config.part_size)
-                    .enable_backpressure(true)
-                    .initial_read_window_size(test_config.initial_read_window_size)
-                    .build(),
-            );
-            let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-            let prefetcher_builder = Prefetcher::caching_builder(cache, client.clone());
-            let mounted_session = create_fuse_session(
-                client.clone(),
-                prefetcher_builder,
-                pool,
-                runtime,
-                s3_path,
-                mount_dir,
-                test_config,
-            );
-            let test_client = create_test_client(client, &prefix);
-
-            TestSession::new(mounted_session, test_client, prefix)
-        }
-    }
-
-    fn create_test_client(client: Arc<MockClient>, prefix: &str) -> impl TestClient + use<> {
-        MockTestClient {
-            prefix: prefix.to_owned(),
-            client,
-        }
-    }
-
-    struct MockTestClient {
-        prefix: String,
-        client: Arc<MockClient>,
-    }
-
-    #[async_trait]
-    impl TestClient for MockTestClient {
-        async fn put_object_single(
-            &self,
-            key: &str,
-            value: &[u8],
-            params: PutObjectSingleParams,
-        ) -> Result<(), Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            _ = self
-                .client
-                .put_object_single(BUCKET_NAME, &full_key, &params, value.to_vec())
-                .await?;
-            Ok(())
-        }
-
-        async fn remove_object(&self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            self.client.remove_object(&full_key);
-            Ok(())
-        }
-
-        async fn contains_dir(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            Ok(self.client.contains_prefix(&full_key))
-        }
-
-        async fn contains_key(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            Ok(self.client.contains_key(&full_key))
-        }
-
-        async fn is_upload_in_progress(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            Ok(self.client.is_upload_in_progress(&full_key))
-        }
-
-        async fn head_object(&self, key: &str) -> Result<ObjectHead, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            let params = HeadObjectParams::new().checksum_mode(Some(ChecksumMode::Enabled));
-            let head_object = self.client.head_object(BUCKET_NAME, &full_key, &params).await?;
-            Ok(ObjectHead {
-                size: head_object.size,
-                checksum: head_object.checksum,
-                storage_class: head_object.storage_class,
-            })
-        }
-
-        async fn get_object_content(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            let request = self
-                .client
-                .get_object(BUCKET_NAME, &full_key, &GetObjectParams::new())
-                .await?;
-            let body = request.collect().await?;
-            Ok(body.to_vec())
-        }
-
-        async fn get_object_content_type(&self, _key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
-            // MockClient's HeadObject does not expose Content-Type headers.
-            Ok(None)
-        }
-
-        async fn restore_object(&self, key: &str, _expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            Ok(self.client.restore_object(&full_key)?)
-        }
-
-        async fn is_object_restored(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            Ok(self.client.is_object_restored(&full_key)?)
-        }
-    }
 }
 
 /// FUSE sessions that run the CRT client against a local mock server.
@@ -668,6 +488,7 @@ pub mod mock_server_session {
         let s3_path = S3Path::new(Bucket::new(server.bucket()).unwrap(), Prefix::new(&prefix).unwrap());
         let runtime = Runtime::new(client.event_loop_group());
         let mounted_session = create_fuse_session(
+            client.clone(),
             client,
             prefetcher_builder,
             pool,
@@ -857,6 +678,7 @@ pub mod s3_session {
         };
 
         let mounted_session = create_fuse_session(
+            client.clone(),
             client,
             prefetcher_builder,
             pool,
@@ -903,6 +725,7 @@ pub mod s3_session {
             let runtime = Runtime::new(client.event_loop_group());
             let prefetcher_builder = Prefetcher::caching_builder(cache, client.clone());
             let mounted_session = create_fuse_session(
+                client.clone(),
                 client,
                 prefetcher_builder,
                 pool,
