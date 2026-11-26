@@ -1,5 +1,6 @@
 ## Unreleased (v1.25.1)
 
+* Mountpoint is now built and packaged on AL2023, but still uses glibc 2.17. The mount-s3.rpm includes a SHA256 digest which is required for certain FIPS enabled operating systems. ([#2045](https://github.com/awslabs/mountpoint-s3/pull/2045))
 * Fix Mountpoint switching to a different AWS credentials source when the one it is using fails. ([#2049](https://github.com/awslabs/mountpoint-s3/pull/2049))
 * Fix the local disk cache (`--cache`) exceeding `--max-cache-size`, or leaving less than 5% of its file system free without `--max-cache-size`, by up to one block per cache write in progress. ([#2041](https://github.com/awslabs/mountpoint-s3/pull/2041))
 
