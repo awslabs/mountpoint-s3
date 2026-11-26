@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795714409701,
+  "lastUpdate": 1795720864148,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard, Memory-Limited)": [
-      {
-        "commit": {
-          "author": {
-            "email": "49699333+dependabot[bot]@users.noreply.github.com",
-            "name": "dependabot[bot]",
-            "username": "dependabot[bot]"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "dcda7b59458ac3d6228a5c1a3fb99cf4bcf68152",
-          "message": "Bump actions/setup-python from 7.0.0 to 7.1.0 (#2017)\n\nBumps [actions/setup-python](https://github.com/actions/setup-python)\nfrom 7.0.0 to 7.1.0.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/actions/setup-python/releases\">actions/setup-python's\nreleases</a>.</em></p>\n<blockquote>\n<h2>v7.1.0</h2>\n<h2>What's Changed</h2>\n<h3>Enhancements</h3>\n<ul>\n<li>Add <code>mirror</code> and <code>mirror-token</code> inputs for\ncustom Python distribution sources by <a\nhref=\"https://github.com/luhenry\"><code>@​luhenry</code></a> in <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1302\">actions/setup-python#1302</a></li>\n<li>Improve error message clarity by <a\nhref=\"https://github.com/v-lmvysakh\"><code>@​v-lmvysakh</code></a> in <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1351\">actions/setup-python#1351</a></li>\n</ul>\n<h3>Dependency Upgrade</h3>\n<ul>\n<li>Upgrade browserslist from 4.28.2 to 4.28.9 by <a\nhref=\"https://github.com/dependabot\"><code>@​dependabot</code></a> in <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1353\">actions/setup-python#1353</a></li>\n<li>Upgrade <code>@​typescript-eslint/parser</code> from 8.62.0 to\n8.70.0 by <a\nhref=\"https://github.com/dependabot\"><code>@​dependabot</code></a> in <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1343\">actions/setup-python#1343</a></li>\n<li>Upgrade eslint-plugin-jest from 29.15.2 to 29.16.6 by <a\nhref=\"https://github.com/dependabot\"><code>@​dependabot</code></a> in <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1342\">actions/setup-python#1342</a></li>\n<li>Upgrade <code>@​vercel/ncc</code> from 0.44.0 to 0.45.0 by <a\nhref=\"https://github.com/dependabot\"><code>@​dependabot</code></a> in <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1357\">actions/setup-python#1357</a></li>\n<li>Upgrade <code>@​types/semver</code> from 7.7.1 to 7.8.0 by <a\nhref=\"https://github.com/dependabot\"><code>@​dependabot</code></a> in <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1359\">actions/setup-python#1359</a></li>\n<li>Upgrade undici from 6.28.0 to 6.29.0 by <a\nhref=\"https://github.com/dependabot\"><code>@​dependabot</code></a> in <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1364\">actions/setup-python#1364</a></li>\n<li>Upgrade ts-jest from 29.4.11 to 29.4.14 by <a\nhref=\"https://github.com/dependabot\"><code>@​dependabot</code></a> in <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1361\">actions/setup-python#1361</a></li>\n<li>Upgrade brace-expansion from 5.0.9 to 5.0.12 by <a\nhref=\"https://github.com/dependabot\"><code>@​dependabot</code></a> in <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1365\">actions/setup-python#1365</a></li>\n<li>Upgrade prettier from 3.8.4 to 3.9.9 and package.json from 7.0.0 to\n7.1.0 by <a\nhref=\"https://github.com/dependabot\"><code>@​dependabot</code></a> in <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1363\">actions/setup-python#1363</a></li>\n<li>Upgrade <code>@​typescript-eslint/eslint-plugin</code> from 8.62.0\nto 8.71.1 by <a\nhref=\"https://github.com/dependabot\"><code>@​dependabot</code></a> in <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1369\">actions/setup-python#1369</a></li>\n<li>Upgrade actions/checkout from 7.0.0 to 7.0.1 by <a\nhref=\"https://github.com/dependabot\"><code>@​dependabot</code></a> in <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1345\">actions/setup-python#1345</a></li>\n<li>Upgrade cache to 6.3.0 by <a\nhref=\"https://github.com/v-HarithaVattikuti\"><code>@​v-HarithaVattikuti</code></a>\nin <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1370\">actions/setup-python#1370</a></li>\n<li>Resolve Basic Validation audit failures by <a\nhref=\"https://github.com/v-HarithaVattikuti\"><code>@​v-HarithaVattikuti</code></a>\nin <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1347\">actions/setup-python#1347</a></li>\n<li>Resolve npm audit failures by <a\nhref=\"https://github.com/v-HarithaVattikuti\"><code>@​v-HarithaVattikuti</code></a>\nin <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1350\">actions/setup-python#1350</a></li>\n</ul>\n<h2>New Contributors</h2>\n<ul>\n<li><a href=\"https://github.com/luhenry\"><code>@​luhenry</code></a> made\ntheir first contribution in <a\nhref=\"https://redirect.github.com/actions/setup-python/pull/1302\">actions/setup-python#1302</a></li>\n</ul>\n<p><strong>Full Changelog</strong>: <a\nhref=\"https://github.com/actions/setup-python/compare/v7.0.0...v7.1.0\">https://github.com/actions/setup-python/compare/v7.0.0...v7.1.0</a></p>\n</blockquote>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/actions/setup-python/commit/6d4fd22b20465ccc0f7354476588e8df7c9ca0e0\"><code>6d4fd22</code></a>\nCache upgrade to 6.3.0 (<a\nhref=\"https://redirect.github.com/actions/setup-python/issues/1370\">#1370</a>)</li>\n<li><a\nhref=\"https://github.com/actions/setup-python/commit/ec52d0af729a7c50ced4261d17a07916f43f5b8e\"><code>ec52d0a</code></a>\nBump <code>@​typescript-eslint/eslint-plugin</code> from 8.62.0 to\n8.71.1 (<a\nhref=\"https://redirect.github.com/actions/setup-python/issues/1369\">#1369</a>)</li>\n<li><a\nhref=\"https://github.com/actions/setup-python/commit/ff73b2463e2f3baa703f830da214b8dfeeaeccf8\"><code>ff73b24</code></a>\nBump prettier from 3.8.4 to 3.9.9 and package.json from 7.0.0 to 7.1.0\n(<a\nhref=\"https://redirect.github.com/actions/setup-python/issues/1363\">#1363</a>)</li>\n<li><a\nhref=\"https://github.com/actions/setup-python/commit/0e40890053525508c059c61932a6b8614f9e95db\"><code>0e40890</code></a>\nBump brace-expansion from 5.0.9 to 5.0.12 (<a\nhref=\"https://redirect.github.com/actions/setup-python/issues/1365\">#1365</a>)</li>\n<li><a\nhref=\"https://github.com/actions/setup-python/commit/3892123fbe74688ccc83ec7c465dc688359e5199\"><code>3892123</code></a>\nBump ts-jest from 29.4.11 to 29.4.14 (<a\nhref=\"https://redirect.github.com/actions/setup-python/issues/1361\">#1361</a>)</li>\n<li><a\nhref=\"https://github.com/actions/setup-python/commit/660965736c4aecc62797ea07d351a3c259f14660\"><code>6609657</code></a>\nBump undici from 6.28.0 to 6.29.0 (<a\nhref=\"https://redirect.github.com/actions/setup-python/issues/1364\">#1364</a>)</li>\n<li><a\nhref=\"https://github.com/actions/setup-python/commit/e1be392b26fb1917a7b2c455817e4b4dad6544ce\"><code>e1be392</code></a>\nBump <code>@​types/semver</code> from 7.7.1 to 7.8.0 (<a\nhref=\"https://redirect.github.com/actions/setup-python/issues/1359\">#1359</a>)</li>\n<li><a\nhref=\"https://github.com/actions/setup-python/commit/06da6279cdbca41027908073e81a4544dc79c06b\"><code>06da627</code></a>\nBump <code>@​vercel/ncc</code> from 0.44.0 to 0.45.0 (<a\nhref=\"https://redirect.github.com/actions/setup-python/issues/1357\">#1357</a>)</li>\n<li><a\nhref=\"https://github.com/actions/setup-python/commit/af9bcc7548695e66d75709de6f29e337624b8de8\"><code>af9bcc7</code></a>\nBump eslint-plugin-jest from 29.15.2 to 29.16.6 (<a\nhref=\"https://redirect.github.com/actions/setup-python/issues/1342\">#1342</a>)</li>\n<li><a\nhref=\"https://github.com/actions/setup-python/commit/7aeabeba5501120d873c50398519dbfd0657031c\"><code>7aeabeb</code></a>\nBump <code>@​typescript-eslint/parser</code> from 8.62.0 to 8.70.0 (<a\nhref=\"https://redirect.github.com/actions/setup-python/issues/1343\">#1343</a>)</li>\n<li>Additional commits viewable in <a\nhref=\"https://github.com/actions/setup-python/compare/5fda3b95a4ea91299a34e894583c3862153e4b97...6d4fd22b20465ccc0f7354476588e8df7c9ca0e0\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
-          "timestamp": "2026-11-02T19:54:37Z",
-          "tree_id": "2d50d7e9cf3d0bf40dfc66a9aa5c8c347f6fe312",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/dcda7b59458ac3d6228a5c1a3fb99cf4bcf68152"
-        },
-        "date": 1793659654796,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 469.95703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 486.3359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 457.01171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 54.95703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 91.21875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 56.4453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 89.03125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 46.3984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 59.70703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 47.9765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 60.4765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 433.96875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 85.1875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 433.94921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 86.34765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 331.96484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 53.95703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 332.96484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 332.3515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 53.12890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 436.08984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 400.25,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 376.26171875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "5381483+muddyfish@users.noreply.github.com",
+            "name": "Simon Beal",
+            "username": "muddyfish"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "57e62f51966eb06975e633ede5a0fd6a2e94ef1f",
+          "message": "Build release packages with cargo-zigbuild on Amazon Linux 2023. (#2045)\n\nMigrate the production image build from Centos7 to AL2023.\nWe're changing to drop Centos as it's been end of life for a significant\nperiod, and AL2023 still receives updates.\n\nWe're using zigbuild rather than a sysroot as zigbuild 'just worked',\nand a sysroot had a dependency on downloading the glibc version from\nCentos vault.\n\n### Does this change impact existing behavior?\n\nNo known breaking changes. \n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\n### Testing\n\nTried installing using AppStream using Rocky8 with FIPS mode:\n\n- `./mount-s3.rpm` is the latest official build\n- `./mount-s3-1.25.1+unofficial-x86_64.rpm` is the build created using\nGH actions on this PR.\n\n```\n[ImageBuilderAdmin@ip-198-19-112-68 ~]$ sudo yum install ./mount-s3.rpm\nLast metadata expiration check: 0:31:14 ago on Tue 24 Nov 2026 04:16:39 PM UTC.\nDependencies resolved.\n================================================================================\n Package          Architecture   Version             Repository            Size\n================================================================================\nInstalling:\n mount-s3         x86_64         1.25.0-1            @commandline          15 M\n\nTransaction Summary\n================================================================================\nInstall  1 Package\n\nTotal size: 15 M\nInstalled size: 70 M\nIs this ok [y/N]: y\nDownloading Packages:\nRunning transaction check\nTransaction check succeeded.\nRunning transaction test\nError: Transaction test error:\n  package mount-s3-1.25.0-1.x86_64 does not verify: no digest\n\n[ImageBuilderAdmin@ip-198-19-112-68 ~]$ sudo yum install ./mount-s3-1.25.1+unofficial-x86_64.rpm \nLast metadata expiration check: 0:31:21 ago on Tue 24 Nov 2026 04:16:39 PM UTC.\nDependencies resolved.\n================================================================================\n Package        Architecture Version                   Repository          Size\n================================================================================\nInstalling:\n mount-s3       x86_64       1.25.1+unofficial-1       @commandline        15 M\n\nTransaction Summary\n================================================================================\nInstall  1 Package\n\nTotal size: 15 M\nInstalled size: 65 M\nIs this ok [y/N]: y\nDownloading Packages:\nRunning transaction check\nTransaction check succeeded.\nRunning transaction test\nTransaction test succeeded.\nRunning transaction\n  Preparing        :                                                        1/1 \n  Installing       : mount-s3-1.25.1+unofficial-1.x86_64                       1/1 \n  Verifying        : mount-s3-1.25.1+unofficial-1.x86_64                                   1/1 \n\nInstalled:\n  mount-s3-1.25.1+unofficial-1.x86_64                                                                                 \n\nComplete!\n\n```\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Simon Beal <simobeal@amazon.com>",
+          "timestamp": "2026-11-26T16:54:40Z",
+          "tree_id": "7fc0b4d08802f5b606fbdbb83fa7e856467f5ca6",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/57e62f51966eb06975e633ede5a0fd6a2e94ef1f"
+        },
+        "date": 1795720864068,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 476.65234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 472.98046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 461.7890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 56.19140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 91.3671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 56.05859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 90.23828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 46.32421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 60.20703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 47.87109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 58.76953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 433.453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 86.4140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 436.09375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 86.7421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 331.953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 54.5390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 332.6484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 333.39453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 54.125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 438.98828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 380.23046875,
             "unit": "MiB"
           }
         ]
