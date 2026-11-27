@@ -11,6 +11,8 @@
 * The credentials chain of `s3::credentials` gets instance metadata credentials from the CRT's IMDS provider, which falls back to IMDSv1 when the IMDSv2 token request fails, unless `AWS_EC2_METADATA_V1_DISABLED` or the profile's `ec2_metadata_v1_disabled` is `true`.
 * `SdkCredentialsSource` sends the STS requests of its credential providers (roles and web identity) to the region in `AWS_REGION`, `AWS_DEFAULT_REGION` or the selected profile's `region` in the shared config file, with the global STS endpoint as the fallback for roles, and without the FIPS or dual-stack endpoints. Web identity from the environment is skipped when there is no region. Web identity isn't used when its STS endpoint would be a URL set for every service, in `AWS_ENDPOINT_URL` or a profile's `endpoint_url`, rather than one set for STS.
 * Once a source of its chain returns credentials, `SdkCredentialsSource` queries only that source. Once a profile has returned static keys, it reads the keys from the shared config and credentials files again for each query.
+* `ClientConfig::auth_config` is an `AuthConfig` (`Default`, `Profile` or `NoSigning`) in place of an `S3ClientAuthConfig`: it no longer takes a CRT credentials provider. For `Default` and `Profile`, `ClientConfig::create_client` uses `SharedCredentials` over an `SdkCredentialsSource` in place of the CRT's default and profile chains.
+* `ClientConfig::create_client` is async, and takes a `tokio::runtime::Handle` to a multi-thread runtime with the I/O and time drivers enabled, which the caller keeps running for as long as the client exists, for the client's Tokio-based components.
 
 ## v0.12.0 (November 12, 2026)
 

@@ -6,6 +6,7 @@
 * Re-export `Credentials`, `CredentialsOptions`, `CredentialsSource` and `CredentialsCallback` from `mountpoint-s3-crt` in `config`, to build a `CredentialsProvider` for `S3ClientAuthConfig::Provider` that sources credentials from Rust code.
 * Add `config::imds_credentials_provider`, an instance metadata (IMDS) credentials provider with its own event loop thread.
 * `AWS_EC2_METADATA_DISABLED` disables instance metadata for `InstanceInfo` only when it is `true`, as in the AWS SDKs. Other values, such as `1`, no longer disable it.
+* `S3RequestError::NoSigningCredentials` is also the error when a delegate credentials provider fails a query that the client makes itself, as for S3 Express One Zone sessions. Its message no longer says to see the CRT debug logs.
 
 ## v0.23.0 (November 12, 2026)
 

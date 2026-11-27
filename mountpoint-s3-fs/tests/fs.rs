@@ -1571,6 +1571,7 @@ async fn test_lookup_404_not_an_error() {
         .with_minimum_memory_limit()
         .build();
     let client_config = S3ClientConfig::default()
+        .auth_config(common::s3::get_crt_client_auth_config_for(Default::default()))
         .endpoint_config(get_test_endpoint_config())
         .read_backpressure(true)
         .memory_pool(pool.clone());

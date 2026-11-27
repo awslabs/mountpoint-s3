@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::{Context as _, anyhow};
 use clap::{ArgGroup, Parser, ValueEnum, value_parser};
-use mountpoint_s3_client::config::{AWSCRT_LOG_TARGET, AddressingStyle, S3ClientAuthConfig, TlsConfig};
+use mountpoint_s3_client::config::{AWSCRT_LOG_TARGET, AddressingStyle, TlsConfig};
 use mountpoint_s3_client::instance_info::InstanceInfo;
 use mountpoint_s3_client::user_agent::UserAgent;
 use mountpoint_s3_fs::content_type::ContentTypeDetection;
@@ -13,7 +13,7 @@ use mountpoint_s3_fs::fs::{CacheConfig, ServerSideEncryption, TimeToLive, Upload
 use mountpoint_s3_fs::fuse::config::{FuseOptions, FuseSessionConfig, MountPoint};
 use mountpoint_s3_fs::logging::{LoggingConfig, prepare_log_file_name};
 use mountpoint_s3_fs::memory::{MINIMUM_MEM_LIMIT, effective_total_memory};
-use mountpoint_s3_fs::s3::config::{ClientConfig, MemoryLimitSetting, PartConfig, TargetThroughputSetting};
+use mountpoint_s3_fs::s3::config::{AuthConfig, ClientConfig, MemoryLimitSetting, PartConfig, TargetThroughputSetting};
 use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path, S3PathError, S3Personality};
 use mountpoint_s3_fs::{S3FilesystemConfig, autoconfigure, metrics};
 
@@ -814,13 +814,13 @@ impl CliArgs {
         )
     }
 
-    fn auth_config(&self) -> S3ClientAuthConfig {
+    fn auth_config(&self) -> AuthConfig {
         if self.no_sign_request {
-            S3ClientAuthConfig::NoSigning
+            AuthConfig::NoSigning
         } else if let Some(profile_name) = self.profile.clone() {
-            S3ClientAuthConfig::Profile(profile_name)
+            AuthConfig::Profile(profile_name)
         } else {
-            S3ClientAuthConfig::Default
+            AuthConfig::Default
         }
     }
 

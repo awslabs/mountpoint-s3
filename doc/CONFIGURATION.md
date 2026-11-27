@@ -16,9 +16,6 @@ We've tried hard to make this simple command adopt good defaults for most scenar
 
 Mountpoint uses the same [credentials configuration options](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-configure.html) as the AWS CLI, and will automatically discover credentials from multiple sources. If you are able to run AWS CLI commands like `aws s3 ls` against your bucket, you should generally also be able to use Mountpoint against that bucket.
 
-> [!NOTE]
-> Mountpoint does not currently support authenticating with IAM Identity Center (SSO or Legacy SSO). This issue is tracked in [#433](https://github.com/awslabs/mountpoint-s3/issues/433).
-
 We recommend you use short-term AWS credentials whenever possible. Mountpoint supports several options for short-term AWS credentials:
 * When running Mountpoint on an Amazon EC2 instance, you can [associate an IAM role with your instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html) using an instance profile, and Mountpoint will automatically assume that IAM role and manage refreshing the credentials.
 * When running Mountpoint in an Amazon ECS task, you can similarly [associate an IAM role with the task](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-iam-roles.html) for Mountpoint to automatically assume and manage refreshing the credentials.
@@ -29,6 +26,7 @@ We recommend you use short-term AWS credentials whenever possible. Mountpoint su
   credential_source = Ec2InstanceMetadata
   ```
   With this configuration, running Mountpoint with the `--profile marketingadmin` command-line argument will automatically assume the specified IAM role and manage refreshing the credentials.
+* You can sign in with [IAM Identity Center](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso.html), with `aws sso login`, and use the profile with Mountpoint. Mountpoint uses the token that the AWS CLI caches.
 * Otherwise, you can [acquire temporary AWS credentials for an IAM role](https://docs.aws.amazon.com/cli/latest/userguide/cli-authentication-short-term.html) from the AWS Console or with the `aws sts assume-role` AWS CLI command, and store them in the `~/.aws/credentials` file.
 
 If you need to use long-term AWS credentials, you can [store them in the configuration and credentials files](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html) in `~/.aws`, or [specify them with environment variables](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html) (`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`).

@@ -19,6 +19,9 @@
 //! before they expire, or every 15 minutes if they don't expire, with one fetch from the chain per
 //! refresh. The CRT client reads the cache through [SharedCredentials::auth_config], and an SDK
 //! client through [SdkClientAuth::SharedCredentials](super::sdk_client::SdkClientAuth::SharedCredentials).
+//! Mountpoint's client factory, [ClientConfig::create_client](super::config::ClientConfig::create_client),
+//! uses them for [AuthConfig::Default](super::config::AuthConfig::Default) and
+//! [AuthConfig::Profile](super::config::AuthConfig::Profile).
 //!
 //! Credentials from EC2 instance metadata come from the CRT's IMDS provider, in the default chain and
 //! for profiles with `credential_source = Ec2InstanceMetadata`, so they keep the CRT's IMDSv1
