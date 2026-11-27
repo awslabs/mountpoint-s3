@@ -14,6 +14,8 @@ use mountpoint_s3_client::config::{
 };
 use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
+use mountpoint_s3_fs::s3::credentials::{SdkCredentialsChain, SdkCredentialsConfig, SharedCredentials};
+use tokio::runtime::Handle;
 
 use crate::model::{Action, Chain, Fetch, FetchResult, Outcome, Scenario};
 use crate::stubs::{self, S3_ADDR, Stubs};
@@ -90,7 +92,7 @@ pub fn child(scenario: &Scenario, chain: Chain) -> ExitCode {
 async fn run(scenario: &Scenario, chain: Chain, pki_dir: &Path, home: &Path) -> Outcome {
     let stubs = stubs::start(&scenario.setup, pki_dir).await;
     let mut fetches = Vec::new();
-    let client = match client(chain, scenario.setup.profile, pki_dir) {
+    let client = match client(chain, scenario.setup.profile, pki_dir).await {
         Ok(client) => client,
         Err(_) => {
             fetches.push(Fetch {
@@ -113,11 +115,26 @@ async fn run(scenario: &Scenario, chain: Chain, pki_dir: &Path, home: &Path) -> 
     Outcome { fetches }
 }
 
-fn client(chain: Chain, profile: Option<&str>, pki_dir: &Path) -> Result<S3CrtClient, ()> {
+/// A client that signs with `chain`. Call it on the runtime the SDK chain runs on.
+async fn client(chain: Chain, profile: Option<&str>, pki_dir: &Path) -> Result<S3CrtClient, ()> {
     let endpoint = Uri::new_from_str(&Allocator::default(), format!("http://{S3_ADDR}")).unwrap();
-    let auth_config = match (chain, profile) {
-        (Chain::Crt, None) => S3ClientAuthConfig::Default,
-        (Chain::Crt, Some(profile)) => S3ClientAuthConfig::Profile(profile.to_string()),
+    let tls_config = TlsConfig::new().with_trust_store_path(pki_dir.join("ca.pem"));
+    let auth_config = match chain {
+        Chain::Crt => match profile {
+            None => S3ClientAuthConfig::Default,
+            Some(profile) => S3ClientAuthConfig::Profile(profile.to_string()),
+        },
+        Chain::Sdk => {
+            let sdk_chain = match profile {
+                None => SdkCredentialsChain::Default,
+                Some(profile) => SdkCredentialsChain::Profile(profile.to_string()),
+            };
+            let config = SdkCredentialsConfig::new(sdk_chain).tls_config(&tls_config);
+            SharedCredentials::from_sdk(config, Handle::current())
+                .await
+                .map_err(|e| eprintln!("credentials creation failed: {e:?}"))?
+                .auth_config()
+        }
     };
     let config = S3ClientConfig::new()
         .endpoint_config(
@@ -126,7 +143,7 @@ fn client(chain: Chain, profile: Option<&str>, pki_dir: &Path) -> Result<S3CrtCl
                 .endpoint(endpoint),
         )
         .auth_config(auth_config)
-        .tls_config(TlsConfig::new().with_trust_store_path(pki_dir.join("ca.pem")));
+        .tls_config(tls_config);
     S3CrtClient::new(config).map_err(|e| eprintln!("client creation failed: {e:?}"))
 }
 

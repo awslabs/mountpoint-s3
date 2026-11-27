@@ -6,6 +6,9 @@
 
 * Add `s3::sdk_client::build_sdk_client`, which builds an S3 client from the AWS SDK for Rust with the same endpoint options as the CRT client. ([#2039](https://github.com/awslabs/mountpoint-s3/pull/2039))
 
+* Add `s3::credentials`, for credentials resolved by the AWS SDK for Rust: `SdkCredentialsSource` runs an `aws-config` credentials chain (`SdkCredentialsChain::Default` or `Profile`), and `SharedCredentials` caches its credentials, fetched on a Tokio runtime given as a `tokio::runtime::Handle`, for the CRT client through `S3ClientAuthConfig::Provider`. `SharedCredentials::load` returns the cached credentials, or the error of the fetch from the chain.
+* `SharedCredentials` is a credentials provider for AWS SDK for Rust clients, and `SdkClientAuth::SharedCredentials` makes the client built by `build_sdk_client` sign with it and without an identity cache of its own, so that it signs with the same credentials as a CRT client using the same `SharedCredentials`.
+
 ## v0.12.0 (November 12, 2026)
 
 * Add experimental environment variable `UNSTABLE_MOUNTPOINT_DISABLE_RETRY_QUOTA` to turn off the S3 client's retry quota. ([#2032](https://github.com/awslabs/mountpoint-s3/pull/2032))

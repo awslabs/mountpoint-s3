@@ -2,6 +2,9 @@
 
 * Update to latest CRT dependencies.
 
+* Add `CredentialsProvider::new_delegate`, a credentials provider that sources credentials from a Rust `CredentialsSource` through a `CredentialsCallback`.
+* Add `CredentialsProvider::get_credentials`, which queries a provider for `Credentials`, and `Credentials`, which can be created from `CredentialsOptions` with `Credentials::new`, exposes its keys, session token and expiration, and can be cloned.
+
 ## v0.17.0 (November 12, 2026)
 
 * Add `checksums::crc32c::combine`, which combines the CRC32C checksums of two consecutive blocks of data using the CRT's `aws_checksums_crc32c_combine`. ([#2019](https://github.com/awslabs/mountpoint-s3/pull/2019))

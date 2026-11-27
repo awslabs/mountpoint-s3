@@ -27,7 +27,6 @@ use std::process::ExitCode;
 
 use model::Chain;
 use report::{Cell, Row};
-use run::Run;
 
 fn main() -> ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
@@ -64,17 +63,12 @@ fn main() -> ExitCode {
             continue;
         }
         eprintln!("running {}", scenario.name);
-        let crt = match run::spawn(&scenario, Chain::Crt, dir.path()) {
-            Run::Done(outcome, _) if outcome == scenario.expect => Cell::Pass(outcome),
-            actual => Cell::Mismatch {
-                expected: scenario.expect.clone(),
-                actual,
-            },
-        };
+        let [crt, sdk] =
+            [Chain::Crt, Chain::Sdk].map(|chain| Cell::new(&scenario, chain, run::spawn(&scenario, chain, dir.path())));
         rows.push(Row {
             scenario: scenario.name,
             crt,
-            sdk: Cell::NotRun,
+            sdk,
         });
     }
 
