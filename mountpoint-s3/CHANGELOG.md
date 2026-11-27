@@ -8,6 +8,12 @@
   * A profile with both `source_profile` and `credential_source` makes Mountpoint fail to mount. Mountpoint used to use `source_profile`.
   * When a credentials source is configured but fails, such as a role or web identity whose STS request fails, a `credential_process` command that fails, a `source_profile` loop or a shared file that fails to parse, Mountpoint fails to mount with that source's error. Mountpoint used to move on to the next source, such as the instance's role from instance metadata.
   * Setting `AWS_EC2_METADATA_V1_DISABLED`, or the profile's `ec2_metadata_v1_disabled`, to `true` turns off the IMDSv1 fallback. Mountpoint used to ignore both. The fallback is deprecated, and a future release will use only IMDSv2.
+  * The STS endpoint settings, `AWS_ENDPOINT_URL_STS`, `AWS_ENDPOINT_URL`, and the `endpoint_url` and `services` settings of a profile, must now be URLs, such as `https://sts.example.com`. A host name without `https://`, the only form that worked before, makes the role fail.
+  * Web identity uses an STS endpoint set with `AWS_ENDPOINT_URL_STS`, or, for web identity configured in a profile, the `sts` entry of the profile's `services` section. Before, such an endpoint made web identity fail.
+  * Roles from a profile now send their STS requests to `AWS_ENDPOINT_URL` when `AWS_ENDPOINT_URL_STS` isn't set. If `AWS_ENDPOINT_URL` is an S3 endpoint, also set `AWS_ENDPOINT_URL_STS`, or use `--endpoint-url`, which applies only to S3.
+  * In a chain of roles, where the `source_profile` of a role is itself a role, every STS request goes to the region and endpoint of the selected profile. Before, each request used the settings of its own profile.
+  * Web identity configured in a profile now ignores a `region` in `~/.aws/credentials`. Without a region in `AWS_REGION`, `AWS_DEFAULT_REGION` or `~/.aws/config`, it uses the global STS endpoint, `sts.amazonaws.com`, rather than failing.
+  * A role from a profile with an empty `region =` setting uses the global STS endpoint, `sts.amazonaws.com`, rather than failing.
 
 ### Other changes
 

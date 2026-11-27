@@ -10,7 +10,6 @@ const CONFIG: &str = ".aws/config";
 const SSO_TOKEN_CACHE: &str = ".aws/sso/cache/a0f1490a20d0211c997b44bc357e1972deab8ae3.json";
 
 // The changes that remove the known differences of the SDK chain.
-const STS: &str = "STS region and endpoint chosen as the CRT does";
 const METADATA_DISABLED: &str = "adopt the SDK's AWS_EC2_METADATA_DISABLED rule";
 const PROCESS_VERSION: &str = "adopt the SDK's credential_process output check";
 const REREAD: &str = "read the shared files again on every refresh";
@@ -253,21 +252,18 @@ fn assume_role_profiles() -> Vec<Scenario> {
             .file(CONFIG, role("source_profile = base\n"))
             .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
             .sts()
-            .expect([signed_with_token("ROLE-r1").requests([assume_role("sts.amazonaws.com", "BASE")])])
-            .sdk_todo(STS, [no_credentials()]),
+            .expect([signed_with_token("ROLE-r1").requests([assume_role("sts.amazonaws.com", "BASE")])]),
         scenario("role: region in the profile")
             .file(CONFIG, role("source_profile = base\nregion = eu-west-1\n"))
             .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
             .sts()
-            .expect([signed_with_token("ROLE-r1").requests([assume_role("sts.eu-west-1.amazonaws.com", "BASE")])])
-            .sdk_todo(STS, [no_credentials()]),
+            .expect([signed_with_token("ROLE-r1").requests([assume_role("sts.eu-west-1.amazonaws.com", "BASE")])]),
         scenario("role: AWS_REGION")
             .file(CONFIG, role("source_profile = base\n"))
             .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
             .env("AWS_REGION", "us-west-2")
             .sts()
-            .expect([signed_with_token("ROLE-r1").requests([assume_role("sts.us-west-2.amazonaws.com", "BASE")])])
-            .sdk_todo(STS, [no_credentials()]),
+            .expect([signed_with_token("ROLE-r1").requests([assume_role("sts.us-west-2.amazonaws.com", "BASE")])]),
         env_keys(scenario("role: credential_source = Environment"), "ENV")
             .file(
                 CONFIG,
@@ -275,8 +271,7 @@ fn assume_role_profiles() -> Vec<Scenario> {
             )
             .profile("named")
             .sts()
-            .expect([signed_with_token("ROLE-r1").requests([assume_role("sts.amazonaws.com", "ENV")])])
-            .sdk_todo(STS, [no_credentials()]),
+            .expect([signed_with_token("ROLE-r1").requests([assume_role("sts.amazonaws.com", "ENV")])]),
         scenario("role: credential_source = Ec2InstanceMetadata")
             .file(CONFIG, role("credential_source = Ec2InstanceMetadata\n"))
             .imds(imds("IMDS-1"))
@@ -285,8 +280,7 @@ fn assume_role_profiles() -> Vec<Scenario> {
                 let mut requests = imds_v2();
                 requests.push(assume_role("sts.amazonaws.com", "IMDS-1"));
                 requests
-            })])
-            .sdk_todo(STS, [no_credentials().requests(imds_v2())]),
+            })]),
         scenario("role: role chain")
             .file(
                 CONFIG,
@@ -297,8 +291,7 @@ fn assume_role_profiles() -> Vec<Scenario> {
             .expect([signed_with_token("ROLE-r2").requests([
                 assume_role("sts.amazonaws.com", "BASE"),
                 assume_role("sts.amazonaws.com", "ROLE-r1"),
-            ])])
-            .sdk_todo(STS, [no_credentials()]),
+            ])]),
         scenario("role: role chain, each profile's region")
             .file(
                 CONFIG,
@@ -310,12 +303,16 @@ fn assume_role_profiles() -> Vec<Scenario> {
                 assume_role("sts.eu-west-1.amazonaws.com", "BASE"),
                 assume_role("sts.us-west-2.amazonaws.com", "ROLE-r1"),
             ])])
-            .sdk_todo(STS, [no_credentials()]),
+            .sdk_adopted(CHANGELOG, [signed_with_token("ROLE-r2").requests([
+                assume_role("sts.us-west-2.amazonaws.com", "BASE"),
+                assume_role("sts.us-west-2.amazonaws.com", "ROLE-r1"),
+            ])]),
         scenario("role: empty region")
             .file(CONFIG, role("source_profile = base\nregion =\n"))
             .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
             .sts()
-            .expect([no_credentials()]),
+            .expect([no_credentials()])
+            .sdk_adopted(CHANGELOG, [signed_with_token("ROLE-r1").requests([assume_role("sts.amazonaws.com", "BASE")])]),
         scenario("role: credential_source = EcsContainer")
             .file(CONFIG, role("credential_source = EcsContainer\n"))
             .env("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "/creds")
@@ -324,8 +321,7 @@ fn assume_role_profiles() -> Vec<Scenario> {
             .expect([signed_with_token("ROLE-r1").requests([
                 ecs("169.254.170.2", "/creds", None),
                 assume_role("sts.amazonaws.com", "ECS"),
-            ])])
-            .sdk_todo(STS, [no_credentials().requests([ecs("169.254.170.2", "/creds", None)])]),
+            ])]),
         scenario("role: source_profile with credential_source")
             .file(CONFIG, role("source_profile = base\ncredential_source = Environment\n"))
             .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
@@ -340,13 +336,12 @@ fn assume_role_profiles() -> Vec<Scenario> {
             .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
             .sts()
             .expect([signed_with_token("ROLE-r1").requests([assume_role("sts.custom.test", "BASE")])])
-            .sdk_todo(STS, [no_credentials()]),
+            .sdk_adopted(CHANGELOG, [no_credentials()]),
         scenario("role: STS fails")
             .file(CONFIG, role("source_profile = base\n"))
             .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
             .sts_failing(403)
-            .expect([no_credentials().requests([assume_role("sts.amazonaws.com", "BASE")])])
-            .sdk_todo(STS, [no_credentials()]),
+            .expect([no_credentials().requests([assume_role("sts.amazonaws.com", "BASE")])]),
         scenario("role: STS fails, with IMDS available")
             .file(CONFIG, role("source_profile = base\n"))
             .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
@@ -354,7 +349,7 @@ fn assume_role_profiles() -> Vec<Scenario> {
             .sts_failing(403)
             .expect([signed_with_token("IMDS-1")
                 .requests([assume_role("sts.amazonaws.com", "BASE")].into_iter().chain(imds_v2()))])
-            .sdk_todo(STS, [no_credentials()]),
+            .sdk_adopted(CHANGELOG, [no_credentials().requests([assume_role("sts.amazonaws.com", "BASE")])]),
         scenario("role: source_profile loop, with IMDS available")
             .file(
                 CONFIG,
@@ -369,8 +364,7 @@ fn assume_role_profiles() -> Vec<Scenario> {
             .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
             .profile("named")
             .sts()
-            .expect([signed_with_token("ROLE-r1").requests([assume_role("sts.amazonaws.com", "BASE")])])
-            .sdk_todo(STS, [no_credentials()]),
+            .expect([signed_with_token("ROLE-r1").requests([assume_role("sts.amazonaws.com", "BASE")])]),
         scenario("role: AWS_ENDPOINT_URL_STS as a host name")
             .file(CONFIG, role("source_profile = base\n"))
             .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
@@ -378,33 +372,43 @@ fn assume_role_profiles() -> Vec<Scenario> {
             .env("AWS_ENDPOINT_URL_STS", "sts.custom.test")
             .sts()
             .expect([signed_with_token("ROLE-r1").requests([assume_role("sts.custom.test", "BASE")])])
-            .sdk_todo(STS, [no_credentials()]),
+            .sdk_adopted(CHANGELOG, [no_credentials()]),
         scenario("role: AWS_ENDPOINT_URL_STS as a URL")
             .file(CONFIG, role("source_profile = base\n"))
             .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
             .env("AWS_REGION", "us-west-2")
             .env("AWS_ENDPOINT_URL_STS", "https://sts.custom.test")
             .sts()
-            .expect([no_credentials()]),
+            .expect([no_credentials()])
+            .sdk_adopted(CHANGELOG, [signed_with_token("ROLE-r1").requests([assume_role("sts.custom.test", "BASE")])]),
         scenario("role: AWS_ENDPOINT_URL as a URL")
             .file(CONFIG, role("source_profile = base\n"))
             .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
             .env("AWS_REGION", "us-west-2")
             .env("AWS_ENDPOINT_URL", "https://sts.custom.test")
             .sts()
-            .expect([no_credentials()]),
+            .expect([no_credentials()])
+            .sdk_adopted(CHANGELOG, [signed_with_token("ROLE-r1").requests([assume_role("sts.custom.test", "BASE")])]),
         scenario("role: AWS_ENDPOINT_URL_STS without a region")
             .file(CONFIG, role("source_profile = base\n"))
             .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
             .env("AWS_ENDPOINT_URL_STS", "sts.custom.test")
             .sts()
             .expect([no_credentials()]),
+        scenario("role: FIPS and dual-stack settings")
+            .file(CONFIG, role("source_profile = base\n"))
+            .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
+            .env("AWS_REGION", "us-west-2")
+            .env("AWS_USE_FIPS_ENDPOINT", "true")
+            .env("AWS_USE_DUALSTACK_ENDPOINT", "true")
+            .sts()
+            .expect([signed_with_token("ROLE-r1").requests([assume_role("sts.us-west-2.amazonaws.com", "BASE")])]),
         scenario("role: endpoint_url in the profile")
             .file(CONFIG, role("source_profile = base\nregion = us-west-2\nendpoint_url = sts.custom.test\n"))
             .file(CREDENTIALS, format!("[base]\n{}", keys("BASE")))
             .sts()
             .expect([signed_with_token("ROLE-r1").requests([assume_role("sts.custom.test", "BASE")])])
-            .sdk_todo(STS, [no_credentials()]),
+            .sdk_adopted(CHANGELOG, [no_credentials()]),
     ]
 }
 
@@ -417,8 +421,7 @@ fn web_identity() -> Vec<Scenario> {
             .sts()
             .expect([
                 signed_with_token("ROLE-w1").requests([assume_role_with_web_identity("sts.eu-west-1.amazonaws.com")])
-            ])
-            .sdk_todo(STS, [no_credentials()]),
+            ]),
         web_identity_env(scenario("web identity: environment, no region"))
             .sts()
             .expect([no_credentials()]),
@@ -428,13 +431,16 @@ fn web_identity() -> Vec<Scenario> {
             .sts()
             .expect([
                 signed_with_token("ROLE-w1").requests([assume_role_with_web_identity("sts.eu-west-1.amazonaws.com")])
-            ])
-            .sdk_todo(STS, [no_credentials()]),
+            ]),
         scenario("web identity: profile, no region")
             .file("token", "web-identity-token")
             .file(CONFIG, profile(""))
             .sts()
-            .expect([no_credentials()]),
+            .expect([no_credentials()])
+            .sdk_adopted(
+                CHANGELOG,
+                [signed_with_token("ROLE-w1").requests([assume_role_with_web_identity("sts.amazonaws.com")])],
+            ),
         scenario("web identity: profile, region in the credentials file")
             .file("token", "web-identity-token")
             .file(CONFIG, profile(""))
@@ -443,38 +449,35 @@ fn web_identity() -> Vec<Scenario> {
             .expect([
                 signed_with_token("ROLE-w1").requests([assume_role_with_web_identity("sts.eu-west-1.amazonaws.com")])
             ])
-            .sdk_todo(STS, [no_credentials()]),
+            .sdk_adopted(
+                CHANGELOG,
+                [signed_with_token("ROLE-w1").requests([assume_role_with_web_identity("sts.amazonaws.com")])],
+            ),
         web_identity_env(scenario("web identity: AWS_ENDPOINT_URL_STS as a URL"))
             .env("AWS_REGION", "eu-west-1")
             .env("AWS_ENDPOINT_URL_STS", "https://sts.custom.test")
             .sts()
             .expect([no_credentials()])
-            .sdk_todo(
-                STS,
+            .sdk_adopted(
+                CHANGELOG,
                 [signed_with_token("ROLE-w1").requests([assume_role_with_web_identity("sts.custom.test")])],
             ),
         web_identity_env(scenario("web identity: AWS_ENDPOINT_URL as a URL"))
             .env("AWS_REGION", "eu-west-1")
             .env("AWS_ENDPOINT_URL", "https://sts.custom.test")
             .sts()
-            .expect([no_credentials()])
-            .sdk_todo(
-                STS,
-                [signed_with_token("ROLE-w1").requests([assume_role_with_web_identity("sts.custom.test")])],
-            ),
+            .expect([no_credentials()]),
         web_identity_env(scenario("web identity: environment, STS endpoint in the profile"))
             .env("AWS_REGION", "eu-west-1")
             .file(CONFIG, "[default]\nendpoint_url = sts.custom.test\n")
             .sts()
             .expect([
                 signed_with_token("ROLE-w1").requests([assume_role_with_web_identity("sts.eu-west-1.amazonaws.com")])
-            ])
-            .sdk_todo(STS, [no_credentials()]),
+            ]),
         web_identity_env(scenario("web identity: STS fails"))
             .env("AWS_REGION", "eu-west-1")
             .sts_failing(403)
-            .expect([no_credentials().requests([assume_role_with_web_identity("sts.eu-west-1.amazonaws.com")])])
-            .sdk_todo(STS, [no_credentials()]),
+            .expect([no_credentials().requests([assume_role_with_web_identity("sts.eu-west-1.amazonaws.com")])]),
         web_identity_env(scenario("web identity: STS fails, with IMDS available"))
             .env("AWS_REGION", "eu-west-1")
             .imds(imds("IMDS-1"))
@@ -484,7 +487,10 @@ fn web_identity() -> Vec<Scenario> {
                     .into_iter()
                     .chain(imds_v2()),
             )])
-            .sdk_todo(STS, [no_credentials()]),
+            .sdk_adopted(
+                CHANGELOG,
+                [no_credentials().requests([assume_role_with_web_identity("sts.eu-west-1.amazonaws.com")])],
+            ),
     ]
 }
 

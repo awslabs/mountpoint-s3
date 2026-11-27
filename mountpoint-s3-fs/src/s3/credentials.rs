@@ -23,20 +23,38 @@
 //! for profiles with `credential_source = Ec2InstanceMetadata`, so they keep the CRT's IMDSv1
 //! fallback. It is skipped when `AWS_EC2_METADATA_V1_DISABLED` or the profile's
 //! `ec2_metadata_v1_disabled` is `true`.
+//!
+//! The providers that assume a role (from a profile, or with web identity) send their STS requests
+//! to the region in `AWS_REGION`, `AWS_DEFAULT_REGION` or the selected profile's `region` in the
+//! shared config file, in that order, and to the STS endpoint set in `AWS_ENDPOINT_URL_STS`,
+//! `AWS_ENDPOINT_URL` or the selected profile, if any. Mountpoint's region and the endpoint in its
+//! client configuration don't apply to them, and neither do the FIPS and dual-stack settings.
+//!
+//! * Without a region, roles from a profile use the global endpoint, `sts.amazonaws.com`, and web
+//!   identity from the environment is skipped unless an STS endpoint is set.
+//! * Web identity uses an STS endpoint set with `AWS_ENDPOINT_URL_STS` or the `sts` entry of a
+//!   profile's `services` section, but not one set for every service with `AWS_ENDPOINT_URL` or a
+//!   profile's `endpoint_url`, so that the token never goes to an endpoint meant for another
+//!   service, such as an S3 endpoint in `AWS_ENDPOINT_URL`: the default chain moves on to the next
+//!   source, and a profile chain fails.
 
 use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use aws_config::Region;
 use aws_config::ecs::EcsCredentialsProvider;
 use aws_config::environment::EnvironmentVariableCredentialsProvider;
 use aws_config::meta::credentials::CredentialsProviderChain;
-use aws_config::profile::{ProfileFileCredentialsProvider, ProfileFileLoadError};
+use aws_config::profile::{Profile, ProfileFileCredentialsProvider, ProfileFileLoadError, ProfileSet};
 use aws_config::provider_config::ProviderConfig;
 use aws_config::web_identity_token::WebIdentityTokenCredentialsProvider;
+use aws_credential_types::credential_fn::provide_credentials_fn;
 use aws_credential_types::provider::error::CredentialsError;
 use aws_credential_types::provider::{self, ProvideCredentials, SharedCredentialsProvider};
+use aws_runtime::env_config::file::EnvConfigFiles;
+use aws_runtime::env_config::property::PropertiesKey;
 use aws_sdk_s3::config::SharedHttpClient;
 use aws_smithy_http_client::ConnectorBuilder;
 use aws_smithy_http_client::proxy::ProxyConfig;
@@ -144,8 +162,9 @@ pub enum SdkCredentialsError {
 /// [SharedCredentials] in front of it. Its providers need a Tokio runtime with the I/O and time
 /// drivers enabled.
 ///
-/// The chain is built on the first query and reused after that. Mountpoint's S3 endpoint doesn't
-/// apply to its providers.
+/// The chain is built on the first query and reused after that. The regions of
+/// its STS requests are chosen when the source is created, as the [module](self) documentation
+/// describes.
 #[derive(Clone)]
 pub struct SdkCredentialsSource {
     inner: Arc<SourceInner>,
@@ -154,6 +173,7 @@ pub struct SdkCredentialsSource {
 struct SourceInner {
     config: SdkCredentialsConfig,
     http_client: Option<SharedHttpClient>,
+    sts_regions: StsRegions,
     /// Whether the IMDSv1 fallback of the instance metadata provider is disabled.
     imds_v1_disabled: bool,
     chain: OnceLock<SharedCredentialsProvider>,
@@ -162,18 +182,20 @@ struct SourceInner {
 impl SdkCredentialsSource {
     /// Create a source for `config`.
     ///
-    /// For [SdkCredentialsChain::Profile], checks that the profile exists. Reads the shared files
-    /// and the CA bundle with blocking I/O.
+    /// For [SdkCredentialsChain::Profile], checks that the profile exists. Chooses the regions of
+    /// the STS requests. Reads the shared files and the CA bundle with blocking I/O.
     pub async fn new(config: SdkCredentialsConfig) -> Result<Self, SdkCredentialsError> {
         if let SdkCredentialsChain::Profile(name) = &config.chain {
             check_profile_exists(name).await?;
         }
         let http_client = config.trust_store_path.as_ref().map(https_client).transpose()?;
+        let sts_regions = StsRegions::resolve(&config.chain, &Env::real(), &Fs::real()).await;
         let imds_v1_disabled = imds_v1_disabled(config.chain.profile_name()).await;
         Ok(Self {
             inner: Arc::new(SourceInner {
                 config,
                 http_client,
+                sts_regions,
                 imds_v1_disabled,
                 chain: OnceLock::new(),
             }),
@@ -208,43 +230,57 @@ impl SourceInner {
     }
 
     fn build_chain(&self) -> SharedCredentialsProvider {
-        debug!(chain = ?self.config.chain, "building the SDK credentials chain");
-        let mut provider_config = ProviderConfig::without_region();
+        let sts_regions = self.sts_regions.clone();
+        debug!(chain = ?self.config.chain, ?sts_regions, "building the SDK credentials chain");
+        // STS requests don't use the FIPS or dual-stack endpoints. Unless they are set here, the
+        // profile provider reads these settings from the environment and the profile.
+        let mut provider_config = ProviderConfig::without_region()
+            .with_use_fips(Some(false))
+            .with_use_dual_stack(Some(false));
         if let Some(http_client) = &self.http_client {
             provider_config = provider_config.with_http_client(http_client.clone());
         }
         let imds = CrtImdsCredentials::new(self.imds_v1_disabled);
+        let profile = ProfileFileCredentialsProvider::builder()
+            .configure(&provider_config.clone().with_region(Some(sts_regions.profile)))
+            .with_custom_provider("Ec2InstanceMetadata", imds.clone());
         match &self.config.chain {
             SdkCredentialsChain::Default => {
-                let chain =
-                    CredentialsProviderChain::first_try("Environment", EnvironmentVariableCredentialsProvider::new())
-                        .or_else(
-                            "Profile",
-                            ProfileFileCredentialsProvider::builder()
-                                .configure(&provider_config)
-                                .with_custom_provider("Ec2InstanceMetadata", imds.clone())
-                                .build(),
-                        )
-                        .or_else(
-                            "WebIdentityToken",
-                            WebIdentityTokenCredentialsProvider::builder()
-                                .configure(&provider_config)
-                                .build(),
-                        )
-                        .or_else(
-                            "EcsContainer",
-                            EcsCredentialsProvider::builder().configure(&provider_config).build(),
-                        )
-                        .or_else("Ec2InstanceMetadata", imds);
+                let mut chain =
+                    CredentialsProviderChain::first_try("Environment", EnvironmentVariableCredentialsProvider::new());
+                // The default chain skips a profile whose web identity would send its token to an
+                // endpoint set for every service.
+                if !sts_regions.profile_web_identity_to_url {
+                    chain = chain.or_else("Profile", profile.build());
+                }
+                // Without a usable STS endpoint, the chain skips web identity and moves on to the
+                // next source.
+                if let Some(region) = sts_regions.web_identity {
+                    chain = chain.or_else(
+                        "WebIdentityToken",
+                        WebIdentityTokenCredentialsProvider::builder()
+                            .configure(&provider_config.clone().with_region(region))
+                            .build(),
+                    );
+                }
+                let chain = chain
+                    .or_else(
+                        "EcsContainer",
+                        EcsCredentialsProvider::builder().configure(&provider_config).build(),
+                    )
+                    .or_else("Ec2InstanceMetadata", imds);
                 SharedCredentialsProvider::new(chain)
             }
-            SdkCredentialsChain::Profile(name) => SharedCredentialsProvider::new(
-                ProfileFileCredentialsProvider::builder()
-                    .configure(&provider_config)
-                    .profile_name(name)
-                    .with_custom_provider("Ec2InstanceMetadata", imds)
-                    .build(),
-            ),
+            SdkCredentialsChain::Profile(_) if sts_regions.profile_web_identity_to_url => {
+                SharedCredentialsProvider::new(provide_credentials_fn(|| async {
+                    Err(CredentialsError::invalid_configuration(
+                        "the profile uses web identity with an endpoint set for every service (`AWS_ENDPOINT_URL` \
+                         or the profile's `endpoint_url`): set the STS endpoint with `AWS_ENDPOINT_URL_STS` or \
+                         the `sts` entry of the profile's `services` section",
+                    ))
+                }))
+            }
+            SdkCredentialsChain::Profile(name) => SharedCredentialsProvider::new(profile.profile_name(name).build()),
         }
     }
 }
@@ -340,6 +376,162 @@ impl ProvideCredentials for CrtImdsCredentials {
             ))
         })
     }
+}
+
+/// Region of the global STS endpoint, `sts.amazonaws.com`, in the SDK's endpoint rules, which sign
+/// its requests for `us-east-1`.
+const STS_GLOBAL_REGION: &str = "aws-global";
+
+/// The regions the credential providers send their STS requests to: `AWS_REGION`, then
+/// `AWS_DEFAULT_REGION`, then the `region` of the selected profile in the shared config file. The
+/// selected profile is the one given with [SdkCredentialsChain::Profile], or else `AWS_PROFILE`, or
+/// else `default`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StsRegions {
+    /// For the profile provider: its roles, and the services its sources call. Without a region,
+    /// the global endpoint.
+    profile: Region,
+    /// For web identity from the environment: `None` if the chain skips it, `Some(None)` if it
+    /// uses an STS endpoint set in the environment without a region.
+    web_identity: Option<Option<Region>>,
+    /// Whether the selected profile gets its base credentials from web identity (`role_arn` with
+    /// `web_identity_token_file`, in the profile or one of its source profiles) with an STS
+    /// endpoint that would be one set for every service, in `AWS_ENDPOINT_URL` or the selected
+    /// profile's `endpoint_url`. The chain doesn't use such a profile, so that the token never
+    /// goes to an endpoint meant for another service.
+    profile_web_identity_to_url: bool,
+}
+
+impl StsRegions {
+    async fn resolve(chain: &SdkCredentialsChain, env: &Env, fs: &Fs) -> Self {
+        let profile_name = match chain {
+            SdkCredentialsChain::Default => None,
+            SdkCredentialsChain::Profile(name) => Some(name.clone().into()),
+        };
+        let env_var = |key: &str| env.get(key).ok().filter(|value| !value.is_empty());
+        // Only the config file's `region` counts, not one in the credentials file.
+        let config_file = EnvConfigFiles::builder().include_default_config_file(true).build();
+        let config_profiles = load_profiles(fs, env, &config_file, profile_name.clone()).await;
+        let selected_profile = config_profiles
+            .as_ref()
+            .and_then(|profiles| profiles.get_profile(profiles.selected_profile()));
+        let region = env_var("AWS_REGION")
+            .or_else(|| env_var("AWS_DEFAULT_REGION"))
+            .or_else(|| {
+                let region = selected_profile?.get("region")?;
+                (!region.is_empty()).then(|| region.to_owned())
+            })
+            .map(Region::new);
+
+        let profiles = load_profiles(fs, env, &Default::default(), profile_name).await;
+        let base = profiles.as_ref().and_then(sdk_base_credentials);
+        let profile = region.clone().unwrap_or_else(|| Region::from_static(STS_GLOBAL_REGION));
+        let sts_endpoint = env_var("AWS_ENDPOINT_URL_STS");
+        let shared_endpoint = env_var("AWS_ENDPOINT_URL");
+        let is_url = |endpoint: &str| endpoint.contains("://");
+        // Web identity uses an STS endpoint set for STS, but not one set for every service: the token
+        // must not go to an endpoint meant for another service, such as the S3 endpoint that Mountpoint
+        // reads from `AWS_ENDPOINT_URL`.
+        let profile_web_identity_to_url = base == Some(BaseCredentials::WebIdentity) && sts_endpoint.is_none() && {
+            // The SDK uses the endpoint settings of the selected profile for the whole chain.
+            let selected = profiles
+                .as_ref()
+                .and_then(|profiles| Some((profiles, profiles.get_profile(profiles.selected_profile())?)));
+            match (&shared_endpoint, selected) {
+                (Some(endpoint), _) => is_url(endpoint),
+                (None, Some((profiles, profile))) => {
+                    !has_sts_service_endpoint(profiles, profile) && profile.get("endpoint_url").is_some_and(is_url)
+                }
+                (None, None) => false,
+            }
+        };
+        let endpoint = sts_endpoint.as_deref().or(shared_endpoint.as_deref());
+        let web_identity = match (endpoint, region) {
+            (Some(endpoint), _) if sts_endpoint.is_none() && is_url(endpoint) => None,
+            (_, Some(region)) => Some(Some(region)),
+            // Without a region, the endpoint is used only with the selected profile in the config
+            // file.
+            (Some(_), None) if selected_profile.is_some() => Some(None),
+            (_, None) => None,
+        };
+        Self {
+            profile,
+            web_identity,
+            profile_web_identity_to_url,
+        }
+    }
+}
+
+/// Whether `profile` sets an STS endpoint in the `sts` entry of its `services` section.
+fn has_sts_service_endpoint(profiles: &ProfileSet, profile: &Profile) -> bool {
+    let Some(services) = profile.get("services") else {
+        return false;
+    };
+    PropertiesKey::builder()
+        .section_key("services")
+        .section_name(services)
+        .property_name("sts")
+        .sub_property_name("endpoint_url")
+        .build()
+        .is_ok_and(|key| profiles.other_sections().get(&key).is_some())
+}
+
+/// Parse the given shared files. A failure counts as no profiles here: the chain reports it when it
+/// reads the files itself.
+async fn load_profiles(
+    fs: &Fs,
+    env: &Env,
+    profile_files: &EnvConfigFiles,
+    profile_name: Option<std::borrow::Cow<'static, str>>,
+) -> Option<ProfileSet> {
+    aws_config::profile::load(fs, env, profile_files, profile_name)
+        .await
+        .ok()
+}
+
+/// The kinds of base credentials of a profile chain that the STS regions depend on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BaseCredentials {
+    WebIdentity,
+    Other,
+}
+
+/// The kind of base credentials the SDK's profile provider uses for the selected profile: it
+/// follows `source_profile` from the selected profile, as the SDK does, to the profile that holds
+/// the base credentials, and picks them in the SDK's order. `None` if the SDK can't resolve the
+/// chain (a missing profile or a loop).
+fn sdk_base_credentials(profiles: &ProfileSet) -> Option<BaseCredentials> {
+    let mut visited = std::collections::HashSet::new();
+    let mut name = profiles.selected_profile();
+    let base = loop {
+        if !visited.insert(name) {
+            return None;
+        }
+        let profile = profiles.get_profile(name)?;
+        // After the selected profile, static keys come first.
+        let has_static_keys = ["aws_access_key_id", "aws_secret_access_key"]
+            .iter()
+            .all(|key| profile.get(key).is_some());
+        if visited.len() > 1 && has_static_keys {
+            return Some(BaseCredentials::Other);
+        }
+        // A role with a web identity token file is a base, not a link in the chain.
+        if profile.get("role_arn").is_none() || profile.get("web_identity_token_file").is_some() {
+            break profile;
+        }
+        match (profile.get("source_profile"), profile.get("credential_source")) {
+            (Some(source), None) if source != name => name = source,
+            (Some(_), None) | (None, Some(_)) => break profile,
+            _ => return None,
+        }
+    };
+    Some(if base.get("credential_source").is_some() {
+        BaseCredentials::Other
+    } else if base.get("web_identity_token_file").is_some() {
+        BaseCredentials::WebIdentity
+    } else {
+        BaseCredentials::Other
+    })
 }
 
 /// Check that a profile is in the shared config or credentials file, which the SDK would only
