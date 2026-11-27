@@ -10,8 +10,6 @@ const CONFIG: &str = ".aws/config";
 const SSO_TOKEN_CACHE: &str = ".aws/sso/cache/a0f1490a20d0211c997b44bc357e1972deab8ae3.json";
 
 // The changes that remove the known differences of the SDK chain.
-const METADATA_DISABLED: &str = "adopt the SDK's AWS_EC2_METADATA_DISABLED rule";
-const PROCESS_VERSION: &str = "adopt the SDK's credential_process output check";
 const REREAD: &str = "read the shared files again on every refresh";
 
 // Where the adopted differences of the SDK chain are documented.
@@ -219,7 +217,7 @@ fn credential_processes() -> Vec<Scenario> {
             r#"{"AccessKeyId": "PROCESS", "SecretAccessKey": "secret"}"#,
         )
         .expect([signed("PROCESS")])
-        .sdk_todo(PROCESS_VERSION, [no_credentials()]),
+        .sdk_adopted(CHANGELOG, [no_credentials()]),
         scenario("process: command fails")
             .file("process.sh", "#!/bin/sh\nexit 1\n")
             .file(CONFIG, "[default]\ncredential_process = {home}/process.sh\n")
@@ -281,6 +279,17 @@ fn assume_role_profiles() -> Vec<Scenario> {
                 requests.push(assume_role("sts.amazonaws.com", "IMDS-1"));
                 requests
             })]),
+        scenario("role: credential_source = Ec2InstanceMetadata, AWS_EC2_METADATA_DISABLED=true")
+            .file(CONFIG, role("credential_source = Ec2InstanceMetadata\n"))
+            .env("AWS_EC2_METADATA_DISABLED", "true")
+            .imds(imds("IMDS-1"))
+            .sts()
+            .expect([signed_with_token("ROLE-r1").requests({
+                let mut requests = imds_v2();
+                requests.push(assume_role("sts.amazonaws.com", "IMDS-1"));
+                requests
+            })])
+            .sdk_adopted(CHANGELOG, [no_credentials()]),
         scenario("role: role chain")
             .file(
                 CONFIG,
@@ -571,7 +580,7 @@ fn instance_metadata() -> Vec<Scenario> {
             .env("AWS_EC2_METADATA_DISABLED", "1")
             .imds(imds("IMDS-1"))
             .expect([no_credentials()])
-            .sdk_todo(METADATA_DISABLED, [signed_with_token("IMDS-1").requests(imds_v2())]),
+            .sdk_adopted(CHANGELOG, [signed_with_token("IMDS-1").requests(imds_v2())]),
         scenario("IMDS: refresh before expiry")
             .imds(imds("IMDS-1").expiring_soon())
             .steps([Action::Fetch, Action::ImdsKey("IMDS-2"), Action::Fetch])
