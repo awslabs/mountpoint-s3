@@ -10,6 +10,7 @@
 * `SharedCredentials` is a credentials provider for AWS SDK for Rust clients, and `SdkClientAuth::SharedCredentials` makes the client built by `build_sdk_client` sign with it and without an identity cache of its own, so that it signs with the same credentials as a CRT client using the same `SharedCredentials`.
 * The credentials chain of `s3::credentials` gets instance metadata credentials from the CRT's IMDS provider, which falls back to IMDSv1 when the IMDSv2 token request fails, unless `AWS_EC2_METADATA_V1_DISABLED` or the profile's `ec2_metadata_v1_disabled` is `true`.
 * `SdkCredentialsSource` sends the STS requests of its credential providers (roles and web identity) to the region in `AWS_REGION`, `AWS_DEFAULT_REGION` or the selected profile's `region` in the shared config file, with the global STS endpoint as the fallback for roles, and without the FIPS or dual-stack endpoints. Web identity from the environment is skipped when there is no region. Web identity isn't used when its STS endpoint would be a URL set for every service, in `AWS_ENDPOINT_URL` or a profile's `endpoint_url`, rather than one set for STS.
+* Once a source of its chain returns credentials, `SdkCredentialsSource` queries only that source. Once a profile has returned static keys, it reads the keys from the shared config and credentials files again for each query.
 
 ## v0.12.0 (November 12, 2026)
 
