@@ -8,6 +8,7 @@
 
 * Add `s3::credentials`, for credentials resolved by the AWS SDK for Rust: `SdkCredentialsSource` runs an `aws-config` credentials chain (`SdkCredentialsChain::Default` or `Profile`), and `SharedCredentials` caches its credentials, fetched on a Tokio runtime given as a `tokio::runtime::Handle`, for the CRT client through `S3ClientAuthConfig::Provider`. `SharedCredentials::load` returns the cached credentials, or the error of the fetch from the chain.
 * `SharedCredentials` is a credentials provider for AWS SDK for Rust clients, and `SdkClientAuth::SharedCredentials` makes the client built by `build_sdk_client` sign with it and without an identity cache of its own, so that it signs with the same credentials as a CRT client using the same `SharedCredentials`.
+* The credentials chain of `s3::credentials` gets instance metadata credentials from the CRT's IMDS provider, which falls back to IMDSv1 when the IMDSv2 token request fails, unless `AWS_EC2_METADATA_V1_DISABLED` or the profile's `ec2_metadata_v1_disabled` is `true`.
 
 ## v0.12.0 (November 12, 2026)
 

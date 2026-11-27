@@ -7,6 +7,7 @@
   * Roles get new session names, such as `assume-role-from-profile-<timestamp>` and `web-identity-token-<timestamp>`, unless the profile's `role_session_name` or `AWS_ROLE_SESSION_NAME` sets one. Roles from a profile last for STS's default duration rather than 15 minutes.
   * A profile with both `source_profile` and `credential_source` makes Mountpoint fail to mount. Mountpoint used to use `source_profile`.
   * When a credentials source is configured but fails, such as a role or web identity whose STS request fails, a `credential_process` command that fails, a `source_profile` loop or a shared file that fails to parse, Mountpoint fails to mount with that source's error. Mountpoint used to move on to the next source, such as the instance's role from instance metadata.
+  * Setting `AWS_EC2_METADATA_V1_DISABLED`, or the profile's `ec2_metadata_v1_disabled`, to `true` turns off the IMDSv1 fallback. Mountpoint used to ignore both. The fallback is deprecated, and a future release will use only IMDSv2.
 
 ### Other changes
 

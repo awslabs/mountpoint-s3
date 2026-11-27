@@ -7,7 +7,7 @@
 //!   (SdkClientAuth::SharedCredentials)                               2. profile (shared files)
 //!                                                                    3. web identity
 //!                                                                    4. container credentials
-//!                                                                    5. instance metadata
+//!                                                                    5. instance metadata (CRT IMDS provider)
 //! ```
 //!
 //! With [SdkCredentialsChain::Default], the chain tries the sources in this order; with
@@ -18,6 +18,11 @@
 //! before they expire, or every 15 minutes if they don't expire, with one fetch from the chain per
 //! refresh. The CRT client reads the cache through [SharedCredentials::auth_config], and an SDK
 //! client through [SdkClientAuth::SharedCredentials](super::sdk_client::SdkClientAuth::SharedCredentials).
+//!
+//! Credentials from EC2 instance metadata come from the CRT's IMDS provider, in the default chain and
+//! for profiles with `credential_source = Ec2InstanceMetadata`, so they keep the CRT's IMDSv1
+//! fallback. It is skipped when `AWS_EC2_METADATA_V1_DISABLED` or the profile's
+//! `ec2_metadata_v1_disabled` is `true`.
 
 use std::fmt::Debug;
 use std::path::PathBuf;
@@ -26,7 +31,6 @@ use std::time::Duration;
 
 use aws_config::ecs::EcsCredentialsProvider;
 use aws_config::environment::EnvironmentVariableCredentialsProvider;
-use aws_config::imds::credentials::ImdsCredentialsProvider;
 use aws_config::meta::credentials::CredentialsProviderChain;
 use aws_config::profile::{ProfileFileCredentialsProvider, ProfileFileLoadError};
 use aws_config::provider_config::ProviderConfig;
@@ -38,10 +42,10 @@ use aws_smithy_http_client::ConnectorBuilder;
 use aws_smithy_http_client::proxy::ProxyConfig;
 use aws_smithy_http_client::tls::{self, TlsContext, TrustStore};
 use aws_types::os_shim_internal::{Env, Fs};
-use mountpoint_s3_client::config::TlsConfig;
+use mountpoint_s3_client::config::{CredentialsProvider, TlsConfig, imds_credentials_provider};
 use mountpoint_s3_client::error::CrtError;
 use thiserror::Error;
-use tracing::debug;
+use tracing::{debug, error};
 
 use crate::sync::Arc;
 #[cfg(doc)]
@@ -150,6 +154,8 @@ pub struct SdkCredentialsSource {
 struct SourceInner {
     config: SdkCredentialsConfig,
     http_client: Option<SharedHttpClient>,
+    /// Whether the IMDSv1 fallback of the instance metadata provider is disabled.
+    imds_v1_disabled: bool,
     chain: OnceLock<SharedCredentialsProvider>,
 }
 
@@ -163,10 +169,12 @@ impl SdkCredentialsSource {
             check_profile_exists(name).await?;
         }
         let http_client = config.trust_store_path.as_ref().map(https_client).transpose()?;
+        let imds_v1_disabled = imds_v1_disabled(config.chain.profile_name()).await;
         Ok(Self {
             inner: Arc::new(SourceInner {
                 config,
                 http_client,
+                imds_v1_disabled,
                 chain: OnceLock::new(),
             }),
         })
@@ -205,6 +213,7 @@ impl SourceInner {
         if let Some(http_client) = &self.http_client {
             provider_config = provider_config.with_http_client(http_client.clone());
         }
+        let imds = CrtImdsCredentials::new(self.imds_v1_disabled);
         match &self.config.chain {
             SdkCredentialsChain::Default => {
                 let chain =
@@ -213,6 +222,7 @@ impl SourceInner {
                             "Profile",
                             ProfileFileCredentialsProvider::builder()
                                 .configure(&provider_config)
+                                .with_custom_provider("Ec2InstanceMetadata", imds.clone())
                                 .build(),
                         )
                         .or_else(
@@ -225,19 +235,110 @@ impl SourceInner {
                             "EcsContainer",
                             EcsCredentialsProvider::builder().configure(&provider_config).build(),
                         )
-                        .or_else(
-                            "Ec2InstanceMetadata",
-                            ImdsCredentialsProvider::builder().configure(&provider_config).build(),
-                        );
+                        .or_else("Ec2InstanceMetadata", imds);
                 SharedCredentialsProvider::new(chain)
             }
             SdkCredentialsChain::Profile(name) => SharedCredentialsProvider::new(
                 ProfileFileCredentialsProvider::builder()
                     .configure(&provider_config)
                     .profile_name(name)
+                    .with_custom_provider("Ec2InstanceMetadata", imds)
                     .build(),
             ),
         }
+    }
+}
+
+impl SdkCredentialsChain {
+    /// The profile the chain reads settings from, if not the one selected by `AWS_PROFILE`.
+    fn profile_name(&self) -> Option<&str> {
+        match self {
+            SdkCredentialsChain::Default => None,
+            SdkCredentialsChain::Profile(name) => Some(name),
+        }
+    }
+}
+
+/// Credentials from EC2 instance metadata through the CRT's IMDS provider, which falls back to
+/// IMDSv1 when the IMDSv2 token request fails, as Mountpoint's CRT chain does. The SDK's own IMDS
+/// provider only uses IMDSv2.
+#[derive(Debug, Clone)]
+struct CrtImdsCredentials {
+    /// The CRT's provider, or why there is none.
+    provider: Result<CredentialsProvider, &'static str>,
+}
+
+impl CrtImdsCredentials {
+    /// The provider, with the IMDSv1 fallback disabled if `v1_disabled`. Instance metadata is
+    /// disabled when `AWS_EC2_METADATA_DISABLED` is `true`, as in the SDK.
+    fn new(v1_disabled: bool) -> Self {
+        if Env::real()
+            .get("AWS_EC2_METADATA_DISABLED")
+            .is_ok_and(|value| value.eq_ignore_ascii_case("true"))
+        {
+            return Self {
+                provider: Err("instance metadata is disabled"),
+            };
+        }
+        match imds_credentials_provider(v1_disabled) {
+            Ok(provider) => Self { provider: Ok(provider) },
+            Err(e) => {
+                error!(error = %e, "failed to create the instance metadata credentials provider");
+                Self {
+                    provider: Err("the instance metadata credentials provider couldn't be created (see the logs)"),
+                }
+            }
+        }
+    }
+}
+
+/// Whether the IMDSv1 fallback is disabled: `AWS_EC2_METADATA_V1_DISABLED` or, if it isn't set, the
+/// `ec2_metadata_v1_disabled` setting of the selected profile (`profile_name`, or the one selected
+/// by `AWS_PROFILE`) is `true`.
+async fn imds_v1_disabled(profile_name: Option<&str>) -> bool {
+    let env = Env::real();
+    let is_true = |value: &str| value.eq_ignore_ascii_case("true");
+    match env.get("AWS_EC2_METADATA_V1_DISABLED") {
+        Ok(value) => is_true(&value),
+        Err(_) => aws_config::profile::load(
+            &Fs::real(),
+            &env,
+            &Default::default(),
+            profile_name.map(|name| name.to_owned().into()),
+        )
+        .await
+        .ok()
+        .and_then(|profiles| profiles.get("ec2_metadata_v1_disabled").map(is_true))
+        .unwrap_or(false),
+    }
+}
+
+impl ProvideCredentials for CrtImdsCredentials {
+    fn provide_credentials<'a>(&'a self) -> provider::future::ProvideCredentials<'a>
+    where
+        Self: 'a,
+    {
+        let provider = match &self.provider {
+            Ok(provider) => provider,
+            Err(reason) => {
+                return provider::future::ProvideCredentials::ready(Err(CredentialsError::not_loaded(*reason)));
+            }
+        };
+        let query = provider.get_credentials();
+        provider::future::ProvideCredentials::new(async move {
+            // Every failure counts as no credentials from IMDS, so that the default chain's error lists
+            // what each of its sources returned. The SDK's IMDS provider reports an unreachable IMDS and
+            // an instance without a role this way. The CRT's provider can't tell those cases from other
+            // failures: for an instance without a role, it fails with an invalid path.
+            let credentials = query.await.map_err(CredentialsError::not_loaded)?;
+            Ok(aws_credential_types::Credentials::new(
+                credentials.access_key_id(),
+                credentials.secret_access_key(),
+                credentials.session_token().map(str::to_owned),
+                credentials.expiration(),
+                "Ec2InstanceMetadata",
+            ))
+        })
     }
 }
 

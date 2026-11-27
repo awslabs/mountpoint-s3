@@ -15,7 +15,9 @@ use std::time::{Duration, Instant};
 use futures::FutureExt;
 use futures::future::{Fuse, FusedFuture};
 pub use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
-use mountpoint_s3_crt::auth::credentials::{CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions};
+use mountpoint_s3_crt::auth::credentials::{
+    CredentialsProviderChainDefaultOptions, CredentialsProviderImdsOptions, CredentialsProviderProfileOptions,
+};
 use mountpoint_s3_crt::auth::signing_config::SigningConfig;
 use mountpoint_s3_crt::common::allocator::Allocator;
 pub use mountpoint_s3_crt::common::error::Error as CrtError;
@@ -391,6 +393,35 @@ fn tls_error_to_new_client_error(err: CrtTlsError) -> NewClientError {
         }
         CrtTlsError::Crt(e) => NewClientError::TlsConfigurationError(e),
     }
+}
+
+/// A credentials provider for EC2 instance metadata (IMDS), with its own single-thread event loop.
+/// It uses IMDSv2, and falls back to IMDSv1 when the token request fails, unless
+/// `ec2_metadata_v1_disabled` is set. It doesn't cache credentials.
+pub fn imds_credentials_provider(ec2_metadata_v1_disabled: bool) -> Result<CredentialsProvider, CrtError> {
+    let allocator = Allocator::default();
+    // A single event loop is enough for the few requests sent to IMDS. The provider keeps it,
+    // through the bootstrap, for as long as it exists.
+    let mut event_loop_group = EventLoopGroup::new_default(&allocator, Some(1), || {})?;
+    let mut host_resolver = HostResolver::new_default(
+        &allocator,
+        &HostResolverDefaultOptions {
+            max_entries: 8,
+            event_loop_group: &mut event_loop_group,
+        },
+    )?;
+    let mut bootstrap = ClientBootstrap::new(
+        &allocator,
+        &ClientBootstrapOptions {
+            event_loop_group: &mut event_loop_group,
+            host_resolver: &mut host_resolver,
+        },
+    )?;
+    let options = CredentialsProviderImdsOptions {
+        bootstrap: &mut bootstrap,
+        ec2_metadata_v1_disabled,
+    };
+    CredentialsProvider::new_imds(&allocator, options)
 }
 
 /// Authentication configuration for the CRT-based S3 client

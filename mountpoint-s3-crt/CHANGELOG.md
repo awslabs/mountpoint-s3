@@ -4,6 +4,7 @@
 
 * Add `CredentialsProvider::new_delegate`, a credentials provider that sources credentials from a Rust `CredentialsSource` through a `CredentialsCallback`.
 * Add `CredentialsProvider::get_credentials`, which queries a provider for `Credentials`, and `Credentials`, which can be created from `CredentialsOptions` with `Credentials::new`, exposes its keys, session token and expiration, and can be cloned.
+* Add `CredentialsProvider::new_imds`, the instance metadata (IMDS) credentials provider, which falls back to IMDSv1 when the IMDSv2 token request fails unless `CredentialsProviderImdsOptions::ec2_metadata_v1_disabled` is set, and sends its requests through the proxy in `HTTP_PROXY` unless `NO_PROXY` covers the IMDS address.
 
 ## v0.17.0 (November 12, 2026)
 
